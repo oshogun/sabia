@@ -4,9 +4,10 @@ import { getFlightById } from '../db/flights';
 import { getTripById } from '../db/trips';
 import {
   createPlannedLeg, getPlannedLegsForTrip, getPlannedLegById, findPlannedLegBySource, getAllPlannedLegs,
-  deletePlannedLeg, reorderPlannedLegs, setPlannedLegStatus, setPlannedLegHandOutcome,
+  deletePlannedLeg, reorderPlannedLegs, setPlannedLegStatus, setPlannedLegHandOutcome, movePlannedLeg,
   linkFlightToPlannedLeg, unlinkFlightFromPlannedLeg,
-  PlannedLegAlreadyLinkedError, PlannedLegHasLinkedFlightError, PlannedLegHandCloseConflictError,
+  PlannedLegAlreadyLinkedError, PlannedLegHasLinkedFlightError, PlannedLegHandCloseConflictError, PlannedLegMoveError,
+  type PlannedLegMoveRefusal,
 } from '../db/plannedLegs';
 import { getSetting } from '../db/settings';
 import { decideHandClose } from '../plannedLegClose';
@@ -535,6 +536,68 @@ export function createPlannedLegsRouter(flightManager: FlightManager, onChanged:
       }
       res.status(500).json({ error: String(err) });
     }
+  });
+
+  // Status a thrown PlannedLegMoveError maps to. Kept next to the route since
+  // nothing else needs the mapping — src/db/plannedLegs.ts only needs the code.
+  const MOVE_REFUSAL_STATUS: Record<PlannedLegMoveRefusal, number> = {
+    TRIP_NOT_FOUND: 404,
+    SAME_POOL: 400,
+    LINKED_FLIGHT: 409,
+    NOT_MOVABLE_STATUS: 409,
+    DUPLICATE_IN_TARGET: 409,
+  };
+
+  // Moves a leg into a different trip, or out to the loose pool (tripId
+  // null) — a sibling of PATCH /planned-legs/:legId, not an extension of it:
+  // that route only ever writes `status`, and this one only ever writes
+  // trip_id/seq, deliberately kept as two separate endpoints.
+  router.put('/planned-legs/:legId/trip', (req, res) => {
+    const legId = parseInt(req.params.legId, 10);
+    if (isNaN(legId)) { res.status(400).json({ error: 'Invalid id', code: 'INVALID_ID' }); return; }
+
+    const { tripId } = req.body as { tripId?: unknown };
+    if (tripId !== null && !Number.isInteger(tripId)) {
+      res.status(400).json({ error: 'tripId must be an integer or null', code: 'INVALID_TRIP_ID' }); return;
+    }
+
+    if (!getPlannedLegById(legId)) { res.status(404).json({ error: 'Planned leg not found', code: 'LEG_NOT_FOUND' }); return; }
+    if (tripId !== null && !getTripById(tripId as number)) {
+      res.status(404).json({ error: 'Trip not found', code: 'TRIP_NOT_FOUND' }); return;
+    }
+
+    try {
+      const moved = movePlannedLeg(legId, tripId as number | null);
+      if (!moved) { res.status(404).json({ error: 'Planned leg not found', code: 'LEG_NOT_FOUND' }); return; }
+
+      // The move already committed by this point — everything below is
+      // cache upkeep, not part of the request's success/failure, so a
+      // throwing getter or refresh here must still answer 200 and still fire
+      // onChanged(), the same as DELETE /planned-legs/:legId's own refresh.
+      const inProgressFlightId = flightManager.appState.currentFlightId;
+      if (inProgressFlightId !== null) {
+        try {
+          flightManager.refreshPlannedLegForFlight(inProgressFlightId);
+        } catch (refreshErr) {
+          console.warn('[Routes] leg cache refresh after move failed:', refreshErr);
+        }
+      }
+      try {
+        if (flightManager.getGroundSessionStatus()?.plannedLegId === legId) {
+          flightManager.refreshGroundSession();
+        }
+      } catch (refreshErr) {
+        console.warn('[Routes] leg cache refresh after move failed:', refreshErr);
+      }
+    } catch (err) {
+      if (err instanceof PlannedLegMoveError) {
+        res.status(MOVE_REFUSAL_STATUS[err.code]).json({ error: err.message, code: err.code }); return;
+      }
+      res.status(500).json({ error: String(err) }); return;
+    }
+
+    onChanged();
+    res.json(getPlannedLegById(legId));
   });
 
   // ── Flight ↔ planned-leg link ─────────────────────────────────────────────

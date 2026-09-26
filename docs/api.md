@@ -93,6 +93,7 @@ shadowed by the earlier `:id` parameter route.
 | GET | `/api/planned-legs/:legId` | session | Single leg |
 | DELETE | `/api/planned-legs/:legId` | session | Delete a leg |
 | PATCH | `/api/planned-legs/:legId` | session | Set status to `'planned'` or `'skipped'` only — `409` if a flight is linked |
+| PUT | `/api/planned-legs/:legId/trip` | session | Move a leg to another trip or make it loose (`{tripId: number\|null}`); it lands last in the target's order. `400 SAME_POOL` if already there; `409` if a flight is linked, its status is not `planned`/`skipped`, or the target already holds the same plan |
 | PUT | `/api/flights/:id/planned-leg` | session | Manually link/unlink a flight and a leg (`{plannedLegId: number\|null}`) |
 | PUT | `/api/flights/:id/planned-leg-status` | session | Hand-close/reopen a manually-linked leg (`{status:'flown'\|'planned'}`) |
 

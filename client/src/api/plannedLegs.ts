@@ -24,6 +24,19 @@ export async function setPlannedLegStatus(
   return leg;
 }
 
+/** Moves a planned leg into another trip, or `null` to make it a loose leg. */
+export async function movePlannedLeg(
+  legId: number, tripId: number | null,
+): Promise<PlannedLegWithChildren> {
+  const leg = await apiFetch<PlannedLegWithChildren>(`/api/planned-legs/${legId}/trip`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tripId }),
+  });
+  notifyMutation();
+  return leg;
+}
+
 export async function reorderPlannedLegs(
   tripId: number, legIds: number[],
 ): Promise<PlannedLegWithChildren[]> {

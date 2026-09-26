@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  createScratchDb, destroyScratchDb, seedTrip, seedFlight, seedPlannedLeg, type ScratchDb,
+  createScratchDb, destroyScratchDb, seedTrip, seedFlight, seedPlannedLeg, seedAcarsMessage, type ScratchDb,
 } from '../helpers/db';
 import { KSBA, KMRY, T0 } from '../helpers/index';
 import {
@@ -12,6 +12,7 @@ import {
   deletePlannedLeg, reorderPlannedLegs,
   setActiveTrip, getActiveTripId,
   setPlannedLegStatus, PlannedLegHasLinkedFlightError,
+  movePlannedLeg, PlannedLegMoveError,
   getPlannedLegCandidatesForActiveTrip,
   getFlightPlannedLegId, linkFlightToPlannedLeg, PlannedLegAlreadyLinkedError,
   unlinkFlightFromPlannedLeg, clearPlannedLegLink,
@@ -413,6 +414,219 @@ describe('setPlannedLegStatus()', () => {
     }
     // The status must not have changed despite the throw.
     expect(getPlannedLegById(legId)!.status).toBe('planned');
+  });
+});
+
+describe('movePlannedLeg()', () => {
+  it('returns false for a missing leg, nothing written', () => {
+    expect(movePlannedLeg(999, null)).toBe(false);
+  });
+
+  it('moves trip A -> trip B, landing at the end of B\'s pool; A\'s remaining legs keep their seqs', () => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const legToMove = seedPlannedLeg(scratch.db, { trip_id: tripA, seq: 1, source_sha256: 'a'.repeat(64) });
+    const legStaysA = seedPlannedLeg(scratch.db, { trip_id: tripA, seq: 2, source_sha256: 'b'.repeat(64) });
+    seedPlannedLeg(scratch.db, { trip_id: tripB, seq: 1, source_sha256: 'c'.repeat(64) });
+    seedPlannedLeg(scratch.db, { trip_id: tripB, seq: 2, source_sha256: 'd'.repeat(64) });
+
+    expect(movePlannedLeg(legToMove, tripB)).toBe(true);
+
+    const moved = getPlannedLegById(legToMove)!;
+    expect(moved.trip_id).toBe(tripB);
+    expect(moved.seq).toBe(3);
+    // A's other leg is left exactly where it was — a gap, not a renumber.
+    expect(getPlannedLegById(legStaysA)!.seq).toBe(2);
+  });
+
+  it('moves trip -> loose at loose MAX(seq)+1', () => {
+    const tripId = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: tripId, seq: 1, source_sha256: 'a'.repeat(64) });
+    seedPlannedLeg(scratch.db, { trip_id: null, seq: 1, source_sha256: 'b'.repeat(64) });
+    seedPlannedLeg(scratch.db, { trip_id: null, seq: 2, source_sha256: 'c'.repeat(64) });
+
+    expect(movePlannedLeg(legId, null)).toBe(true);
+
+    const moved = getPlannedLegById(legId)!;
+    expect(moved.trip_id).toBeNull();
+    expect(moved.seq).toBe(3);
+  });
+
+  it('moves loose -> trip at the trip\'s MAX(seq)+1', () => {
+    const tripId = seedTrip(scratch.db);
+    seedPlannedLeg(scratch.db, { trip_id: tripId, seq: 1, source_sha256: 'a'.repeat(64) });
+    const legId = seedPlannedLeg(scratch.db, { trip_id: null, seq: 1, source_sha256: 'b'.repeat(64) });
+
+    expect(movePlannedLeg(legId, tripId)).toBe(true);
+
+    const moved = getPlannedLegById(legId)!;
+    expect(moved.trip_id).toBe(tripId);
+    expect(moved.seq).toBe(2);
+  });
+
+  it('moving into an empty trip lands at seq 1', () => {
+    const emptyTrip = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: null, seq: 1, source_sha256: 'a'.repeat(64) });
+
+    expect(movePlannedLeg(legId, emptyTrip)).toBe(true);
+    expect(getPlannedLegById(legId)!.seq).toBe(1);
+  });
+
+  it('a skipped leg moves and stays skipped', () => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: tripA, status: 'skipped', source_sha256: 'a'.repeat(64) });
+
+    expect(movePlannedLeg(legId, tripB)).toBe(true);
+    expect(getPlannedLegById(legId)!.status).toBe('skipped');
+  });
+
+  it('throws LINKED_FLIGHT for a leg with a linked flight, row unchanged', () => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: tripA, seq: 1, source_sha256: 'a'.repeat(64) });
+    const flightId = seedFlight(scratch.db, { planned_leg_id: legId, planned_leg_link_source: 'manual' });
+
+    try {
+      movePlannedLeg(legId, tripB);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlannedLegMoveError);
+      expect((err as PlannedLegMoveError).code).toBe('LINKED_FLIGHT');
+      expect((err as PlannedLegMoveError).flightId).toBe(flightId);
+    }
+    const leg = getPlannedLegById(legId)!;
+    expect(leg.trip_id).toBe(tripA);
+    expect(leg.seq).toBe(1);
+  });
+
+  it.each(['flown', 'diverted'] as const)('throws NOT_MOVABLE_STATUS for an unlinked %s leg', (status) => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: tripA, status, source_sha256: 'a'.repeat(64) });
+
+    try {
+      movePlannedLeg(legId, tripB);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlannedLegMoveError);
+      expect((err as PlannedLegMoveError).code).toBe('NOT_MOVABLE_STATUS');
+    }
+  });
+
+  it('throws SAME_POOL for trip -> same trip, and loose -> loose', () => {
+    const tripId = seedTrip(scratch.db);
+    const tripLeg = seedPlannedLeg(scratch.db, { trip_id: tripId, source_sha256: 'a'.repeat(64) });
+    const looseLeg = seedPlannedLeg(scratch.db, { trip_id: null, source_sha256: 'b'.repeat(64) });
+
+    expect(() => movePlannedLeg(tripLeg, tripId)).toThrow(PlannedLegMoveError);
+    expect(() => movePlannedLeg(looseLeg, null)).toThrow(PlannedLegMoveError);
+    try {
+      movePlannedLeg(tripLeg, tripId);
+    } catch (err) {
+      expect((err as PlannedLegMoveError).code).toBe('SAME_POOL');
+    }
+  });
+
+  it('SAME_POOL wins over LINKED_FLIGHT for a linked leg asked to move to its own pool', () => {
+    const tripId = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: tripId, source_sha256: 'a'.repeat(64) });
+    seedFlight(scratch.db, { planned_leg_id: legId, planned_leg_link_source: 'manual' });
+
+    try {
+      movePlannedLeg(legId, tripId);
+      expect.unreachable();
+    } catch (err) {
+      expect((err as PlannedLegMoveError).code).toBe('SAME_POOL');
+    }
+  });
+
+  it('throws DUPLICATE_IN_TARGET when the target trip already holds the same sha, exact message', () => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const sha = 'ab'.repeat(32);
+    const legToMove = seedPlannedLeg(scratch.db, { trip_id: tripA, source_sha256: sha });
+    seedPlannedLeg(scratch.db, { trip_id: tripB, seq: 5, source_sha256: sha });
+
+    try {
+      movePlannedLeg(legToMove, tripB);
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlannedLegMoveError);
+      const moveErr = err as PlannedLegMoveError;
+      expect(moveErr.code).toBe('DUPLICATE_IN_TARGET');
+      expect(moveErr.existingSeq).toBe(5);
+      expect(moveErr.message).toBe(
+        `Planned leg ${legToMove} cannot be moved: the target trip already holds the same plan as leg 5`,
+      );
+    }
+  });
+
+  it('DUPLICATE_IN_TARGET into the loose pool uses the loose-legs message', () => {
+    const tripA = seedTrip(scratch.db);
+    const sha = 'cd'.repeat(32);
+    const legToMove = seedPlannedLeg(scratch.db, { trip_id: tripA, source_sha256: sha });
+    seedPlannedLeg(scratch.db, { trip_id: null, seq: 7, source_sha256: sha });
+
+    try {
+      movePlannedLeg(legToMove, null);
+      expect.unreachable();
+    } catch (err) {
+      const moveErr = err as PlannedLegMoveError;
+      expect(moveErr.code).toBe('DUPLICATE_IN_TARGET');
+      expect(moveErr.message).toBe(
+        `Planned leg ${legToMove} cannot be moved: the loose legs already hold the same plan as leg 7`,
+      );
+    }
+  });
+
+  it('a same-sha sibling left behind in the SOURCE pool never blocks the move', () => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const sha = 'ef'.repeat(32);
+    const legToMove = seedPlannedLeg(scratch.db, { trip_id: tripA, seq: 1, source_sha256: sha });
+    seedPlannedLeg(scratch.db, { trip_id: tripA, seq: 2, source_sha256: sha });
+
+    expect(movePlannedLeg(legToMove, tripB)).toBe(true);
+    expect(getPlannedLegById(legToMove)!.trip_id).toBe(tripB);
+  });
+
+  it('throws TRIP_NOT_FOUND for a missing target trip, row unchanged', () => {
+    const tripA = seedTrip(scratch.db);
+    const legId = seedPlannedLeg(scratch.db, { trip_id: tripA, seq: 1, source_sha256: 'a'.repeat(64) });
+
+    try {
+      movePlannedLeg(legId, 999999);
+      expect.unreachable();
+    } catch (err) {
+      expect((err as PlannedLegMoveError).code).toBe('TRIP_NOT_FOUND');
+    }
+    const leg = getPlannedLegById(legId)!;
+    expect(leg.trip_id).toBe(tripA);
+    expect(leg.seq).toBe(1);
+  });
+
+  it('leaves waypoint/alternate/acars row counts for the leg identical before and after', () => {
+    const tripA = seedTrip(scratch.db);
+    const tripB = seedTrip(scratch.db);
+    const legId = createPlannedLeg(makeInput(tripA));
+    seedAcarsMessage(scratch.db, { planned_leg_id: legId });
+
+    const countBefore = {
+      wp: (scratch.db.prepare('SELECT COUNT(*) AS n FROM planned_waypoints WHERE planned_leg_id = ?').get(legId) as { n: number }).n,
+      alt: (scratch.db.prepare('SELECT COUNT(*) AS n FROM planned_alternates WHERE planned_leg_id = ?').get(legId) as { n: number }).n,
+      acars: (scratch.db.prepare('SELECT COUNT(*) AS n FROM acars_messages WHERE planned_leg_id = ?').get(legId) as { n: number }).n,
+    };
+
+    expect(movePlannedLeg(legId, tripB)).toBe(true);
+
+    const countAfter = {
+      wp: (scratch.db.prepare('SELECT COUNT(*) AS n FROM planned_waypoints WHERE planned_leg_id = ?').get(legId) as { n: number }).n,
+      alt: (scratch.db.prepare('SELECT COUNT(*) AS n FROM planned_alternates WHERE planned_leg_id = ?').get(legId) as { n: number }).n,
+      acars: (scratch.db.prepare('SELECT COUNT(*) AS n FROM acars_messages WHERE planned_leg_id = ?').get(legId) as { n: number }).n,
+    };
+    expect(countAfter).toEqual(countBefore);
+    expect(countBefore.wp).toBe(2);
   });
 });
 

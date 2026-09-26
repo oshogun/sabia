@@ -419,6 +419,118 @@ export function setPlannedLegStatus(legId: number, status: 'planned' | 'skipped'
   })();
 }
 
+/** Why movePlannedLeg() refused. The route maps each to an HTTP status. */
+export type PlannedLegMoveRefusal =
+  | 'TRIP_NOT_FOUND'
+  | 'SAME_POOL'
+  | 'LINKED_FLIGHT'
+  | 'NOT_MOVABLE_STATUS'
+  | 'DUPLICATE_IN_TARGET';
+
+/**
+ * Thrown by movePlannedLeg() for every refusal that isn't a plain "leg not
+ * found" (that stays a boolean `false`, matching every other function here).
+ * `flightId` is set only for LINKED_FLIGHT, `existingSeq` only for
+ * DUPLICATE_IN_TARGET — the route reads whichever one its `code` promises and
+ * ignores the other.
+ */
+export class PlannedLegMoveError extends Error {
+  readonly flightId: number | null;
+  readonly existingSeq: number | null;
+  constructor(
+    readonly legId: number,
+    readonly code: PlannedLegMoveRefusal,
+    message: string,
+    extra?: { flightId?: number; existingSeq?: number },
+  ) {
+    super(message);
+    this.name = 'PlannedLegMoveError';
+    this.flightId = extra?.flightId ?? null;
+    this.existingSeq = extra?.existingSeq ?? null;
+  }
+}
+
+/**
+ * Moves a leg between pools (a trip, or the loose pool when tripId is null),
+ * rewriting only trip_id and seq — every other column, every child row
+ * (planned_waypoints/planned_alternates), every acars_messages/ground_sessions
+ * row keyed by the leg id, is untouched. Lands the leg at the end of the
+ * target pool (MAX(seq)+1 there, the same query createPlannedLeg uses) and
+ * deliberately does not renumber the source pool: the gap it leaves behind is
+ * harmless, since ordering only has to be dense within a pool that still
+ * exists, not globally.
+ *
+ * false = leg not found, nothing changed. Every other refusal throws
+ * PlannedLegMoveError with nothing changed; the checks run in this order so
+ * the first one that applies is the one reported:
+ *   1. tripId is not null and that trip does not exist -> TRIP_NOT_FOUND.
+ *   2. tripId already equals the leg's current trip_id (loose-to-loose
+ *      included) -> SAME_POOL, checked before the legality rules below so a
+ *      true no-op always reads as a no-op, not as "linked" or "duplicate".
+ *   3. A flight is linked to the leg -> LINKED_FLIGHT.
+ *   4. status is neither 'planned' nor 'skipped' (a flown/diverted leg whose
+ *      flight was since deleted or combined) -> NOT_MOVABLE_STATUS.
+ *   5. The target pool already holds a leg with this leg's source_sha256
+ *      (findPlannedLegBySource) -> DUPLICATE_IN_TARGET.
+ */
+export function movePlannedLeg(legId: number, tripId: number | null): boolean {
+  return getDb().transaction((): boolean => {
+    const row = getDb().prepare(`
+      SELECT l.id, l.trip_id, l.status, l.source_sha256,
+             (SELECT f.id FROM flights f WHERE f.planned_leg_id = l.id) AS linked_flight_id
+        FROM planned_legs l
+       WHERE l.id = ?
+    `).get(legId) as {
+      id: number; trip_id: number | null; status: PlannedLegStatus; source_sha256: string; linked_flight_id: number | null;
+    } | undefined;
+    if (!row) return false;
+
+    if (tripId !== null) {
+      const trip = getDb().prepare('SELECT 1 FROM trips WHERE id = ?').get(tripId);
+      if (!trip) {
+        throw new PlannedLegMoveError(legId, 'TRIP_NOT_FOUND', 'Trip not found');
+      }
+    }
+
+    if (tripId === row.trip_id) {
+      const message = tripId !== null
+        ? `Planned leg ${legId} is already in this trip`
+        : `Planned leg ${legId} is already a loose leg`;
+      throw new PlannedLegMoveError(legId, 'SAME_POOL', message);
+    }
+
+    if (row.linked_flight_id != null) {
+      throw new PlannedLegMoveError(
+        legId, 'LINKED_FLIGHT',
+        `Planned leg ${legId} cannot be moved: linked to flight ${row.linked_flight_id}. Unlink the flight first.`,
+        { flightId: row.linked_flight_id },
+      );
+    }
+
+    if (row.status !== 'planned' && row.status !== 'skipped') {
+      throw new PlannedLegMoveError(
+        legId, 'NOT_MOVABLE_STATUS',
+        `Planned leg ${legId} cannot be moved: its status is '${row.status}'. Only a planned or skipped leg can be moved.`,
+      );
+    }
+
+    const existing = findPlannedLegBySource(tripId, row.source_sha256);
+    if (existing) {
+      const message = tripId !== null
+        ? `Planned leg ${legId} cannot be moved: the target trip already holds the same plan as leg ${existing.seq}`
+        : `Planned leg ${legId} cannot be moved: the loose legs already hold the same plan as leg ${existing.seq}`;
+      throw new PlannedLegMoveError(legId, 'DUPLICATE_IN_TARGET', message, { existingSeq: existing.seq });
+    }
+
+    const { next_seq: seq } = getDb().prepare(
+      'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM planned_legs WHERE trip_id IS ?'
+    ).get(tripId) as { next_seq: number };
+
+    getDb().prepare('UPDATE planned_legs SET trip_id = ?, seq = ? WHERE id = ?').run(tripId, seq, legId);
+    return true;
+  })();
+}
+
 // ── Auto-match candidates ─────────────────────────────────────────────────────
 
 /**

@@ -23,11 +23,18 @@ Two ways to pre-load a route before flying it:
 
 - **Import `.lnmpln` files** exported from Little Navmap, either into a
   specific trip or as loose (unassigned) planned legs, from the Prefiles
-  page or a trip's detail page. Multiple files in one upload are
-  chain-ordered automatically (destination of one matched to departure of
-  the next) when possible.
+  page (choose the trip in **Import into** above the import panels) or a
+  trip's detail page. Multiple files in one upload are chain-ordered
+  automatically (destination of one matched to departure of the next) when
+  possible.
 - **Import a SimBrief OFP** by pilot ID (set once under Settings) — pulls
   route, cruise altitude, and dispatch data directly from SimBrief.
+
+A planned leg can be moved later with **Move to trip** on its row, on the
+Prefiles page or in a trip's leg table: pick another trip, or "No trip" to
+make it loose. It goes to the end of the target's order (the trip's, or the
+loose legs'). Only a leg that is still planned or skipped and has no linked
+flight can be moved.
 
 Mark one trip **active** to enable automatic leg matching: when you take off
 within 10nm of an active trip's planned departure, the flight links itself
@@ -51,7 +58,8 @@ Destructive actions (delete, remove, skip) ask for confirmation in a dialog.
 - **All Flights** — full log, grouped by trip, with combine/export/new-trip
   actions.
 - **Prefiles** — every planned leg (trip-linked or loose), filterable by
-  status/trip/search, with import actions.
+  status/trip/search, with import actions (into a chosen trip or loose) and
+  a per-leg **Move to trip** action.
 - **Flight detail** — map (with a **Track** and a **Replay** tab, see
   [replay](#replaying-a-flight)), altitude profile under the map, stats,
   notes, attached flight-plan PDF, planned-leg link, PDF/KML export, and

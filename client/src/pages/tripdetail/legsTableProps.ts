@@ -1,3 +1,4 @@
+import type { MoveTargetChoice } from '../../components/legs';
 import type { Flight, PlannedLegListItem, PlannedLegWithChildren, Trip } from '../../types';
 
 /** Rows per page of the legs table. The page passes `page`; the table windows its own rows. */
@@ -34,6 +35,20 @@ export interface FlightLinkPicker {
   onToggle: (flightId: number) => void;
   onChoiceChange: (legId: number | '') => void;
   onConfirm: (flightId: number) => void;
+}
+
+/** State of the "move to trip" picker opened from a planned (ghost) leg row. */
+export interface LegMovePicker {
+  openLegId: number | null;
+  /** Every trip; null while still loading. */
+  trips: Trip[] | null;
+  tripsError: string;
+  choice: MoveTargetChoice;
+  busyLegId: number | null;
+  errorByLeg: Record<number, string>;
+  onToggle: (legId: number) => void;
+  onChoiceChange: (choice: MoveTargetChoice) => void;
+  onConfirm: (legId: number) => void;
 }
 
 /**
@@ -83,6 +98,7 @@ export interface LegsTableProps {
 
   legPicker: LegLinkPicker;
   flightPicker: FlightLinkPicker;
+  legMovePicker: LegMovePicker;
 
   /** Reload the trip from the server, e.g. after the table changes something itself. */
   onRefresh: () => void;

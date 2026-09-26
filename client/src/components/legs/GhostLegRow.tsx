@@ -1,9 +1,10 @@
 import { Link as RouterLink } from 'react-router-dom';
 import { Button, InlineNotification, Select, SelectItem, TableCell, TableRow } from '@carbon/react';
-import type { Flight, PlannedLegWithChildren } from '../../types';
+import type { Flight, PlannedLegWithChildren, Trip } from '../../types';
 import { StatusTag } from '../StatusTag';
 import { formatAlt, formatDate, formatDistance } from '../../utils/format';
 import { plannedLegLandingNote } from './landingNote';
+import { isPlannedLegMovable, type MoveTargetChoice } from './movable';
 
 /**
  * The eight columns a table hosting GhostLegRow must declare, in order: the
@@ -55,6 +56,27 @@ export interface GhostLegRowProps {
   /** Inline error (e.g. the 409 from the server) shown under the row. */
   skipError?: string;
   onToggleSkip: () => void;
+
+  /**
+   * "Move to trip" picker. Omitted entirely on a page that doesn't offer it;
+   * when given, the button itself only shows for a leg {@link isPlannedLegMovable}.
+   */
+  movePicker?: GhostLegMovePicker;
+}
+
+/** Controlled state for a {@link GhostLegRow}'s "Move to trip" picker. */
+export interface GhostLegMovePicker {
+  open: boolean;
+  onToggle: () => void;
+  /** Every trip (`listTrips()`); null while loading. The row excludes `leg.trip_id` itself. */
+  trips: Trip[] | null;
+  tripsError?: string;
+  choice: MoveTargetChoice;
+  onChoiceChange: (choice: MoveTargetChoice) => void;
+  onConfirm: () => void;
+  busy?: boolean;
+  /** The server's 4xx message; rendered as its own row whenever set, open or not. */
+  error?: string;
 }
 
 /**
@@ -67,7 +89,7 @@ export function GhostLegRow({
   leg, colSpan = 8, busy = false, canMoveUp = true, canMoveDown = true, onMove, onDelete,
   linkPickerOpen, onToggleLinkPicker, linkBusy = false, linkError, linkableFlights, linkFlightsError,
   linkFlightChoice, onLinkFlightChoiceChange, onConfirmLink,
-  skipBusy = false, skipError, onToggleSkip,
+  skipBusy = false, skipError, onToggleSkip, movePicker,
 }: GhostLegRowProps) {
   const routeTitle = `${leg.departure_name || leg.departure_ident} → ${leg.destination_name || leg.destination_ident}`;
   const landingNote = plannedLegLandingNote(leg);
@@ -107,6 +129,11 @@ export function GhostLegRow({
             <Button kind="ghost" size="sm" disabled={linkBusy} onClick={onToggleLinkPicker}>
               {linkPickerOpen ? 'Cancel' : 'Link flight'}
             </Button>
+            {movePicker && isPlannedLegMovable(leg) && (
+              <Button kind="ghost" size="sm" disabled={movePicker.busy} onClick={movePicker.onToggle}>
+                {movePicker.open ? 'Cancel' : 'Move to trip'}
+              </Button>
+            )}
             <Button kind="ghost" size="sm" as={RouterLink} to={`/planned-leg/${leg.id}/acars`}>ACARS</Button>
           </div>
         </TableCell>
@@ -162,6 +189,47 @@ export function GhostLegRow({
               <InlineNotification kind="error" lowContrast hideCloseButton title="Could not link"
                 subtitle={linkError} style={{ maxInlineSize: 'none' }} />
             )}
+          </TableCell>
+        </TableRow>
+      )}
+      {movePicker?.open && (
+        <TableRow style={dim}>
+          <TableCell colSpan={colSpan}>
+            {movePicker.trips === null ? (
+              <span style={meta}>Loading trips…</span>
+            ) : (
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
+                <div style={{ flex: '1 1 auto', maxInlineSize: '40rem' }}>
+                  <Select id={`move-leg-${leg.id}`} labelText="Move to" size="sm"
+                    value={movePicker.choice}
+                    onChange={e => movePicker.onChoiceChange(
+                      e.target.value === '' ? '' : e.target.value === 'loose' ? 'loose' : Number(e.target.value),
+                    )}>
+                    <SelectItem value="" text="Choose a trip…" />
+                    {leg.trip_id !== null && <SelectItem value="loose" text="No trip" />}
+                    {movePicker.trips.filter(t => t.id !== leg.trip_id).map(t => (
+                      <SelectItem key={t.id} value={t.id} text={t.name} />
+                    ))}
+                  </Select>
+                </div>
+                <Button kind="primary" size="sm" disabled={movePicker.choice === '' || movePicker.busy}
+                  onClick={movePicker.onConfirm}>
+                  {movePicker.busy ? 'Moving…' : 'Move'}
+                </Button>
+              </div>
+            )}
+            {movePicker.tripsError && (
+              <InlineNotification kind="error" lowContrast hideCloseButton title="Could not load trips"
+                subtitle={movePicker.tripsError} style={{ maxInlineSize: 'none' }} />
+            )}
+          </TableCell>
+        </TableRow>
+      )}
+      {movePicker?.error && (
+        <TableRow style={dim}>
+          <TableCell colSpan={colSpan}>
+            <InlineNotification kind="error" lowContrast hideCloseButton title="Could not move"
+              subtitle={movePicker.error} style={{ maxInlineSize: 'none' }} />
           </TableCell>
         </TableRow>
       )}

@@ -8,6 +8,7 @@ import { PageHeader } from '../components/PageHeader';
 import { StatTiles } from '../components/StatTiles';
 import { StatusTag } from '../components/StatusTag';
 import { LnmplnImportPanel, SimbriefImportPanel, SkipLegConfirm } from '../components/legs';
+import type { MoveTargetChoice } from '../components/legs';
 import {
   detailTargets, FetchDetailPrompt, geometryHasChains, NavdataOverlay, procedureNote, RouteGeometryLayer, TripMap,
   useRouteGeometry,
@@ -91,6 +92,13 @@ export function TripDetail() {
   const [linkFlightsError, setLinkFlightsError] = useState('');
   const [linkBusyLegId, setLinkBusyLegId] = useState<number | null>(null);
   const [linkErrorByLeg, setLinkErrorByLeg] = useState<Record<number, string>>({});
+
+  const [movingLegId, setMovingLegId] = useState<number | null>(null);
+  const [moveChoice, setMoveChoice] = useState<MoveTargetChoice>('');
+  const [moveTrips, setMoveTrips] = useState<Trip[] | null>(null);
+  const [moveTripsError, setMoveTripsError] = useState('');
+  const [moveBusyLegId, setMoveBusyLegId] = useState<number | null>(null);
+  const [moveErrorByLeg, setMoveErrorByLeg] = useState<Record<number, string>>({});
 
   const [linkingFlightId, setLinkingFlightId] = useState<number | null>(null);
   const [linkLegChoice, setLinkLegChoice] = useState<number | ''>('');
@@ -363,6 +371,33 @@ export function TripDetail() {
     }
   }
 
+  async function loadMoveTrips() {
+    setMoveTripsError('');
+    try {
+      setMoveTrips(await api.listTrips());
+    } catch (err) {
+      if (err instanceof UnauthorizedError) return;
+      setMoveTripsError((err as Error).message);
+    }
+  }
+
+  async function handleMoveToTrip(legId: number) {
+    if (moveChoice === '') return;
+    setMoveErrorByLeg(prev => without(prev, legId));
+    setMoveBusyLegId(legId);
+    try {
+      await api.movePlannedLeg(legId, moveChoice === 'loose' ? null : moveChoice);
+      setMovingLegId(null);
+      setMoveChoice('');
+      await reload();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) return;
+      setMoveErrorByLeg(prev => ({ ...prev, [legId]: (err as Error).message }));
+    } finally {
+      setMoveBusyLegId(null);
+    }
+  }
+
   async function linkAndReload(flightId: number, legId: number) {
     await api.linkFlightToLeg(flightId, legId);
     setLinkableFlights(null);
@@ -560,6 +595,23 @@ export function TripDetail() {
       },
       onChoiceChange: setLinkLegChoice,
       onConfirm: flightId => void handleLinkFromFlight(flightId),
+    },
+    legMovePicker: {
+      openLegId: movingLegId,
+      trips: moveTrips,
+      tripsError: moveTripsError,
+      choice: moveChoice,
+      busyLegId: moveBusyLegId,
+      errorByLeg: moveErrorByLeg,
+      onToggle: legId => {
+        const opening = movingLegId !== legId;
+        setMovingLegId(opening ? legId : null);
+        setMoveChoice('');
+        setMoveErrorByLeg(prev => without(prev, legId));
+        if (opening && moveTrips === null) void loadMoveTrips();
+      },
+      onChoiceChange: setMoveChoice,
+      onConfirm: legId => void handleMoveToTrip(legId),
     },
     onRefresh: () => void reload(),
     refreshing,

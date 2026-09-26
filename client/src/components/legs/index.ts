@@ -1,5 +1,7 @@
 export { GHOST_LEG_COLUMNS, GhostLegRow } from './GhostLegRow';
-export type { GhostLegRowProps } from './GhostLegRow';
+export type { GhostLegMovePicker, GhostLegRowProps } from './GhostLegRow';
+export { isPlannedLegMovable } from './movable';
+export type { MoveTargetChoice } from './movable';
 export { SkipLegConfirm } from './SkipLegConfirm';
 export type { SkipLegConfirmProps } from './SkipLegConfirm';
 export { LnmplnImportPanel } from './LnmplnImportPanel';

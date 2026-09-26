@@ -131,7 +131,7 @@ function FlownRow({
  */
 export function LegsTable(props: LegsTableProps) {
   const { flights, plannedLegs, page, onPageChange, legPicker, onMoveLeg, reorderingLegId, onRequestDeleteLeg,
-    onRequestSkip, skipBusyLegId, skipErrorByLeg } = props;
+    onRequestSkip, skipBusyLegId, skipErrorByLeg, legMovePicker } = props;
   const rows = interleaveTripRows(flights, plannedLegs);
   if (rows.length === 0) return <EmptyState title="No flights in this trip." />;
 
@@ -177,6 +177,17 @@ export function LegsTable(props: LegsTableProps) {
                     skipBusy={skipBusyLegId === leg.id}
                     skipError={skipErrorByLeg[leg.id]}
                     onToggleSkip={() => onRequestSkip(leg.id)}
+                    movePicker={{
+                      open: legMovePicker.openLegId === leg.id,
+                      onToggle: () => legMovePicker.onToggle(leg.id),
+                      trips: legMovePicker.trips,
+                      tripsError: legMovePicker.tripsError,
+                      choice: legMovePicker.choice,
+                      onChoiceChange: legMovePicker.onChoiceChange,
+                      onConfirm: () => legMovePicker.onConfirm(leg.id),
+                      busy: legMovePicker.busyLegId === leg.id,
+                      error: legMovePicker.errorByLeg[leg.id],
+                    }}
                   />
                 );
               }

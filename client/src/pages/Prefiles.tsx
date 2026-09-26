@@ -8,10 +8,11 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { GHOST_LEG_COLUMNS, GhostLegRow, LnmplnImportPanel, SimbriefImportPanel, SkipLegConfirm } from '../components/legs';
+import type { MoveTargetChoice } from '../components/legs';
 import * as api from '../api';
 import { UnauthorizedError } from '../utils/api';
 import type {
-  Flight, PlannedLegImportResponse, PlannedLegListItem, PlannedLegStatus, SimbriefImportResult,
+  Flight, PlannedLegImportResponse, PlannedLegListItem, PlannedLegStatus, SimbriefImportResult, Trip,
 } from '../types';
 
 interface Option { id: string; label: string }
@@ -51,6 +52,15 @@ export function Prefiles() {
   const [linkBusyLegId, setLinkBusyLegId] = useState<number | null>(null);
   const [linkErrorByLeg, setLinkErrorByLeg] = useState<Record<number, string>>({});
 
+  const [importTrips, setImportTrips] = useState<Trip[] | null>(null);
+  const [importTripsError, setImportTripsError] = useState('');
+  const [importTarget, setImportTarget] = useState('none');
+
+  const [movingLegId, setMovingLegId] = useState<number | null>(null);
+  const [moveChoice, setMoveChoice] = useState<MoveTargetChoice>('');
+  const [moveBusyLegId, setMoveBusyLegId] = useState<number | null>(null);
+  const [moveErrorByLeg, setMoveErrorByLeg] = useState<Record<number, string>>({});
+
   const [statusFilter, setStatusFilter] = useState('all');
   const [tripFilter, setTripFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,14 +80,25 @@ export function Prefiles() {
     api.getSimbriefSettings()
       .then(s => setSimbriefId(s.simbrief_user_id))
       .catch(() => setSimbriefId(null));
+    // A failed load leaves the import-target picker offering "No trip" only,
+    // with no banner — import still works. The move-to-trip picker shares
+    // this same list, though, and there the failure is worth surfacing: it's
+    // the only way to explain an empty choice of trips once the picker opens.
+    api.listTrips()
+      .then(setImportTrips)
+      .catch(err => {
+        setImportTrips([]);
+        setImportTripsError((err as Error).message);
+      });
   }, [loadLegs]);
 
   async function handleFiles(files: File[]) {
     setImporting(true);
     setImportError('');
     setImportResponse(null);
+    const tripId = importTarget === 'none' ? undefined : Number(importTarget);
     try {
-      setImportResponse(await api.importPlannedLegs(files));
+      setImportResponse(await api.importPlannedLegs(files, tripId));
       await loadLegs();
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
@@ -91,8 +112,9 @@ export function Prefiles() {
     setSimbriefImporting(true);
     setSimbriefError('');
     setSimbriefResult(null);
+    const tripId = importTarget === 'none' ? undefined : Number(importTarget);
     try {
-      const response = await api.importSimbriefLeg();
+      const response = await api.importSimbriefLeg(tripId);
       setSimbriefResult(response.result);
       if (response.result.status === 'imported') await loadLegs();
     } catch (err) {
@@ -100,6 +122,23 @@ export function Prefiles() {
       setSimbriefError((err as Error).message);
     } finally {
       setSimbriefImporting(false);
+    }
+  }
+
+  async function handleMoveToTrip(leg: PlannedLegListItem) {
+    if (moveChoice === '') return;
+    setMoveErrorByLeg(prev => { const { [leg.id]: _drop, ...rest } = prev; return rest; });
+    setMoveBusyLegId(leg.id);
+    try {
+      await api.movePlannedLeg(leg.id, moveChoice === 'loose' ? null : moveChoice);
+      setMovingLegId(null);
+      setMoveChoice('');
+      await loadLegs();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) return;
+      setMoveErrorByLeg(prev => ({ ...prev, [leg.id]: (err as Error).message }));
+    } finally {
+      setMoveBusyLegId(null);
     }
   }
 
@@ -163,6 +202,11 @@ export function Prefiles() {
     }
   }
 
+  const importTripOptions = useMemo<Option[]>(() => [
+    { id: 'none', label: 'No trip' },
+    ...(importTrips ?? []).map(t => ({ id: String(t.id), label: t.name })),
+  ], [importTrips]);
+
   const tripOptions = useMemo<Option[]>(() => {
     const byId = new Map<number, string>();
     for (const leg of legs ?? []) {
@@ -193,6 +237,13 @@ export function Prefiles() {
   return (
     <>
       <PageHeader title="Prefiles" subtitle="Every planned leg, loose or attached to a trip." />
+
+      <div style={{ inlineSize: '14rem', marginBottom: '1rem' }}>
+        <Dropdown id="prefiles-import-trip" titleText="Import into" label="No trip" size="sm"
+          items={importTripOptions} itemToString={(i: Option | null) => i?.label ?? ''}
+          selectedItem={importTripOptions.find(o => o.id === importTarget) ?? importTripOptions[0]}
+          onChange={({ selectedItem }: { selectedItem: Option | null }) => setImportTarget(selectedItem?.id ?? 'none')} />
+      </div>
 
       <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(20rem, 1fr))', marginBottom: '2rem' }}>
         <Tile>
@@ -286,6 +337,22 @@ export function Prefiles() {
                           onLinkFlightChoiceChange={setLinkFlightChoice}
                           onConfirmLink={() => handleLink(leg)}
                           onToggleSkip={() => { setSkipError(''); setSkipTarget(leg); }}
+                          movePicker={{
+                            open: movingLegId === leg.id,
+                            onToggle: () => {
+                              const opening = movingLegId !== leg.id;
+                              setMovingLegId(opening ? leg.id : null);
+                              setMoveChoice('');
+                              setMoveErrorByLeg(prev => { const { [leg.id]: _drop, ...rest } = prev; return rest; });
+                            },
+                            trips: importTrips,
+                            tripsError: importTripsError,
+                            choice: moveChoice,
+                            onChoiceChange: setMoveChoice,
+                            onConfirm: () => handleMoveToTrip(leg),
+                            busy: moveBusyLegId === leg.id,
+                            error: moveErrorByLeg[leg.id],
+                          }}
                         />
                       </Fragment>
                     );

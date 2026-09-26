@@ -180,11 +180,30 @@ function stubCanvasContext() {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(fakeCtx as unknown as CanvasRenderingContext2D);
 }
 
+// Leaflet's canvas renderer schedules its own redraw on the next animation
+// frame, but a synchronous redraw fired in between (here, from the map
+// fitting its bounds right after the track is added) can leave that original
+// frame request orphaned: cancelled bookkeeping, but the browser still calls
+// it. If that stray frame lands after the test has already unmounted the
+// map, it runs against a canvas the renderer has already torn down and
+// throws. Giving Leaflet a couple of real animation frames to settle before
+// unmounting lets that redraw happen while the canvas is still alive, so
+// nothing is left pending to fire later.
+function flushAnimationFrames(times = 2) {
+  return Array.from({ length: times }).reduce<Promise<void>>(
+    p => p.then(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))),
+    Promise.resolve()
+  );
+}
+
 // FlightMap renders NavdataOverlay (and everything else navdata-shaped) as a
 // child, not through a boolean prop, so a map that never mounts the overlay
 // must stay completely inert: no status poll, no pane.
 describe('a map without NavdataOverlay', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(async () => {
+    await flushAnimationFrames();
+    vi.restoreAllMocks();
+  });
 
   it('makes no /api/navdata/status request and creates no navdata pane', async () => {
     stubCanvasContext();
@@ -200,7 +219,10 @@ describe('a map without NavdataOverlay', () => {
 });
 
 describe('NavdataOverlay', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(async () => {
+    await flushAnimationFrames();
+    vi.restoreAllMocks();
+  });
 
   it('renders no controls and fetches no features when the replica is absent', async () => {
     stubCanvasContext();

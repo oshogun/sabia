@@ -146,7 +146,7 @@ the live server.
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and every pull request (no
-branch filter), on Node 24 (from `.nvmrc`), as three jobs:
+branch filter, so tag pushes run it too), on Node 24 (from `.nvmrc`), as four jobs:
 
 - **`build-and-test`**: `npm ci` (root and `client/`), then the same build
   `npm run build` does, split into steps: `tsc` in `client/` (typecheck),
@@ -164,6 +164,12 @@ branch filter), on Node 24 (from `.nvmrc`), as three jobs:
   uploads Playwright's HTML report as a build artifact on success and
   failure both (skipped only if the job is cancelled), plus traces/
   screenshots/JUnit XML on failure only.
+- **`release`** (runs only for pushed tags starting with `v`, after
+  `build-and-test`, `docker` and `e2e` all pass; the only job with
+  `contents: write`): checks the tag matches the `version` in `package.json`
+  and `client/package.json`, skips if a GitHub Release for the tag already
+  exists, and otherwise creates one from the annotated tag's message. See
+  [release.md](release.md#cutting-a-release).
 
 `build-and-test` and `e2e` set `IBM_TELEMETRY_DISABLED=true` (the `Dockerfile`
 sets it itself) so

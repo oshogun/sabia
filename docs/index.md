@@ -21,7 +21,7 @@ actually works and how to operate it.
 | [troubleshooting.md](troubleshooting.md) | Diagnostics and fixes for startup, Docker, agent connectivity, auth, and data issues |
 | [development.md](development.md) | Repo layout, testing strategy, CI, branching convention |
 | [security.md](security.md) | Threat model, auth/CSRF/token design, secrets, data-at-rest |
-| [release.md](release.md) | Current (informal) release process |
+| [release.md](release.md) | Versioning, the tagged releases so far, upgrading, and how CI publishes a release |
 | [glossary.md](glossary.md) | Domain terms: leg, trip, ACARS, OOOI, PDC, ingest token, and more |
 
 ## Reading order
@@ -49,5 +49,5 @@ the MCDU client replaces it.
 
 All required sections from this documentation's own spec are present:
 architecture, setup, configuration, usage, API, data model, operations,
-troubleshooting, development, security, and glossary are each a full page;
-release.md exists and explains why it's short rather than being omitted.
+troubleshooting, development, security, release, and glossary are each a full
+page.

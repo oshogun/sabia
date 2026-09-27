@@ -120,7 +120,14 @@ See [operations.md](operations.md#docker) for the production-hardening notes
 The supported path is the [Sabiá MCDU client](https://github.com/oshogun/sabia_mcdu), run on the Windows
 machine that has the simulator (MSFS 2020/2024 or FSX):
 
-1. Install it per its README.
+1. Install it from its [latest Release](https://github.com/oshogun/sabia_mcdu/releases/latest)
+   (the MSI or the `setup.exe`), or build it from source per its README.
+   The installers are unsigned, so Windows SmartScreen warns on first run.
+   The app runs its sidecar with the simulator PC's own `node`, so that PC
+   needs Node 20 on `PATH` (or the client's `nodePath` setting pointing at
+   one). MCDU 1.x needs this server at 1.0.0 or newer, and it
+   installs alongside an old msfslogger client instead of upgrading it; see
+   its [release notes](https://github.com/oshogun/sabia_mcdu/releases/tag/v1.0.0).
 2. On `CFG NETWORK`, enter the server URL (`https://<server-address>:3000`),
    the server's `INGEST_TOKEN`, and a `certPath` if the server uses a
    self-signed certificate.

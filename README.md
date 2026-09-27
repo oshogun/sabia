@@ -92,7 +92,10 @@ changes `client/package.json` (as the move to Carbon did), run `npm ci` in
 
 Install and run the
 [Sabiá MCDU client](https://github.com/oshogun/sabia_mcdu) on the Windows PC
-with MSFS 2020/2024 or FSX. On its `CFG NETWORK` page, enter the server URL
+with MSFS 2020/2024 or FSX, from the installer on its
+[latest Release](https://github.com/oshogun/sabia_mcdu/releases/latest).
+That PC needs Node 20 as well; see
+[setup.md](docs/setup.md#connect-the-simulator). On its `CFG NETWORK` page, enter the server URL
 (`https://<server-address>:3000`) and the server's `INGEST_TOKEN`. Choose the
 simulator on `CFG SIM`, then press `START>` on `STATUS`. Full setup is in
 that repository's

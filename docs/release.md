@@ -25,6 +25,28 @@ commit that closed each phase:
 Each Release lists what changed. There is no `CHANGELOG.md`: the Releases
 page is the changelog.
 
+## The MCDU client's versions
+
+The [Sabiá MCDU client](https://github.com/oshogun/sabia_mcdu) is versioned
+and released the same way in its own repository: annotated `vX.Y.Z` tags,
+with each tag's message as the notes on its
+[Releases page](https://github.com/oshogun/sabia_mcdu/releases). Its
+v0.1.0–v0.6.0 were tagged after the fact on 2026-09-27; v1.0.0 (2026-09-27)
+is its first release with installers attached, an unsigned MSI and an NSIS
+`setup.exe`.
+
+Each MCDU Release says which server versions it works with:
+
+| MCDU | Server |
+|---|---|
+| 1.x | 1.0.0 or newer |
+
+When a server major version breaks a route the MCDU uses (ingest, ACARS,
+navdata, ground session or prefiles), the MCDU gets a matching release that
+says so, and the other way round. The MCDU's own
+[release doc](https://github.com/oshogun/sabia_mcdu/blob/main/docs/release.md)
+covers its install requirements and how it cuts a release.
+
 ## What the version number means
 
 From 1.0.0 on, the version tracks what someone running Sabiá depends on: the

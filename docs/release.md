@@ -80,9 +80,11 @@ The version lives in four places, which must all match the tag:
 Then:
 
 1. Bump all four to the new version and commit that on `main`.
-2. Tag it with an annotated tag. The first line of the message becomes the
-   Release title and the rest becomes its notes, so write them for someone
-   running Sabiá:
+2. Tag it with an annotated tag (`git tag -a`). The first line of the
+   message becomes the Release title and everything after the blank line
+   becomes its notes, so write them for someone running Sabiá. Keep the
+   title on one line: git joins a title that wraps onto a second line into
+   one line, and that second line never reaches the notes.
 
    ```
    vX.Y.Z — <theme> (YYYY-MM-DD)
@@ -102,10 +104,12 @@ for tags that start with `v`, and only after `build-and-test`, `docker` and
    or `client/package.json`;
 2. does nothing if a Release for the tag already exists, so re-running it is
    safe;
-3. creates the Release with `gh release create`, using the annotated tag's
-   subject as the title and its body as the notes. A lightweight tag has no
-   message, so it gets the tag name as its title and GitHub's generated notes
-   instead.
+3. fails if the tag is a lightweight tag (made with plain `git tag`) or an
+   annotated tag with an empty message. A lightweight tag carries no message
+   of its own, and git would hand back the tagged commit's message instead,
+   so the job refuses it rather than publish a Release titled after a commit;
+4. creates the Release with `gh release create`, using the annotated tag's
+   subject as the title and its body as the notes.
 
 If a check fails, nothing is published. Delete the tag
 (`git push origin :refs/tags/vX.Y.Z` and `git tag -d vX.Y.Z`), fix the
@@ -113,8 +117,10 @@ problem, and tag again. Reusing the number is fine because no Release went
 out under it.
 
 Push one tag at a time. GitHub starts no workflow runs at all when more than
-three tags are pushed together, which is why the eight tags above were
-published by hand.
+three tags are pushed together. A tag on a commit that predates the
+`release` job never triggers it either, because GitHub runs the workflow
+file as it was at the tagged commit. Both are why the eight tags above were
+published by hand with `gh release create`.
 
 In this repository's agentic workflow, the `/version-release` skill
 (`.claude/skills/version-release/SKILL.md`) runs this whole procedure: it

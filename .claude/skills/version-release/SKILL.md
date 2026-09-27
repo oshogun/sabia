@@ -23,9 +23,12 @@ number and the notes with the user before pushing anything** (step 5).
 1. fails unless the tag minus its `v` equals `package.json` **and**
    `client/package.json` `version`;
 2. skips if a Release for the tag already exists;
-3. runs `gh release create` with the **annotated tag's subject as title** and
-   **its body as notes**. A lightweight tag gets the tag name as its title and
-   `--generate-notes` instead, so always use `git tag -a`.
+3. fails unless the tag is annotated (`git cat-file -t refs/tags/vX.Y.Z` is
+   `tag`) with a non-empty message. For a lightweight tag, git's
+   `%(contents:subject)` returns the tagged **commit's** subject, so without
+   this check a plain `git tag` would publish a Release titled after a commit;
+4. runs `gh release create` with the **annotated tag's subject as title** and
+   **its body as notes**. Always tag with `git tag -a`.
 
 So the tag message *is* the release page. Write it for users of the logbook,
 not as a commit log.
@@ -103,6 +106,9 @@ BREAKING: <one paragraph per breaking change, what to do about it>   ← MAJOR o
 - Group related commits into one bullet. Aim for 3–10 bullets. Leave out
   internal-only commits (tests, refactors, workflow).
 - The date is today's date, which is the release date.
+- The title line must be **one line**, followed by a blank line. Git joins
+  a title that wraps onto a second line into one subject, and that second
+  line then appears nowhere in the notes.
 
 ## 5. Confirm with the user
 
@@ -133,6 +139,7 @@ git diff --stat -- package.json package-lock.json client/package.json client/pac
 git add package.json package-lock.json client/package.json client/package-lock.json
 git commit -m "Release v$V" -m "Co-Authored-By: <the attribution line from the system reminder>"
 git tag -a "v$V" -F <file-with-the-approved-message>   # write it under .claude/scratch/, delete after
+git cat-file -t "refs/tags/v$V"                        # must print: tag
 git tag -l "v$V" --format='%(contents:subject)'        # check the title came out right
 ```
 
@@ -150,7 +157,10 @@ git push origin "v$V"
 
 Push **one tag per push**. GitHub creates no workflow events at all when more
 than three tags are pushed at once. The eight retroactive tags pushed together
-on 2026-09-26 started no CI run.
+on 2026-09-26 started no CI run. A tag on a commit older than the `release`
+job can't trigger it at all, whatever the batch size, because GitHub reads
+the workflow file from the tagged commit. So a retroactive Release is made by
+hand: `gh release create vX.Y.Z --verify-tag --title <subject> --notes <body>`.
 
 The tag push starts its own CI run, on the same commit as the `main` run but
 with the tag as `headBranch`:
@@ -175,6 +185,9 @@ then:
 - **Version mismatch** (the job's `::error::Tag … does not match`): someone
   tagged without bumping. Delete the tag (`git push origin :refs/tags/vX.Y.Z`
   and `git tag -d vX.Y.Z`), run step 6's bump, and re-tag.
+- **Lightweight tag or empty message** (the job refuses a tag that isn't
+  annotated or has no title): delete the tag the same way and re-tag with
+  `git tag -a "v$V" -F <message file>`.
 - **Tests, e2e or Docker failed**: the commit isn't releasable. Delete the tag
   the same way, fix it through the normal workflow, and re-run this skill.
   Reusing the version number is fine, because nothing was published under it.

@@ -9,6 +9,7 @@ src/                  Express + TypeScript server
   auth/               Session, ingest-token, MCP-token, password, login-throttle logic
   mcp/                Optional MCP server: router, tool registry, the 18 read/write tools
   inspect-*.ts        ts-node CLI inspectors for eyeballing behavior against real data
+  install/            Helper CLI the installers call (dist/install/cli.js): self-signed cert, env-file merge, port/health checks, pairing
 client/               React + Vite web app on IBM Carbon (@carbon/react, Gray 100 theme)
   src/shell/          AppShell (header + side nav), SessionContext (auth), RequireAuth, live status, nav tree
   src/pages/          One component per route, most with a *.test.tsx beside it; page-private parts in pages/<page>/
@@ -22,6 +23,7 @@ client/               React + Vite web app on IBM Carbon (@carbon/react, Gray 10
   e2e/                Playwright end-to-end specs, run against a scratch instance
 tests/                Vitest suite — mirrors src/ for unit tests, tests/db/ for the db/ modules
 samples/              Read-only fixtures (e.g. .lnmpln files) used by tests
+packaging/            build-bundle.sh (release tarball), install.sh (Linux/macOS), install.ps1 (Windows)
 docs/                 This documentation set
 .claude/, .codex/, AGENTS.md, CLAUDE.md   Agentic-coding workflow config — not part of the runtime, see below
 ```
@@ -146,7 +148,7 @@ the live server.
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and every pull request (no
-branch filter, so tag pushes run it too), on Node 24 (from `.nvmrc`), as four jobs:
+branch filter, so tag pushes run it too), on Node 24 (from `.nvmrc`), as five jobs:
 
 - **`build-and-test`**: `npm ci` (root and `client/`), then the same build
   `npm run build` does, split into steps: `tsc` in `client/` (typecheck),
@@ -167,8 +169,15 @@ branch filter, so tag pushes run it too), on Node 24 (from `.nvmrc`), as four jo
 - **`release`** (runs only for pushed tags starting with `v`, after
   `build-and-test`, `docker` and `e2e` all pass; the only job with
   `contents: write`): checks the tag matches the `version` in `package.json`
-  and `client/package.json`, skips if a GitHub Release for the tag already
-  exists, and otherwise creates one from the annotated tag's message. See
+  and `client/package.json`, and builds the release bundle with
+  `packaging/build-bundle.sh`. It creates a GitHub Release from the
+  annotated tag's message if none exists yet. Then it uploads the bundle,
+  its `.sha256` and the two installers to that Release.
+- **`publish-image`** (after `release`, tags only; the only job that logs in
+  to Docker Hub, with the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` secrets):
+  builds the image for `linux/amd64` and `linux/arm64` (QEMU) and pushes
+  `oshogun/sabia` tagged `X.Y.Z`, `X.Y`, `X` and `latest`. Branch pushes and
+  pull requests never push an image. See
   [release.md](release.md#cutting-a-release).
 
 `build-and-test` and `e2e` set `IBM_TELEMETRY_DISABLED=true` (the `Dockerfile`

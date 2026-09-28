@@ -1,7 +1,7 @@
 # Setup
 
 Detailed local/dev setup. For the shortest path to a running instance, see
-the [README](../README.md#quickstart) instead — this page covers the same
+the [README](../README.md#install) instead — this page covers the same
 ground with more explanation, plus Docker and troubleshooting-adjacent notes.
 
 ## Required versions
@@ -91,25 +91,158 @@ This runs the server (`ts-node`, no build step) and the Vite dev server
 together. Open `http://localhost:5173` — Vite proxies `/api` to the backend
 on port 3000.
 
-## Docker
+## Installer
 
-Create the bind-mount targets before starting Compose — otherwise Docker
-creates a *directory* named `flights.db` instead of using it as a file:
+`packaging/install.sh` (Linux, macOS) and `packaging/install.ps1` (Windows)
+install a packaged release without a checkout, a build, or a system Node.
+Packaged releases start with the first release after v1.0.0; v1.0.0 has no
+bundle, and the installers say so.
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.sh | bash
+```
+
+```powershell
+irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 | iex
+```
+
+Each Release also carries both scripts as assets, for a pinned install.
+
+### What it does
+
+1. Downloads the latest Node 24 from nodejs.org into `<root>/node`, checked
+   against `SHASUMS256.txt`. Your system Node is never used or changed.
+2. Resolves the latest release (GitHub API, falling back to the
+   `releases/latest` redirect). It downloads `sabia-server-X.Y.Z.tar.gz`,
+   verifies it against its `.sha256`, and runs `npm ci --omit=dev`. That
+   includes Chrome for PDF export (about 390 MB) unless you pass
+   `--no-chromium`.
+3. Writes `<root>/sabia.env`: `PORT`, `BIND_HOST`, `TLS_CERT_FILE`,
+   `TLS_KEY_FILE`, `INGEST_TOKEN` (random, 64 hex characters),
+   `NAVDATA_DB_PATH`, `PUPPETEER_CACHE_DIR`. It creates a self-signed
+   certificate in `<root>/certs/` whose names cover `localhost`, the host
+   name, `<hostname>.local`, `127.0.0.1`, `::1` and the machine's LAN IPv4
+   addresses. Add more with `--tls-san`.
+4. Asks for the operator password if no operator exists yet. It reads the
+   terminal even under `curl | bash`, or `SABIA_OPERATOR_PASSWORD` /
+   `--password-file` for an unattended install.
+5. Registers a service (below), starts it, waits until it answers, and
+   prints the pairing block: server URLs, `INGEST_TOKEN`, the certificate's
+   path and SHA-256 fingerprint, plus the backup, password-reset and log
+   commands.
+
+Linux and macOS installs are per-user and never use `sudo`; `install.sh`
+refuses to run under `sudo`. The official Node binaries need glibc 2.28 or newer
+on Linux (musl distributions such as Alpine should use Docker) and macOS
+13.5 or newer.
+
+### Where things go
+
+| OS | Default root | Service |
+|---|---|---|
+| Linux | `~/.local/share/sabia` (`$XDG_DATA_HOME/sabia`) | systemd user unit `sabia.service`; the installer enables linger so it starts at boot, not only at login (`--no-linger` to skip) |
+| macOS | `~/Library/Application Support/Sabia` | LaunchAgent `br.com.sabiaflightdb.sabia`, starts at login |
+| Windows | `%LOCALAPPDATA%\Sabia` | Scheduled Task `\Sabia` at logon, running a hidden supervisor that restarts the server if it exits; falls back to a Startup-folder shortcut if the task can't be registered |
+
+The root is the server's working directory, so `flights.db`,
+`flight_plans/`, `navdata/`, `backups/`, `certs/` and `logs/` (macOS and
+Windows) all live in it, next to the app.
+
+The server listens on `0.0.0.0:3000` by default on every OS. On Windows the
+installer also creates an inbound firewall rule `SabiaServer-In` (Private
+networks, `<root>\node\node.exe`, the chosen port). It needs one UAC prompt,
+shared with the task registration if that needs one too. If you decline, or
+pass `-NoElevate`, an MCDU on the same PC still connects through
+`https://127.0.0.1:<port>`. The installer prints the admin commands that open
+the port to the LAN. It also warns when the active network is classified
+Public, since the rule doesn't apply there.
+
+### Options
+
+Each option also has a `SABIA_*` environment variable. That is the only way
+to pass options through `irm | iex`. With `curl | bash`, you can use either
+the variables or `bash -s -- <flags>`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.sh | bash -s -- --port 3443
+```
+
+```powershell
+$env:SABIA_PORT = '3443'; irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 | iex
+```
+
+| install.sh | install.ps1 | Variable | Meaning |
+|---|---|---|---|
+| `--version X.Y.Z` | `-Version` | `SABIA_VERSION` | Install this release instead of the latest |
+| `--bundle PATH_OR_URL` | `-Bundle` | `SABIA_BUNDLE` | Install from this bundle instead of a release lookup |
+| `--install-dir DIR` | `-InstallDir` | `SABIA_INSTALL_DIR` | Install root |
+| `--port N` | `-Port` | `SABIA_PORT` | Port, 1024–65535 (default 3000, or the existing value) |
+| `--bind-host HOST` | `-BindHost` | `SABIA_BIND_HOST` | Bind address (default `0.0.0.0`, or the existing value) |
+| `--username NAME` | `-Username` | `SABIA_OPERATOR_USERNAME` | Operator username for a new install (default `operator`) |
+| `--password-file FILE` | `-PasswordFile` | `SABIA_OPERATOR_PASSWORD_FILE` | Read the operator password from the file's first line |
+| — | — | `SABIA_OPERATOR_PASSWORD` | The operator password itself (never a flag, so it stays out of `ps` and history) |
+| `--tls-san a,b` | `-TlsSan` | `SABIA_TLS_SAN` | Extra certificate names or IPs |
+| `--renew-cert` | `-RenewCert` | `SABIA_RENEW_CERT=1` | Regenerate the certificate (copy the new one to the MCDU afterwards) |
+| `--no-chromium` | `-NoChromium` | `SABIA_NO_CHROMIUM=1` | Skip Chrome; PDF export won't work |
+| `--no-service` | `-NoService` | `SABIA_NO_SERVICE=1` | Install files only, register no service |
+| `--force` | `-Force` | `SABIA_FORCE=1` | Redo the install even if already current |
+| `--uninstall` | `-Uninstall` | `SABIA_UNINSTALL=1` | Remove the service and the app, keep data |
+| `--purge` | `-Purge` | `SABIA_PURGE=1` | With uninstall: delete the whole root |
+| `--yes` | `-Yes` | `SABIA_YES=1` | Answer yes to confirmations |
+| `--no-linger` | — | `SABIA_NO_LINGER=1` | Linux only: don't enable linger |
+| — | `-NoElevate` | `SABIA_NO_ELEVATE=1` | Windows only: never ask for UAC (no firewall rule; autostart may fall back to the Startup folder) |
+
+Boolean variables take effect only when set to `1`.
+
+### Upgrading, uninstalling
+
+Re-run the installer to upgrade. Before it stops the running server, it
+downloads and checks the new release, prepares its config, and checks the
+port. If any of that fails, the old server keeps running unchanged. It never
+regenerates `INGEST_TOKEN`, so a paired MCDU keeps working, and it never
+touches `flights.db` or its `-wal`/`-shm` files. If the new version doesn't
+come up healthy, it restores the previous app, config and certificate, and
+restarts the old version.
+
+`--uninstall` (`-Uninstall`) removes the service, the firewall rule and the
+app files. It keeps `sabia.env`, `flights.db*`, `flight_plans/`, `navdata/`,
+`backups/`, `certs/` and `logs/`, so a later install picks up where it left
+off. Adding `--purge` (`-Purge`) deletes the whole root after you type
+`purge`, or with `--yes`.
+
+## Docker
+
+`docker-compose.yml` runs the published image
+`oshogun/sabia:${SABIA_VERSION:-latest}` (tags `X.Y.Z`, `X.Y`, `X` and
+`latest`, for `linux/amd64` and `linux/arm64`). You only need the compose
+file, not a checkout. Create the bind-mount targets before starting Compose;
+otherwise Docker creates a *directory* named `flights.db` instead of using it
+as a file:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/oshogun/sabia/main/docker-compose.yml
 touch flights.db
 mkdir -p flight_plans navdata
 export INGEST_TOKEN="$(openssl rand -hex 24)"
 export ALLOW_PLAINTEXT_HTTP=1   # trusted LAN only; prefer TLS in production
-docker compose build
+docker compose pull
 ```
 
-Create the operator account inside the container, then start it:
+Set `SABIA_VERSION=X.Y.Z` to pin a release instead of `latest`. Create the
+operator account inside the container, then start it:
 
 ```bash
 printf '%s\n' '<password>' | \
   docker compose run --rm -T msfslogger node dist/setPassword.js
 docker compose up -d
+```
+
+To build the image from your checkout instead of pulling it, add the
+override file, which sets `build: .` and tags the result `sabia:local`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d
 ```
 
 See [operations.md](operations.md#docker) for the production-hardening notes

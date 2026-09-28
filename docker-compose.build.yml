@@ -1,0 +1,4 @@
+services:
+  msfslogger:
+    build: .
+    image: sabia:local

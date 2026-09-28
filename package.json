@@ -17,7 +17,7 @@
     "backfill-icao": "ts-node src/backfill-icao.ts",
     "build-airport-tiers": "ts-node src/buildAirportTiers.ts",
     "backfill-durations": "ts-node src/backfill-durations.ts",
-    "backup": "ts-node src/backup.ts",
+    "backup": "node dist/backup.js",
     "set-password": "node dist/setPassword.js",
     "test": "vitest run",
     "test:watch": "vitest",

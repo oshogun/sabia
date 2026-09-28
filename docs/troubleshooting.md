@@ -33,6 +33,32 @@ directory when the source path doesn't already exist as a file. Always
 `touch flights.db` (and `mkdir -p flight_plans navdata`) before the first `docker
 compose up`.
 
+## Installer
+
+**The installer stops because the port is already in use.**
+Something else is listening on the requested port. Pick another with
+`--port` (`SABIA_PORT`), or stop the other program. On an upgrade the
+installer checks the port before stopping the running server, so the old
+server keeps running.
+
+**The MCDU on another PC can't reach a Windows install.**
+Check that the `SabiaServer-In` firewall rule exists: the installer creates
+it only if you accepted the UAC prompt. Also check that the network is
+classified Private (the rule doesn't apply to Public networks), and that you
+didn't press Cancel on Windows' own "allow access" dialog, which adds a
+blocking rule that wins over the allow rule. The installer prints the admin
+commands for all three cases.
+
+**The MCDU rejects the certificate after the server's IP changed.**
+The self-signed certificate lists the LAN addresses the machine had at
+install time. Re-run the installer with `--renew-cert` (and `--tls-san` for
+any extra name), then copy the new `certs/sabia.crt` to the MCDU's
+`certPath`.
+
+**`install.sh` says to run it without sudo.**
+The install is per-user by design. Run it as the user who should own the
+service, without `sudo`.
+
 ## Sim client / connectivity
 
 **Web UI shows `connected: false` while the MCDU client is running.**

@@ -59,6 +59,21 @@ The retired `agent/` read these as `SERVER_URL`, `INGEST_TOKEN`,
 `NODE_EXTRA_CA_CERTS`, `TRAFFIC_ENABLED`, `TRAFFIC_RADIUS_M` and `--sim`. The
 MCDU configuration guide maps each one to its CDU field.
 
+## Installer-managed instances
+
+The one-line installers ([setup.md](setup.md#installer)) write these
+variables to `<root>/sabia.env`. The service loads that file with Node's
+`--env-file`, and the server reads `process.env` exactly as above. The
+installer sets `PORT`, `BIND_HOST` (`0.0.0.0`), `TLS_CERT_FILE`/`TLS_KEY_FILE`
+(its self-signed certificate under `<root>/certs/`), `INGEST_TOKEN`,
+`NAVDATA_DB_PATH` (`<root>/navdata/navdata.db`) and `PUPPETEER_CACHE_DIR`
+(`<root>/chrome`). `MCP_TOKEN` is present only as a comment, and
+`SESSION_SECRET` is left for the server to generate. The file format is
+Node's: `KEY=value`, no quotes, no `export`, and no `#` inside a value (Node
+cuts the value there). When the installer launches the server it removes
+these variables from its own environment, so a stray exported `PORT` or
+`FLIGHTS_DB_PATH` in your shell can't override the file.
+
 ## Docker Compose
 
 `docker-compose.yml` passes these through from the shell/`.env` — none are

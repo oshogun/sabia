@@ -101,7 +101,19 @@ any deployment reachable beyond localhost — always generate a real value
 the operator's password hash, and session data. There is no field-level or
 file-level encryption built in — rely on filesystem/disk-level protection
 (permissions, disk encryption) if that matters for your deployment, and keep
-backups (`npm run backup`) under the same protection as the live file.
+backups (`npm run backup`, after `npm run build`) under the same protection as the live file.
+
+An installer-managed instance ([setup.md](setup.md#installer)) keeps its
+secrets in the install root. `sabia.env` holds `INGEST_TOKEN`, and
+`certs/sabia.key` is the TLS private key, unencrypted. On Linux and macOS the
+helper writes both with mode `0600`. On Windows they inherit the per-user ACL
+of `%LOCALAPPDATA%`. The installer generates `INGEST_TOKEN` from 32 random
+bytes and never regenerates an existing one. It verifies the Node download
+against nodejs.org's `SHASUMS256.txt`, and a release bundle against its
+`.sha256` asset. Both come from the same host as the file they check, so
+they catch corruption, not a compromised host. A bundle passed with
+`--bundle` is checked only if a `.sha256` sits beside it; otherwise the
+installer warns and installs it unverified.
 
 ## Navdata sync endpoints
 

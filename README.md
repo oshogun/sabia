@@ -35,7 +35,37 @@ nvm install
 nvm use
 ```
 
-## Quickstart
+The one-line installers below need none of this: they bring their own Node.
+
+## Install
+
+Packaged installs start with the first release after v1.0.0. Each release
+publishes a prebuilt server bundle, the installers, and a Docker image.
+
+**Linux or macOS**, as your normal user (not root):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.sh | bash
+```
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 | iex
+```
+
+The installer downloads a private Node 24 and the latest release, then
+generates `INGEST_TOKEN` and a self-signed certificate, and asks for the
+operator password. It then registers a service that starts at boot (Linux),
+at login (macOS), or at logon (Windows). At the end it prints the server URL,
+the ingest token, and the certificate path for the MCDU client. Re-run the
+same command to upgrade. Options, uninstalling, and where files go:
+[`docs/setup.md#installer`](docs/setup.md#installer).
+
+**Docker**: `oshogun/sabia` on Docker Hub, for `linux/amd64` and
+`linux/arm64`. See [Docker](#docker) below.
+
+## Quickstart (from source)
 
 ```bash
 git clone git@github.com:oshogun/sabia.git
@@ -103,10 +133,13 @@ that repository's
 
 ## Docker
 
-An alternative to the source install above. Create the bind-mount targets
-first (`touch flights.db`, `mkdir -p flight_plans navdata`), or Compose creates a
-directory named `flights.db` instead of using it as a file. Full steps,
-including creating the operator account inside the container:
+`docker-compose.yml` runs the published image
+`oshogun/sabia:${SABIA_VERSION:-latest}`. Create the bind-mount targets first
+(`touch flights.db`, `mkdir -p flight_plans navdata`), or Compose creates a
+directory named `flights.db` instead of using it as a file. To build the
+image from your checkout instead, add the override file:
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+Full steps, including creating the operator account inside the container:
 [`docs/setup.md#docker`](docs/setup.md#docker).
 
 ## Test and verify
@@ -122,8 +155,11 @@ CI runs these checks on every push and pull request.
 ## Backups
 
 ```bash
-npm run backup
+npm run backup        # source install, after npm run build
 ```
+
+An installer-managed instance prints its own backup command at the end of
+the install.
 
 Do not copy an open `flights.db` by itself — WAL data may not yet be in the
 main file. Full backup/restore guidance:

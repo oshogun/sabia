@@ -1,6 +1,6 @@
 services:
   msfslogger:
-    build: .
+    image: oshogun/sabia:${SABIA_VERSION:-latest}
     init: true
     ports:
       - "3000:3000"

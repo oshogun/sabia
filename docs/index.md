@@ -11,13 +11,13 @@ actually works and how to operate it.
 | Page | What's in it |
 |---|---|
 | [architecture.md](architecture.md) | Component map, runtime flow (startup/request/shutdown), the flight state machine, leg matching, external integrations |
-| [setup.md](setup.md) | Detailed local/dev setup, HTTPS, Docker, connecting the simulator, validating the install |
+| [setup.md](setup.md) | One-line installers, detailed local/dev setup, HTTPS, Docker (published image), connecting the simulator, validating the install |
 | [configuration.md](configuration.md) | Every environment variable — server, agent, and Docker Compose — with defaults and validation rules |
 | [usage.md](usage.md) | Logging a flight, planning trips, ACARS, exports, run/debug/test commands, common failures |
 | [navdata.md](navdata.md) | Map navdata: the replica of the MCDU client's MSFS navigation data, its sync/query endpoints, route expansion, licensing and operation |
 | [api.md](api.md) | Every HTTP route, its auth requirement, and its request/response shape |
 | [data-model.md](data-model.md) | Full SQLite schema, entity relationships, the `src/db/` module map |
-| [operations.md](operations.md) | Running in production, Docker, backups/restore, maintenance scripts, log locations |
+| [operations.md](operations.md) | Running in production, installer-managed services, Docker, backups/restore, maintenance scripts, log locations |
 | [troubleshooting.md](troubleshooting.md) | Diagnostics and fixes for startup, Docker, agent connectivity, auth, and data issues |
 | [development.md](development.md) | Repo layout, testing strategy, CI, branching convention |
 | [security.md](security.md) | Threat model, auth/CSRF/token design, secrets, data-at-rest |

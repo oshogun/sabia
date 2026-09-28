@@ -144,6 +144,36 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install root dependencies
+        run: npm ci
+        env:
+          IBM_TELEMETRY_DISABLED: 'true'
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+        env:
+          IBM_TELEMETRY_DISABLED: 'true'
+
+      - name: Build client
+        run: npm run build:client
+        env:
+          IBM_TELEMETRY_DISABLED: 'true'
+
+      - name: Build server
+        run: npm run build:server
+        env:
+          IBM_TELEMETRY_DISABLED: 'true'
+
+      - name: Build release bundle
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          packaging/build-bundle.sh "$VERSION" release-assets
+
       - name: Create GitHub Release from annotated tag
         if: steps.existing.outputs.skip == 'false'
         env:
@@ -171,3 +201,61 @@ jobs:
           BODY="$(git tag -l "$TAG" --format='%(contents:body)')"
           gh release create "$TAG" --repo "${{ github.repository }}" \
             --verify-tag --title "$SUBJECT" --notes "$BODY"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          gh release upload "$TAG" \
+            "release-assets/sabia-server-$VERSION.tar.gz" \
+            "release-assets/sabia-server-$VERSION.tar.gz.sha256" \
+            packaging/install.sh packaging/install.ps1 \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  publish-image:
+    # Pushes the multi-arch image to Docker Hub once the Release exists, so
+    # a tag that fails the Release's own gates (tag/version match, annotated
+    # tag, non-empty message) never publishes an image either.
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: oshogun/sabia
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=publish
+          cache-to: type=gha,scope=publish,mode=max

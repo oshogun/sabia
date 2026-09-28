@@ -3,8 +3,9 @@
 Sabiá uses [semantic versioning](https://semver.org/). Each release is an
 annotated git tag `vX.Y.Z` on `main`, published as a
 [GitHub Release](https://github.com/oshogun/sabia/releases) whose notes come
-from the tag message. CI publishes the Release once the tagged commit passes
-every check.
+from the tag message. CI publishes the Release, with a prebuilt server
+bundle and the installers attached, and pushes the Docker image to Docker Hub,
+once the tagged commit passes every check.
 
 ## Versions so far
 
@@ -75,6 +76,20 @@ Take a backup first ([operations.md](operations.md#backups)), and read the
 Release notes for every version between yours and the new one, looking for
 `BREAKING:`. Then:
 
+**Installer.** Re-run the install command
+([setup.md](setup.md#installer)); add `--version X.Y.Z` (`SABIA_VERSION`)
+for a specific release. It keeps the running server up until the new
+release is downloaded and prepared, and rolls back if the new version
+doesn't come up healthy.
+
+**Docker.** `docker compose pull && docker compose up -d`, with
+`SABIA_VERSION=X.Y.Z` set to pin a release instead of `latest`. If you
+build from your checkout, use
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`
+after `git pull`.
+
+**Source checkout:**
+
 ```bash
 git pull                  # main always has the newest code; each release is a tag on it
 (cd client && npm ci)     # only when client/package.json changed
@@ -84,9 +99,6 @@ npm start                 # or restart however you run it — see operations.md
 
 To run a specific release rather than the tip of `main`, use
 `git checkout vX.Y.Z` in place of `git pull`, then build the same way.
-
-For a Docker deployment: `docker compose build && docker compose up -d`. No
-image is published to a registry: you build it from your checkout.
 
 There is no staged rollout, canary, or blue/green concept. This is a
 single-operator, self-hosted app with, typically, one running instance.
@@ -124,19 +136,48 @@ for tags that start with `v`, and only after `build-and-test`, `docker` and
 
 1. fails if the tag without its `v` differs from the version in `package.json`
    or `client/package.json`;
-2. does nothing if a Release for the tag already exists, so re-running it is
-   safe;
-3. fails if the tag is a lightweight tag (made with plain `git tag`) or an
-   annotated tag with an empty message. A lightweight tag carries no message
-   of its own, and git would hand back the tagged commit's message instead,
-   so the job refuses it rather than publish a Release titled after a commit;
-4. creates the Release with `gh release create`, using the annotated tag's
-   subject as the title and its body as the notes.
+2. checks whether a Release for the tag already exists;
+3. builds the client and server and packs them with
+   `packaging/build-bundle.sh` into `sabia-server-X.Y.Z.tar.gz` and its
+   `.sha256`, so a failed build stops the job before any Release exists;
+4. if no Release exists yet: fails if the tag is a lightweight tag (made
+   with plain `git tag`) or an annotated tag with an empty message, then
+   creates the Release with `gh release create`, using the annotated tag's
+   subject as the title and its body as the notes. A lightweight tag carries
+   no message of its own, and git would hand back the tagged commit's message
+   instead, so the job refuses it rather than publish a Release titled after
+   a commit;
+5. uploads the bundle, its `.sha256`, `packaging/install.sh` and
+   `packaging/install.ps1` to the Release with `--clobber`. This step runs
+   whether or not step 4 created the Release, so re-running the job is safe.
+
+A `publish-image` job then runs after `release`. It builds the image for
+`linux/amd64` and `linux/arm64` and pushes it to Docker Hub as
+`oshogun/sabia`, tagged `X.Y.Z`, `X.Y`, `X` and `latest`. It logs in with the
+repository secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub
+access token), which must exist before the first release tag. `latest`
+follows the most recently pushed release tag, so a patch release on an older
+line also moves `latest`.
+
+### The release bundle
+
+`sabia-server-X.Y.Z.tar.gz` has one top-level directory
+`sabia-server-X.Y.Z/` holding `dist/`, `client/dist/`, `package.json`,
+`package-lock.json`, `airports.json`, `airport-tiers.json`, `VERSION` and
+`LICENSE`, and no `node_modules`. It is the same for every OS: the
+installers run `npm ci --omit=dev` against it with their own Node 24, which
+fetches the native `better-sqlite3` binary for the machine. The first
+release with a bundle is the first after v1.0.0.
 
 If a check fails, nothing is published. Delete the tag
 (`git push origin :refs/tags/vX.Y.Z` and `git tag -d vX.Y.Z`), fix the
 problem, and tag again. Reusing the number is fine because no Release went
 out under it.
+
+A failure after the Release exists, in the upload step or in
+`publish-image` (for example missing Docker Hub secrets), is different:
+fix the cause and re-run the failed jobs from the Actions page. Don't
+re-tag, since the Release is already public.
 
 Push one tag at a time. GitHub starts no workflow runs at all when more than
 three tags are pushed together. A tag on a commit that predates the

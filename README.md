@@ -42,7 +42,7 @@ The one-line installers below need none of this: they bring their own Node.
 Packaged installs start with the first release after v1.0.0. Each release
 publishes a prebuilt server bundle, the installers, and a Docker image.
 
-**Linux or macOS**, as your normal user (not root):
+**Linux**, as your normal user (not root):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.sh | bash
@@ -54,10 +54,14 @@ curl -fsSL https://raw.githubusercontent.com/oshogun/sabia/main/packaging/instal
 irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 | iex
 ```
 
+**macOS is not supported.** `install.sh` has a macOS path, but it has
+never been run on a Mac. You can try the Linux command above with no
+guarantee that it works; Docker is the fallback.
+
 The installer downloads a private Node 24 and the latest release, then
 generates `INGEST_TOKEN` and a self-signed certificate, and asks for the
 operator password. It then registers a service that starts at boot (Linux),
-at login (macOS), or at logon (Windows). At the end it prints the server URL,
+or at logon (Windows). At the end it prints the server URL,
 the ingest token, and the certificate path for the MCDU client. Re-run the
 same command to upgrade. Options, uninstalling, and where files go:
 [`docs/setup.md#installer`](docs/setup.md#installer).

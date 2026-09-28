@@ -30,7 +30,7 @@ edit it and restart the service, or re-run the installer with the matching
 option. The installer merges options into the file and never regenerates
 `INGEST_TOKEN`.
 
-| | Linux (systemd user unit) | macOS (LaunchAgent) | Windows (Scheduled Task) |
+| | Linux (systemd user unit) | macOS (LaunchAgent; unsupported, untested) | Windows (Scheduled Task) |
 |---|---|---|---|
 | Status | `systemctl --user status sabia` | `launchctl print gui/$(id -u)/br.com.sabiaflightdb.sabia` | `Get-ScheduledTask -TaskName Sabia` |
 | Restart | `systemctl --user restart sabia` | `launchctl kickstart -k gui/$(id -u)/br.com.sabiaflightdb.sabia` | re-run the installer, or log off and on |

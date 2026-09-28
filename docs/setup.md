@@ -93,7 +93,7 @@ on port 3000.
 
 ## Installer
 
-`packaging/install.sh` (Linux, macOS) and `packaging/install.ps1` (Windows)
+`packaging/install.sh` (Linux) and `packaging/install.ps1` (Windows)
 install a packaged release without a checkout, a build, or a system Node.
 Packaged releases start with the first release after v1.0.0; v1.0.0 has no
 bundle, and the installers say so.
@@ -107,6 +107,17 @@ irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 |
 ```
 
 Each Release also carries both scripts as assets, for a pinned install.
+
+### Supported platforms
+
+| Platform | Status |
+|---|---|
+| Linux x64, glibc 2.28+ | Supported (`install.sh`) |
+| Windows 10/11 x64 | Supported (`install.ps1`) |
+| Docker `linux/amd64` | Supported (`oshogun/sabia`) |
+| Linux arm64, Windows arm64, Docker `linux/arm64` | Expected to work, not yet tested on arm64 hardware |
+| macOS 13.5+ | **Not supported.** `install.sh` has a macOS path (a per-user LaunchAgent), but it has never been run on a Mac. You can try it with no guarantee that it works; the installer prints a warning saying so. Docker is the fallback. |
+| Linux with musl (e.g. Alpine) | Not supported natively: the official Node binaries need glibc. Use Docker. |
 
 To try a prerelease, name it; the default install never picks one:
 
@@ -141,17 +152,15 @@ $env:SABIA_VERSION = '1.1.0-beta.1'; irm https://raw.githubusercontent.com/oshog
    path and SHA-256 fingerprint, plus the backup, password-reset and log
    commands.
 
-Linux and macOS installs are per-user and never use `sudo`; `install.sh`
-refuses to run under `sudo`. The official Node binaries need glibc 2.28 or newer
-on Linux (musl distributions such as Alpine should use Docker) and macOS
-13.5 or newer.
+`install.sh` installs per-user and never uses `sudo`; it refuses to run
+under `sudo`.
 
 ### Where things go
 
 | OS | Default root | Service |
 |---|---|---|
 | Linux | `~/.local/share/sabia` (`$XDG_DATA_HOME/sabia`) | systemd user unit `sabia.service`; the installer enables linger so it starts at boot, not only at login (`--no-linger` to skip) |
-| macOS | `~/Library/Application Support/Sabia` | LaunchAgent `br.com.sabiaflightdb.sabia`, starts at login |
+| macOS (unsupported, untested) | `~/Library/Application Support/Sabia` | LaunchAgent `br.com.sabiaflightdb.sabia`, starts at login |
 | Windows | `%LOCALAPPDATA%\Sabia` | Scheduled Task `\Sabia` at logon, running a hidden supervisor that restarts the server if it exits; falls back to a Startup-folder shortcut if the task can't be registered |
 
 The root is the server's working directory, so `flights.db`,

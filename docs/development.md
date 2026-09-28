@@ -23,7 +23,7 @@ client/               React + Vite web app on IBM Carbon (@carbon/react, Gray 10
   e2e/                Playwright end-to-end specs, run against a scratch instance
 tests/                Vitest suite — mirrors src/ for unit tests, tests/db/ for the db/ modules
 samples/              Read-only fixtures (e.g. .lnmpln files) used by tests
-packaging/            build-bundle.sh (release tarball), install.sh (Linux/macOS), install.ps1 (Windows)
+packaging/            build-bundle.sh (release tarball), install.sh (Linux; its macOS path is untested), install.ps1 (Windows)
 docs/                 This documentation set
 .claude/, .codex/, AGENTS.md, CLAUDE.md   Agentic-coding workflow config — not part of the runtime, see below
 ```

@@ -105,7 +105,7 @@ backups (`npm run backup`, after `npm run build`) under the same protection as t
 
 An installer-managed instance ([setup.md](setup.md#installer)) keeps its
 secrets in the install root. `sabia.env` holds `INGEST_TOKEN`, and
-`certs/sabia.key` is the TLS private key, unencrypted. On Linux and macOS the
+`certs/sabia.key` is the TLS private key, unencrypted. On Linux (and on macOS, which is unsupported) the
 helper writes both with mode `0600`. On Windows they inherit the per-user ACL
 of `%LOCALAPPDATA%`. The installer generates `INGEST_TOKEN` from 32 random
 bytes and never regenerates an existing one. It verifies the Node download

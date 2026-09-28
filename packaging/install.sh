@@ -967,6 +967,9 @@ main() {
   require_cmd curl tar awk sed grep
 
   detect_os
+  if [ "$OS" = "darwin" ]; then
+    warn "macOS support is untested and unsupported: the installer has never been run on a Mac. It may work; if it doesn't, use Docker."
+  fi
   detect_arch
   check_not_musl
   check_not_sudo

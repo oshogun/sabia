@@ -66,7 +66,15 @@ Destructive actions (delete, remove, skip) ask for confirmation in a dialog.
   edit (in a dialog) / delete.
 - **Trip detail** — combined map ("Atlas" view), paginated leg table,
   imports, active-trip toggle, flight↔leg linking, PDF/KML export.
-- **Settings** — the SimBrief pilot ID and the optional SayIntentions API key.
+- **Settings** — the SimBrief pilot ID and the optional SayIntentions API
+  key; **Ingest tokens (MCDU)** and **MCP tokens**: create a labelled token
+  (its secret is shown once, in a dialog with a copy button — copy it then),
+  see when each was last used, and revoke any of them, all without a
+  restart; a banner says whether `INGEST_TOKEN`/`MCP_TOKEN` is being ignored
+  or no ingest credential exists at all
+  ([rules](configuration.md#tokens-created-on-the-settings-page)); and
+  **Operator password**: change it with your current password (other
+  sessions are logged out).
 
 ## Navdata on the maps
 
@@ -181,9 +189,10 @@ your process manager's own log capture — see [operations.md](operations.md)).
 | Server exits immediately, `[Config] ...` on stderr | Missing/invalid env var | Read the printed message — it names the exact variable; see [configuration.md](configuration.md) |
 | Server exits, `[Auth] Refusing to start: no operator account exists.` | Never ran `set-password` | `npm run set-password` |
 | `better-sqlite3` fails to load / server won't start at all | Wrong Node version | `nvm use` (must be Node 24) |
-| MCDU `STATUS` shows the backend down, web UI shows `connected: false` | Wrong server URL or ingest token in the MCDU, or it doesn't trust the server's TLS cert | Check the MCDU's `ingestToken` matches the server's `INGEST_TOKEN` exactly; for a self-signed cert set `certPath` on `CFG NETWORK` — see [troubleshooting.md](troubleshooting.md#sim-client--connectivity) |
+| MCDU `STATUS` shows the backend down, web UI shows `connected: false` | Wrong server URL or ingest token in the MCDU, or it doesn't trust the server's TLS cert | Check the MCDU's `ingestToken` matches an active Settings-page ingest token, or `INGEST_TOKEN` if none exists, exactly; for a self-signed cert set `certPath` on `CFG NETWORK` — see [troubleshooting.md](troubleshooting.md#sim-client--connectivity) |
 | `401 Invalid or missing ingest token` on a route other than `/api/ingest/*` | Token missing/mismatched, or that route isn't ingest-scoped | See the allow-list in [api.md](api.md#auth-model-in-one-table) |
 | `429` on login | Login throttle (10 failures / 15 min / IP) | Wait out the window (resets on server restart — the throttle is in-memory) |
+| Every ingest request `401`, startup logged `[Auth] WARNING: no ingest token exists` | No ingest credential at all | Create an ingest token on Settings and enter it in the MCDU |
 | Docker Compose created a `flights.db/` directory | Bind-mount target didn't exist before `up` | `touch flights.db` before first `docker compose up` |
 
 More diagnostics in [troubleshooting.md](troubleshooting.md).

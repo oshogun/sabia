@@ -24,11 +24,11 @@ nvm use
 ## Environment variables (minimum to start)
 
 Full table with every variable, default, and description:
-[configuration.md](configuration.md). The two you need for a first run:
+[configuration.md](configuration.md). The two that matter for a first run:
 
 | Variable | Required | Example |
 |---|---|---|
-| `INGEST_TOKEN` | Yes (unless `ALLOW_UNAUTHENTICATED_INGEST=1`) | `$(openssl rand -hex 24)` |
+| `INGEST_TOKEN` | No — you can instead create an ingest token on the Settings page after logging in. Without either, the server starts but rejects all ingest (the MCDU can't connect) | `$(openssl rand -hex 24)` |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | Yes for a non-loopback `BIND_HOST` | see [HTTPS](#https) below |
 
 ## Bootstrap from zero
@@ -79,7 +79,8 @@ need to trust this self-signed certificate. In the MCDU, point `certPath` on
 
 ### Development (loopback, no TLS)
 
-Loopback binds don't require TLS or a real ingest token:
+Loopback binds don't require TLS. The dev ingest token below is only for
+convenience — you can leave it out and create one on the Settings page:
 
 ```bash
 export BIND_HOST=127.0.0.1
@@ -150,7 +151,9 @@ $env:SABIA_VERSION = '1.1.0-beta.1'; irm https://raw.githubusercontent.com/oshog
 5. Registers a service (below), starts it, waits until it answers, and
    prints the pairing block: server URLs, `INGEST_TOKEN`, the certificate's
    path and SHA-256 fingerprint, plus the backup, password-reset and log
-   commands.
+   commands. That `INGEST_TOKEN` stops being accepted once you create an
+   ingest token on the Settings page — see
+   [configuration.md](configuration.md#tokens-created-on-the-settings-page).
 
 `install.sh` installs per-user and never uses `sudo`; it refuses to run
 under `sudo`.
@@ -281,8 +284,11 @@ machine that has the simulator (MSFS 2020/2024 or FSX):
    installs alongside an old msfslogger client instead of upgrading it; see
    its [release notes](https://github.com/oshogun/sabia_mcdu/releases/tag/v1.0.0).
 2. On `CFG NETWORK`, enter the server URL (`https://<server-address>:3000`),
-   the server's `INGEST_TOKEN`, and a `certPath` if the server uses a
-   self-signed certificate.
+   the ingest token, and a `certPath` if the server uses a self-signed
+   certificate. The ingest token is either the server's `INGEST_TOKEN`, or —
+   once you create any on the web UI's Settings page, which then replaces
+   `INGEST_TOKEN` — the secret shown when you create one there (see
+   [configuration.md](configuration.md#tokens-created-on-the-settings-page)).
 3. Choose the simulator on `CFG SIM`.
 4. Press `START>` on `STATUS`.
 

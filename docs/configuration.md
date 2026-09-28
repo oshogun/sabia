@@ -17,16 +17,54 @@ read directly by the module they affect, noted below.
 | `TLS_KEY_FILE` | No, paired with `TLS_CERT_FILE` | — | Path to a PEM private key. |
 | `TLS_KEY_PASSPHRASE` | No | — | Passphrase for an encrypted private key. |
 | `ALLOW_PLAINTEXT_HTTP` | No (only consulted when TLS isn't configured) | off | Opt-in to serve plaintext HTTP on a non-loopback `BIND_HOST`. Without TLS *and* without this on a non-loopback host, the server refuses to start. Loopback hosts always get plaintext regardless of this value. Truthy values: `1`, `true`, `yes`, `on` (case-insensitive). |
-| `INGEST_TOKEN` | **Yes**, unless `ALLOW_UNAUTHENTICATED_INGEST` is set | — | Shared secret required on `x-ingest-token` for `/api/ingest/*`, the four `/api/navdata/*` sync routes, and the ingest-scoped API routes (see [api.md](api.md)). Recommended ≥16 characters (shorter values only warn, don't block startup). Must match the MCDU client's `ingestToken` exactly. |
-| `ALLOW_UNAUTHENTICATED_INGEST` | No | off | Disables the ingest-token check entirely. Development/trusted-LAN only — see [security.md](security.md). If both this and `INGEST_TOKEN` are set, the token wins (with a startup warning). |
+| `INGEST_TOKEN` | No | — | Shared secret accepted on `x-ingest-token` for `/api/ingest/*`, the four `/api/navdata/*` sync routes, and the ingest-scoped API routes (see [api.md](api.md)). **Ignored while any ingest token created on the Settings page is active** — see [Tokens created on the Settings page](#tokens-created-on-the-settings-page). With neither this nor a Settings-page token, the server still starts, logs a warning, and rejects every ingest request with `401` until you create one. Recommended ≥16 characters (shorter values only warn). Must match the MCDU client's `ingestToken` exactly while it is the credential in force. |
+| `ALLOW_UNAUTHENTICATED_INGEST` | No | off | Disables the ingest-token check entirely. Development/trusted-LAN only — see [security.md](security.md). If both this and `INGEST_TOKEN` are set, the token wins (with a startup warning). Also ignored while any Settings-page ingest token is active. |
 | `SESSION_SECRET` | No | random, persisted in the DB | Signs the session cookie. If unset, a random 32-byte secret is generated once and stored in the `app_secret` table, so sessions survive a restart without one. If set, must be ≥16 characters. |
-| `MCP_TOKEN` | No — the `/mcp` endpoint is simply not mounted when unset | — | Bearer token for the [MCP server](api.md#mcp-server--srcmcp) (`Authorization: Bearer <token>`). Independent of `INGEST_TOKEN` — no shared digest, module, or allow-list — so rotating or unsetting one never affects the other. Recommended ≥16 characters and different from `INGEST_TOKEN` (shorter or matching values only warn, don't block startup). |
+| `MCP_TOKEN` | No | — | Bearer token for the [MCP server](api.md#mcp-server--srcmcp) (`Authorization: Bearer <token>`). Ignored while any MCP token created on the Settings page is active. With neither, `/mcp` behaves as if it didn't exist (see [api.md](api.md#mcp-server--srcmcp)). Independent of `INGEST_TOKEN` — no shared digest, module, or allow-list — so rotating or unsetting one never affects the other. Recommended ≥16 characters and different from `INGEST_TOKEN` (shorter or matching values only warn, don't block startup). |
 
-Example, generating a strong ingest token:
+Example, generating a strong ingest token for the env var (the Settings page
+generates its own — see below):
 
 ```bash
 export INGEST_TOKEN="$(openssl rand -hex 24)"
 ```
+
+## Tokens created on the Settings page
+
+Ingest and MCP tokens can also be created and revoked in the web UI
+(**Settings → Ingest tokens (MCDU) / MCP tokens**), with no env var and no restart.
+Each token has a label; the secret (`sbi_…` for ingest, `sbm_…` for MCP, 32
+random bytes base64url-encoded) is shown **once**, in the create response, and
+only its SHA-256 digest is stored (`ingest_tokens` / `mcp_tokens`, see
+[data-model.md](data-model.md)). The list shows each token's label, an
+8-character random id unrelated to the secret, when it was created and when it
+was last used (updated at most once a minute). At most 20 active tokens of each
+kind.
+
+The credential in force is decided on every request, first match wins
+(`ingestAuthMode()` in `src/auth/ingestAuth.ts`, `mcpAuthMode()` in
+`src/auth/mcpAuth.ts`):
+
+| # | Condition | Ingest | `/mcp` |
+|---|---|---|---|
+| 1 | ≥1 active Settings-page token of that kind | Only those tokens; `INGEST_TOKEN` and `ALLOW_UNAUTHENTICATED_INGEST` ignored | Only those tokens; `MCP_TOKEN` ignored |
+| 2 | Env token set | `INGEST_TOKEN` | `MCP_TOKEN` |
+| 3 | `ALLOW_UNAUTHENTICATED_INGEST` | No check | — |
+| 4 | Otherwise | Every ingest request `401` | `/mcp` passes through as if not mounted |
+
+Consequences worth knowing:
+
+- **Creating the first Settings-page ingest token disconnects an MCDU that is
+  still using `INGEST_TOKEN`** — paste the new secret into its `ingestToken`
+  (`CFG NETWORK`). The page asks for confirmation first.
+- Revoking the last Settings-page token puts the env var (or the opt-out) back
+  in force, immediately.
+- Ingest and MCP tokens live in separate tables and are checked by separate
+  code; neither kind ever authenticates the other's endpoint.
+
+The page's `mode` field (`ui_tokens`, `env_token`, `unauthenticated`,
+`closed`; `disabled` instead of the last two for MCP) reports which row
+applies; see [api.md § Settings](api.md#settings--srcroutessettingsts).
 
 ## Server — read outside `config.ts` (not fail-fast validated)
 
@@ -51,7 +89,7 @@ must agree with this server are:
 | MCDU setting (CDU page) | Must match / relates to |
 |---|---|
 | `serverUrl` (`CFG NETWORK`) | This server's base URL, e.g. `https://192.168.0.30:3000`. |
-| `ingestToken` (`CFG NETWORK`) | This server's `INGEST_TOKEN`, exactly. |
+| `ingestToken` (`CFG NETWORK`) | A Settings-page ingest token's secret, or this server's `INGEST_TOKEN` when no Settings-page token exists — exactly. |
 | `certPath` (`CFG NETWORK`) | Only for a self-signed server certificate; leave `null` with a publicly trusted one. |
 | `trafficEnabled` (`CFG TRAFFIC`) | Read independently of the server's `TRAFFIC_ENABLED`. |
 

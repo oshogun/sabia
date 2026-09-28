@@ -173,8 +173,9 @@ exists. Never deleted by the application.
 
 Single operator account — `id` pinned to `1` via `CHECK (id = 1)`. Columns:
 `id`, `username`, `password_hash` (`scrypt$N$r$p$<salt>$<key>`), `created_at`,
-`updated_at`. Written only by `npm run set-password` (see
-[operations.md](operations.md)).
+`updated_at`. Created by `npm run set-password` (see
+[operations.md](operations.md)); the password can later be changed by that
+command or on the Settings page (`POST /api/settings/password`).
 
 ### `auth_session`
 
@@ -186,9 +187,31 @@ periodically by the server (see [operations.md](operations.md)).
 
 Two small key-value tables: `app_secret` holds server-generated secrets (e.g.
 a session secret, when `SESSION_SECRET` isn't set); `app_setting` holds
-operator-editable settings (currently the SimBrief pilot ID, under key
-`simbrief_user_id`). Both are `name` (TEXT PK) / `value` (TEXT NOT NULL) plus
+operator-editable settings (the SimBrief pilot ID under key
+`simbrief_user_id`, and the SayIntentions API key under
+`sayintentions_api_key`). Both are `name` (TEXT PK) / `value` (TEXT NOT NULL) plus
 a timestamp.
+
+### `ingest_tokens` / `mcp_tokens`
+
+Credentials created on the Settings page (see
+[configuration.md](configuration.md#tokens-created-on-the-settings-page)).
+Same columns in both, deliberately two tables so an ingest token and an MCP
+token can never authenticate each other's endpoint:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK AUTOINCREMENT | used in the revoke route's path |
+| `public_id` | TEXT NOT NULL UNIQUE | 8 random hex chars shown in the list — not derived from the secret |
+| `token_digest` | BLOB NOT NULL UNIQUE, `CHECK (length(token_digest) = 32)` | SHA-256 of the secret; the secret itself is never stored |
+| `label` | TEXT NOT NULL | operator-chosen, 1–64 chars |
+| `created_at` | TEXT NOT NULL | ISO-8601 |
+| `last_used_at` | TEXT | NULL = never used; updated at most once a minute |
+| `revoked_at` | TEXT | NULL = active. Revoked rows are kept, never deleted or reactivated |
+
+A partial index on `id WHERE revoked_at IS NULL` (`idx_ingest_tokens_active`,
+`idx_mcp_tokens_active`) serves the per-request lookup. Access is in
+`src/db/ingestTokens.ts` and `src/db/mcpTokens.ts`, which share no code.
 
 ### `navdata_requests`
 

@@ -144,6 +144,10 @@ touch rows that need correcting).
 
 ## Resetting the operator password
 
+If you can still log in, change it on the web UI's **Settings** page
+(current password required; your other sessions are logged out). If you
+can't, reset it from the command line:
+
 ```bash
 npm run set-password
 ```
@@ -153,9 +157,23 @@ from the install root.) Prompts for a new password (hidden input, or piped stdin
 single operator account. Takes effect immediately — no restart needed, since
 the script opens its own short-lived database connection.
 
+## Rotating an ingest token
+
+With tokens created on the Settings page, no restart is involved:
+
+1. Create a new ingest token on **Settings** and copy its secret (shown once).
+2. Paste it into the MCDU's `ingestToken` on `CFG NETWORK`.
+3. Revoke the old token on **Settings**. It stops working on the next request.
+
+If you're still on `INGEST_TOKEN`, creating the first Settings-page token
+switches the server to Settings-page tokens immediately, and the MCDU is
+rejected until step 2 — see
+[configuration.md](configuration.md#tokens-created-on-the-settings-page).
+MCP tokens rotate the same way, with no restart.
+
 ## Deploy ordering (server + MCDU client)
 
-When rotating `INGEST_TOKEN` or turning TLS on/off, change the server first:
+When rotating `INGEST_TOKEN` (the env var) or turning TLS on/off, change the server first:
 
 1. Set or update `INGEST_TOKEN` and the TLS cert/key.
 2. Restart the server.

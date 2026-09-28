@@ -9,8 +9,8 @@ of truth, generated from `src/server.ts` and `src/routes/*.ts`.
 | Auth type | How | Used by |
 |---|---|---|
 | **Session** | `msfslogger.sid` cookie, set by `POST /api/auth/login` | The web UI |
-| **Ingest token** | `x-ingest-token` header, compared to `INGEST_TOKEN` | The MCDU client, for `/api/ingest/*` and a small allow-listed set of other routes (below) |
-| **MCP bearer token** | `Authorization: Bearer <token>`, compared to `MCP_TOKEN` | An MCP client (e.g. Claude Desktop/Code) at `/mcp` only — see [MCP server](#mcp-server--srcmcp) below |
+| **Ingest token** | `x-ingest-token` header, checked against the active Settings-page ingest tokens, or `INGEST_TOKEN` when none exist ([precedence](configuration.md#tokens-created-on-the-settings-page)) | The MCDU client, for `/api/ingest/*` and a small allow-listed set of other routes (below) |
+| **MCP bearer token** | `Authorization: Bearer <token>`, checked against the active Settings-page MCP tokens, or `MCP_TOKEN` when none exist | An MCP client (e.g. Claude Desktop/Code) at `/mcp` only — see [MCP server](#mcp-server--srcmcp) below |
 | **Public** | none | `/api/auth/*`, the served client, and the SPA catch-all |
 
 Every `/api` route below is one of exactly three values: **session**
@@ -146,6 +146,18 @@ session.
 | PUT | `/api/settings/simbrief` | session | Set the SimBrief pilot ID — note only the GET is allow-listed, not this write |
 | GET | `/api/settings/sayintentions` | session or token — allow-listed | `{sayintentions_api_key_set, sayintentions_api_key_masked}` — the raw key is never returned, only a fixed `'••••••••'` placeholder when set |
 | PUT | `/api/settings/sayintentions` | session | Set/clear the SayIntentions API key — like the SimBrief pair, only the GET is allow-listed; writing a credential is never token-reachable, categorically |
+| GET | `/api/settings/ingest-tokens` | session | `{tokens, mode, env_token_set, unauthenticated_opt_out_set}` — active tokens as `{id, public_id, label, created_at, last_used_at}`, never the secret or its digest. `mode` is `ui_tokens` \| `env_token` \| `unauthenticated` \| `closed`. `Cache-Control: no-store` |
+| POST | `/api/settings/ingest-tokens` | session | Body `{label}` (1–64 chars). `201` with the list fields plus `{created, secret}` — the only time the secret is ever returned. `400 INVALID_BODY` (body not a JSON object) / `INVALID_LABEL`, `409 TOO_MANY_TOKENS` (20 active). `Cache-Control: no-store` |
+| DELETE | `/api/settings/ingest-tokens/:id` | session | Revoke; takes effect on the next request. `200` with the updated list; revoking an already-revoked token is also `200`. `400 INVALID_ID`, `404 TOKEN_NOT_FOUND` only for an id that never existed. Revoked rows are kept (`revoked_at`), never deleted or reactivated |
+| GET | `/api/settings/mcp-tokens` | session | `{tokens, mode, env_token_set}`; `mode` is `ui_tokens` \| `env_token` \| `disabled`. Otherwise as the ingest-token GET |
+| POST | `/api/settings/mcp-tokens` | session | As the ingest-token POST, for MCP tokens |
+| DELETE | `/api/settings/mcp-tokens/:id` | session | As the ingest-token DELETE, for MCP tokens |
+| POST | `/api/settings/password` | session | Body `{current_password, new_password}`. `200 {ok: true, other_sessions_revoked}`: every other session is logged out and the caller's session id is rotated. `403 WRONG_CURRENT_PASSWORD` (403, not 401, so the client doesn't treat it as a logged-out session), `400 INVALID_BODY` (either field missing or not a string) / `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG` / `PASSWORD_BLANK` / `PASSWORD_UNCHANGED`, `429 TOO_MANY_ATTEMPTS` with `Retry-After` — throttled by its own instance of the login throttle |
+
+None of the token or password routes is in `INGEST_SCOPED_ROUTES`: an ingest
+or MCP token can never list, create or revoke tokens, or change the password.
+Which credential is in force, and when the env vars stop counting, is in
+[configuration.md § Tokens created on the Settings page](configuration.md#tokens-created-on-the-settings-page).
 
 ## SayIntentions — `src/routes/sayIntentions.ts`
 
@@ -211,17 +223,22 @@ CORS headers.
 
 A [Model Context Protocol](https://modelcontextprotocol.io/) endpoint for a
 remote MCP client (e.g. Claude Desktop/Code) to read and make a small set of
-edits to the logbook. Opt-in: mounted only when `MCP_TOKEN` is set (see
-[configuration.md](configuration.md)); unset, `GET /mcp` falls through to
-the SPA catch-all exactly like any other unknown path.
+edits to the logbook. Opt-in: it works once an MCP token exists — one
+created on the Settings page or `MCP_TOKEN` (see
+[configuration.md](configuration.md#tokens-created-on-the-settings-page)).
+The router is always mounted, but with no MCP credential at all its gate
+passes every request straight through (`next('router')`), so `/mcp` behaves
+exactly as if it weren't there: `POST`/`DELETE` get Express's `404`, and
+`GET /mcp` falls through to the SPA catch-all like any other unknown path.
+Creating or revoking a token takes effect on the next request, no restart.
 
 | | |
 |---|---|
 | Path | `POST /mcp` — top-level, outside `/api` entirely |
-| Auth | `Authorization: Bearer <MCP_TOKEN>`, checked before the MCP transport sees the request. Missing/wrong → `401` with `WWW-Authenticate: Bearer realm="msfslogger-mcp"` |
-| Methods | `POST` only — `GET` and `DELETE` (and everything else) answer `405 Allow: POST` |
+| Auth | `Authorization: Bearer <token>` (a Settings-page MCP token, or `MCP_TOKEN` when none exists), checked before the MCP transport sees the request. Missing/wrong → `401` with `WWW-Authenticate: Bearer realm="msfslogger-mcp"` |
+| Methods | `POST` only — with a valid token, `GET` and `DELETE` (and everything else) answer `405 Allow: POST` |
 | Transport | [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http), stateless — a fresh `McpServer`/transport per request, `enableJsonResponse: true` (plain `application/json`, no SSE stream for a normal call). The client must send `Accept: application/json, text/event-stream`, or the request is rejected |
-| Independent from `INGEST_TOKEN` | Own env var, own digest, own compare function, own allow-list, own gate (`src/auth/mcpToken.ts`, `src/auth/mcpScope.ts`) — no shared code with the ingest-token path. Revoking one has no effect on the other. `/mcp` is mounted above `express-session` and sets no CORS headers, so it never touches a session cookie and a browser cannot reach it cross-origin |
+| Independent from ingest tokens | Own env var, own table (`mcp_tokens`), own digest, own compare function, own allow-list, own gate (`src/auth/mcpToken.ts`, `src/auth/mcpAuth.ts`, `src/db/mcpTokens.ts`, `src/auth/mcpScope.ts`) — no shared code with the ingest-token path. Revoking one has no effect on the other. `/mcp` is mounted above `express-session` and sets no CORS headers, so a request it handles never touches a session cookie and a browser cannot reach it cross-origin |
 
 Every tool call runs the same underlying `src/db/*.ts`/`FlightManager`
 functions the corresponding `/api` route uses — never an internal HTTP

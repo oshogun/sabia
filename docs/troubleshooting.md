@@ -7,9 +7,23 @@ Configuration failed validation before the database or listener were
 touched. The message names the exact variable and problem — cross-reference
 [configuration.md](configuration.md). Common cases: only one of
 `TLS_CERT_FILE`/`TLS_KEY_FILE` set; a non-loopback `BIND_HOST` with no TLS
-and no `ALLOW_PLAINTEXT_HTTP=1`; `INGEST_TOKEN` unset and
-`ALLOW_UNAUTHENTICATED_INGEST` not set either; `SESSION_SECRET` set but
-shorter than 16 characters.
+and no `ALLOW_PLAINTEXT_HTTP=1`; `SESSION_SECRET` set but
+shorter than 16 characters. (A missing `INGEST_TOKEN` is no longer one of
+them — see the next entry.)
+
+**`[Auth] WARNING: no ingest token exists …` at startup, and every ingest
+request gets `401`.**
+Neither `INGEST_TOKEN` nor a Settings-page ingest token exists, so the
+server is up but rejects all telemetry; the MCDU can't connect. Log in,
+create an ingest token under **Settings**, and paste its secret into the
+MCDU's `ingestToken`. Settings shows a banner while in this state.
+
+**`[Config] INGEST_TOKEN is not set - ingest accepts only tokens created on
+the Settings page …` at startup.**
+Informational, printed on every start without `INGEST_TOKEN` — the server
+does not exit. It is logged before the database is opened, so it can't see
+Settings-page tokens; if you have created one, ingest works and you can
+ignore it. The `[Auth]` line logged after it reflects the real state.
 
 **`[Auth] Refusing to start: no operator account exists.`**
 Run `npm run set-password`. There is no HTTP-based first-run setup flow —
@@ -65,7 +79,11 @@ service, without `sudo`.
 Check these in order:
 
 1. The MCDU's `serverUrl` (`CFG NETWORK`) is reachable and correct.
-2. Its `ingestToken` matches the server's `INGEST_TOKEN` exactly. The server
+2. Its `ingestToken` matches a credential the server accepts **right now**,
+   exactly: an active ingest token from the Settings page, or — only if none
+   exists — `INGEST_TOKEN`. Creating the first Settings-page token makes the
+   server ignore `INGEST_TOKEN` at once, and revoking a token rejects it on
+   the next request; the Settings page shows which applies. The server
    rejects a mismatch with `401` on every ingest request, and a wrong token
    fails the same way as a missing one.
 3. If the server runs HTTPS with a self-signed certificate, the MCDU's
@@ -75,8 +93,10 @@ Check these in order:
 The MCDU's own [troubleshooting guide](https://github.com/oshogun/sabia_mcdu/blob/main/docs/troubleshooting.md) covers its side.
 
 **The MCDU client and server were both reconfigured and it still doesn't work.**
-Check that *both* sides picked up the change. The server must be restarted,
-because a running process doesn't pick up new environment variables. The
+Check that *both* sides picked up the change. After changing an env var
+the server must be restarted, because a running process doesn't pick up new
+environment variables (tokens created or revoked on the Settings page need
+no restart). The
 MCDU's uplink must be restarted too. See
 [operations.md § Deploy ordering](operations.md#deploy-ordering-server--mcdu-client).
 
@@ -103,6 +123,14 @@ extends it) or on server restart if `SESSION_SECRET` isn't set *and* the
 generated secret somehow changed (it shouldn't — it's persisted in the
 database, not regenerated per boot). A `401` on any `/api` call while the UI
 is open bounces the client to `/login` automatically.
+
+**Logged out on another device right after a password change.**
+Expected: changing the password on the Settings page deletes every session
+except the one you changed it from. Log in again with the new password.
+
+**`429` when changing the password on Settings.**
+The same 10-per-15-minutes throttle as login, counted separately — repeated
+wrong "current password" attempts lock the password form, not the login page.
 
 ## Data
 

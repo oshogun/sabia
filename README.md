@@ -81,11 +81,16 @@ npm run build
 npm run set-password
 ```
 
-Set a shared ingest token (the MCDU client needs the same value):
+The MCDU client authenticates with an ingest token. Create one on the
+web UI's **Settings** page after you log in (its secret is shown once), or
+set one in the environment — a Settings-page token takes precedence
+([details](docs/configuration.md#tokens-created-on-the-settings-page)):
 
 ```bash
 export INGEST_TOKEN="$(openssl rand -hex 24)"
 ```
+
+Without either, the server starts but rejects everything the MCDU sends.
 
 For anything beyond loopback access, configure HTTPS — the server refuses
 plaintext HTTP on a non-loopback bind by default:
@@ -130,7 +135,8 @@ with MSFS 2020/2024 or FSX, from the installer on its
 [latest Release](https://github.com/oshogun/sabia_mcdu/releases/latest).
 That PC needs Node 20 as well; see
 [setup.md](docs/setup.md#connect-the-simulator). On its `CFG NETWORK` page, enter the server URL
-(`https://<server-address>:3000`) and the server's `INGEST_TOKEN`. Choose the
+(`https://<server-address>:3000`) and the ingest token (from Settings, or
+the server's `INGEST_TOKEN`). Choose the
 simulator on `CFG SIM`, then press `START>` on `STATUS`. Full setup is in
 that repository's
 [configuration guide](https://github.com/oshogun/sabia_mcdu/blob/main/docs/configuration.md).

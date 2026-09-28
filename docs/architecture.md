@@ -47,7 +47,7 @@ Express + TypeScript, single process, single SQLite database
   ingest token only (status, ACARS, ground-session-current, SimBrief
   settings) — this is what the MCDU app uses.
 - Serve an optional [MCP](https://modelcontextprotocol.io/) endpoint
-  (`/mcp`, its own bearer-token credential, off unless `MCP_TOKEN` is set)
+  (`/mcp`, its own bearer-token credential, off until an MCP token is created on the Settings page or `MCP_TOKEN` is set)
   exposing the logbook as 18 tools to a remote MCP client such as Claude
   Desktop/Code. See [api.md § MCP server](api.md#mcp-server--srcmcp).
 - Keep a replica of MSFS navigation data pushed by the MCDU client (`src/navdata/`, a separate SQLite file) and answer map queries and route-expansion requests from it. See [navdata.md](navdata.md).
@@ -142,7 +142,7 @@ from the server is not supported. The Node.js agent that used to live in
 | SayIntentions.AI SAPI | server calls out (optional) | Pull ATC/CPDLC comms into a flight's ACARS thread; push an on-file PDC as a real CPDLC message — off by default, needs an operator-supplied API key. See [api.md § SayIntentions](api.md#sayintentions--srcroutessayintentionsts). |
 | OpenStreetMap tile server | browser calls out | Map tiles in the web UI |
 | MCDU/Tauri desktop client (`oshogun/sabia_mcdu`) | calls in, via ingest-scoped API | In-sim datalink UI, including the SayIntentions feature above; separate repository, not documented here |
-| MCP client (e.g. Claude Desktop/Code) | calls in, via `/mcp` with its own bearer token | Read/edit the logbook through 18 MCP tools — off by default, needs an operator-supplied `MCP_TOKEN`. See [api.md § MCP server](api.md#mcp-server--srcmcp). |
+| MCP client (e.g. Claude Desktop/Code) | calls in, via `/mcp` with its own bearer token | Read/edit the logbook through 18 MCP tools — off by default, needs an MCP token (created on the Settings page, or `MCP_TOKEN`). See [api.md § MCP server](api.md#mcp-server--srcmcp). |
 
 ## Runtime flow
 
@@ -152,7 +152,10 @@ from the server is not supported. The Node.js agent that used to live in
    before anything else runs.
 2. `initDb()` — opens the SQLite file, applies schema/migrations.
 3. Refuse to start if no operator account exists yet (`npm run set-password`
-   creates one — there is no HTTP-based setup flow).
+   creates one — there is no HTTP-based setup flow). Then log which ingest
+   credential is in force: a warning when none exists at all (the server
+   still starts; ingest is rejected), or a note when Settings-page tokens
+   override `INGEST_TOKEN`, `ALLOW_UNAUTHENTICATED_INGEST` or `MCP_TOKEN`.
 4. Sweep expired sessions once, then every 6 hours.
 5. Ensure the flight-plans attachment directory exists; start airport-data
    loading in the background (non-blocking).
@@ -167,10 +170,12 @@ Middleware order is deliberate and load-bearing:
 1. `express.json()` (100KB body limit) and static file serving from
    `client/dist`.
 2. `/api/ingest/*` — mounted **before** session middleware, authenticated
-   independently by ingest token.
-3. `/mcp` — mounted only when `MCP_TOKEN` is set, also **before** session
-   middleware and outside `/api` entirely, authenticated independently by
-   its own bearer token. See [api.md § MCP server](api.md#mcp-server--srcmcp).
+   independently by ingest token, looked up in the token store on every
+   request (`checkIngestCredential()`, `src/auth/ingestAuth.ts`).
+3. `/mcp` — always mounted, also **before** session middleware and outside
+   `/api` entirely, authenticated independently by its own bearer token
+   (`checkMcpCredential()`, `src/auth/mcpAuth.ts`). With no MCP credential
+   anywhere its gate calls `next('router')`, so it behaves as if unmounted. See [api.md § MCP server](api.md#mcp-server--srcmcp).
 4. Session middleware (cookie `msfslogger.sid`, SQLite-backed store).
 5. An ingest-token *scope classifier* (marks eligible requests; doesn't gate
    by itself).

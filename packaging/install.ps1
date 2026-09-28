@@ -91,7 +91,12 @@ function Install-Sabia {
         if ($env:USERPROFILE -and ($full.TrimEnd('\') -eq $env:USERPROFILE.TrimEnd('\'))) {
             throw "Install directory `"$full`" must not be the user's profile directory itself."
         }
-        return $full
+        # Trimmed here, not just compared trimmed above: a trailing
+        # separator (e.g. tab-completing "-InstallDir D:\Sabia\") would
+        # otherwise propagate into every "$Root\bin\..." this installer
+        # builds, doubling the separator there. The drive-root case that
+        # would make trimming empty the string is already rejected above.
+        return $full.TrimEnd('\')
     }
 
     function Assert-ValidPort([string] $Value, [string] $Label) {
@@ -219,49 +224,171 @@ function Install-Sabia {
         }
     }
 
-    # Deliberately does not merge stderr with 2>&1: under Windows PowerShell
-    # 5.1, a native command's stderr line merged into the success stream can
-    # be wrapped as a non-terminating ErrorRecord, which $ErrorActionPreference
-    # = 'Stop' (set by the caller, Install-Sabia) would then escalate into a
-    # terminating error before the exit code is ever inspected - unverifiable
-    # without a real Windows host, so it is avoided rather than risked.
-    # $ErrorActionPreference is set to 'Continue' here, function-scoped, so it
-    # reverts automatically on return and never affects the caller.
+    # Builds one process argument string the way the Win32 C runtime (and so
+    # node.exe) parses it back apart: wrap in double quotes only when needed,
+    # double any run of backslashes that is itself followed by a quote (or
+    # that ends the argument once quoted), and escape embedded quotes.
+    # ProcessStartInfo.Arguments is a single string with no quoting of its
+    # own, unlike the & operator's own array splat, so this is what actually
+    # keeps a space or an accented character in the install root from
+    # splitting into two arguments.
+    function Format-ProcessArgument([string] $Value) {
+        if ($null -eq $Value) { $Value = '' }
+        if ($Value.Length -eq 0) { return '""' }
+        if ($Value -notmatch '[\s"]') { return $Value }
+        $sb = New-Object Text.StringBuilder
+        [void] $sb.Append('"')
+        $backslashes = 0
+        foreach ($ch in $Value.ToCharArray()) {
+            if ($ch -eq '\') {
+                $backslashes++
+                continue
+            }
+            if ($ch -eq '"') {
+                [void] $sb.Append([char] '\', ($backslashes * 2 + 1))
+                [void] $sb.Append('"')
+                $backslashes = 0
+                continue
+            }
+            if ($backslashes -gt 0) {
+                [void] $sb.Append([char] '\', $backslashes)
+                $backslashes = 0
+            }
+            [void] $sb.Append($ch)
+        }
+        if ($backslashes -gt 0) { [void] $sb.Append([char] '\', ($backslashes * 2)) }
+        [void] $sb.Append('"')
+        return $sb.ToString()
+    }
+
+    # Deliberately does not go through & $NodeExe ... 2>&1 or 2>file: under
+    # Windows PowerShell 5.1, a native command's stderr - merged into the
+    # success stream, or even just redirected to a file with $ErrorAction
+    # Continue set - is first wrapped as a NativeCommandError ErrorRecord,
+    # and what lands in the file/variable is that record's formatted display
+    # ("node.exe : <message>" plus a repeated CategoryInfo/FullyQualifiedErrorId
+    # block), not the helper's raw text (observed on a real Windows box,
+    # 2026-09-28). [Diagnostics.Process] with its own redirected streams
+    # bypasses PowerShell's native-command error handling entirely, so the
+    # captured stderr is exactly the bytes the helper wrote.
     function Invoke-Helper([string] $NodeExe, [string] $CliPath, [string[]] $CliArgs) {
-        $ErrorActionPreference = 'Continue'
-        # Under the root's own .install.lock, never %TEMP% - nothing this
-        # installer writes should land outside the root, and .install.lock
-        # exists for the whole run.
-        $stderrFile = Join-Path $lockDir "helper.$PID.$([Guid]::NewGuid().ToString('N')).err"
         $utf8NoBom = New-Object Text.UTF8Encoding($false)
-        # PowerShell decodes a captured native process's stdout using
-        # [Console]::OutputEncoding (not the file-system-safe wide APIs that
-        # Join-Path/Test-Path/etc use), and encodes text piped into a native
-        # process's stdin using $OutputEncoding. Node always writes/reads
-        # UTF-8, and this helper's own output can contain the install root
-        # (env-merge's TLS_CERT_FILE, cert's paths, pairing's URLs and PEM),
-        # so both are pinned to UTF-8 for the call and restored after - the
-        # default on 5.1 is the console's ANSI codepage, which would mangle
-        # any non-ASCII path otherwise. Console.OutputEncoding is not
-        # settable in every host (no console at all), so this is best-effort.
-        $prevOutputEncoding = $OutputEncoding
-        $prevConsoleEncoding = $null
-        try { $prevConsoleEncoding = [Console]::OutputEncoding } catch { Write-Verbose $_.Exception.Message }
-        $OutputEncoding = $utf8NoBom
-        try { [Console]::OutputEncoding = $utf8NoBom } catch { Write-Verbose $_.Exception.Message }
+        $psi = New-Object Diagnostics.ProcessStartInfo
+        $psi.FileName = $NodeExe
+        $psi.WorkingDirectory = (Get-Location).Path
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.StandardOutputEncoding = $utf8NoBom
+        $psi.StandardErrorEncoding = $utf8NoBom
+        $allArgs = @($CliPath) + @($CliArgs)
+        $psi.Arguments = (($allArgs | ForEach-Object { Format-ProcessArgument $_ }) -join ' ')
+
+        $proc = New-Object Diagnostics.Process
+        $proc.StartInfo = $psi
         try {
-            $stdout = Invoke-WithoutServerEnv { & $NodeExe $CliPath @CliArgs 2>$stderrFile }
-            $code = $LASTEXITCODE
-            $stderrText = if (Test-Path -LiteralPath $stderrFile) { [IO.File]::ReadAllText($stderrFile, $utf8NoBom) } else { $null }
+            # Stdout is read asynchronously (ReadToEndAsync, awaited only
+            # after stderr and WaitForExit) so a full stderr buffer can never
+            # deadlock against a full stdout buffer; events
+            # (Register-ObjectEvent/BeginOutputReadLine) are avoided here
+            # because PowerShell dispatches them in no guaranteed order,
+            # which scrambled multi-line output.
+            $started = Invoke-WithoutServerEnv {
+                $proc.Start() | Out-Null
+                $outTask = $proc.StandardOutput.ReadToEndAsync()
+                $stderrText = $proc.StandardError.ReadToEnd()
+                $proc.WaitForExit()
+                [pscustomobject]@{ OutTask = $outTask; StdErr = $stderrText }
+            }
+            $stdoutText = $started.OutTask.GetAwaiter().GetResult()
+            $stderrText = $started.StdErr
+            $code = $proc.ExitCode
         } finally {
-            Remove-Item -LiteralPath $stderrFile -ErrorAction SilentlyContinue
-            $OutputEncoding = $prevOutputEncoding
-            if ($null -ne $prevConsoleEncoding) { try { [Console]::OutputEncoding = $prevConsoleEncoding } catch { Write-Verbose $_.Exception.Message } }
+            $proc.Dispose()
         }
         $lines = @()
-        if ($stdout) { $lines += @($stdout) }
-        if ($stderrText) { $lines += @($stderrText.TrimEnd()) }
+        if ($stdoutText) {
+            $stdoutText = $stdoutText.TrimEnd()
+            if ($stdoutText) { $lines += @($stdoutText -split '\r?\n') }
+        }
+        if ($stderrText) { $stderrText = $stderrText.TrimEnd(); if ($stderrText) { $lines += @($stderrText) } }
         return [pscustomobject]@{ ExitCode = $code; Output = $lines }
+    }
+
+    # Wildcard forms mean "every interface" and are returned as-is; anything
+    # else - a literal IP or a hostname such as a custom BIND_HOST - is
+    # resolved through DNS, which for a literal IP just parses it back out
+    # with no actual network call, and for a hostname (e.g. "localhost") can
+    # return more than one address across both families. A resolution
+    # failure falls back to the raw string, still safe: it just stops
+    # matching a wildcard listener rather than throwing.
+    function Resolve-SabiaBindAddress([string] $BindHostAddr) {
+        if (-not $BindHostAddr -or $BindHostAddr -eq '0.0.0.0' -or $BindHostAddr -eq '::' -or $BindHostAddr -eq '*') {
+            return @($BindHostAddr)
+        }
+        try {
+            return @([Net.Dns]::GetHostAddresses($BindHostAddr) | ForEach-Object { $_.ToString() })
+        } catch {
+            return @($BindHostAddr)
+        }
+    }
+
+    # True when BindAddr and ListenerAddr would collide on the same port:
+    #   - a listener on "::" is a dual-stack socket that also holds the IPv4
+    #     port (verified: a second IPv4 bind on the same port then fails with
+    #     EADDRINUSE), so it collides with every bind, of either family;
+    #   - a bind of "::" is the same dual-stack wildcard from the other side,
+    #     so it collides with every existing listener;
+    #   - otherwise an IPv4 bind (wildcard or specific) only collides with an
+    #     IPv4 listener (its own wildcard 0.0.0.0, or the exact address), and
+    #     a specific IPv6 bind only collides with that exact address - a
+    #     specific, non-"::" listener of the other family never collides.
+    function Test-SabiaAddressBusy([string] $BindAddr, [string] $ListenerAddr) {
+        if ($ListenerAddr -eq '::') { return $true }
+        if ($BindAddr -eq '::') { return $true }
+        $listenerIsV6 = ($ListenerAddr -match ':')
+        if ($BindAddr -and ($BindAddr -match ':')) {
+            return ($ListenerAddr -eq $BindAddr)
+        }
+        if ($listenerIsV6) { return $false }
+        if ((-not $BindAddr) -or ($BindAddr -eq '0.0.0.0') -or ($BindAddr -eq '*')) { return $true }
+        return ($ListenerAddr -eq $BindAddr) -or ($ListenerAddr -eq '0.0.0.0')
+    }
+
+    # True when something is already listening on Port in a way that would
+    # collide with binding BindHostAddr - see Test-SabiaAddressBusy for the
+    # per-address rule; a hostname resolves to one or more addresses and is
+    # busy if any of them collides with any existing listener.
+    function Test-SabiaPortListening([string] $BindHostAddr, [int] $Port) {
+        $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
+        if ($listeners.Count -eq 0) { return $false }
+        foreach ($bindAddr in (Resolve-SabiaBindAddress -BindHostAddr $BindHostAddr)) {
+            foreach ($listener in $listeners) {
+                if (Test-SabiaAddressBusy -BindAddr $bindAddr -ListenerAddr $listener.LocalAddress) { return $true }
+            }
+        }
+        return $false
+    }
+
+    # Checks whether resolvedPort/resolvedBindHost is free without binding it
+    # ourselves whenever avoidable: Get-NetTCPConnection (NetTCPIP module,
+    # Windows 8/Server 2012 and later) only reads the existing TCP table, so
+    # it never triggers the firewall "allow access" prompt the helper's own
+    # port-free (which actually binds) does when probing a wildcard host with
+    # the staged, not-yet-trusted node.exe (observed on a real Windows box,
+    # 2026-09-28). Only when that cmdlet is unavailable does this fall back
+    # to the helper, and even then on 127.0.0.1 rather than BindHostAddr -
+    # loopback-only binds do not surface that prompt.
+    function Test-SabiaPortFree([string] $NodeExe, [string] $HelperCli, [string] $BindHostAddr, [int] $Port) {
+        if ($null -ne (Get-Command -Name Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
+            $busy = Test-SabiaPortListening -BindHostAddr $BindHostAddr -Port $Port
+            return [pscustomobject]@{ Busy = $busy; Failed = $false; Output = $null }
+        }
+        $result = Invoke-Helper -NodeExe $NodeExe -CliPath $HelperCli -CliArgs @('port-free', '--host', '127.0.0.1', '--port', [string] $Port)
+        $busy = ($result.ExitCode -eq 3)
+        $failed = ($result.ExitCode -ne 0) -and (-not $busy)
+        return [pscustomobject]@{ Busy = $busy; Failed = $failed; Output = $result.Output }
     }
 
     function Test-PidFileProcess([string] $PidFile, [string] $ExpectedImagePath) {
@@ -279,6 +406,41 @@ function Install-Sabia {
         return $proc
     }
 
+    # A name check alone (powershell/pwsh) is not enough to trust
+    # run\supervisor.pid: a PID can be recycled onto any powershell process,
+    # including this installer's own, once the wrapper it used to name has
+    # exited. This verifies the process is actually running
+    # bin\sabia-service.ps1 for this Root, via the real command line
+    # (Win32_Process.CommandLine, matched case-insensitively - Get-Process
+    # itself cannot see a script host's arguments), and never accepts the
+    # installer's own $PID even if it happens to be the value on disk.
+    function Test-SabiaSupervisorProcess([string] $Root) {
+        $pidFile = Join-Path $Root 'run\supervisor.pid'
+        if (-not (Test-Path -LiteralPath $pidFile)) { return $null }
+        $procId = (Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if (-not $procId) { return $null }
+        if ($procId -eq $PID) { return $null }
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if (-not $proc) { return $null }
+        if ($proc.ProcessName -ne 'powershell' -and $proc.ProcessName -ne 'pwsh') { return $null }
+        $expectedScript = Join-Path $Root 'bin\sabia-service.ps1'
+        try {
+            $commandLine = (Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$procId" -ErrorAction Stop).CommandLine
+        } catch {
+            return $null
+        }
+        if (-not $commandLine) { return $null }
+        # Collapsed on both sides: a doubled separator - from an install
+        # root recorded with a trailing "\" before Assert-ValidInstallDir
+        # trimmed it, still possible for a supervisor that has been running
+        # since before that fix - must not make an otherwise-matching
+        # command line miss.
+        $normalizedCommandLine = ($commandLine -replace '\\{2,}', '\').ToLowerInvariant()
+        $normalizedExpected = ($expectedScript -replace '\\{2,}', '\').ToLowerInvariant()
+        if ($normalizedCommandLine.Contains($normalizedExpected)) { return $proc }
+        return $null
+    }
+
     function Stop-SabiaService([string] $Root) {
         $task = Get-ScheduledTask -TaskName 'Sabia' -ErrorAction SilentlyContinue
         if ($task) {
@@ -288,8 +450,8 @@ function Install-Sabia {
         # matches the expected binary is trusted.
         $supervisorPid = Join-Path $Root 'run\supervisor.pid'
         $nodePid = Join-Path $Root 'run\node.pid'
-        $proc = Test-PidFileProcess -PidFile $supervisorPid -ExpectedImagePath $null
-        if ($proc -and ($proc.ProcessName -eq 'powershell' -or $proc.ProcessName -eq 'pwsh')) {
+        $proc = Test-SabiaSupervisorProcess -Root $Root
+        if ($proc) {
             try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch { Write-Verbose $_.Exception.Message }
         }
         $nodeExePath = Join-Path $Root 'node\node.exe'
@@ -299,7 +461,7 @@ function Install-Sabia {
         }
         $deadline = (Get-Date).AddSeconds(30)
         while ((Get-Date) -lt $deadline) {
-            $stillSup = Test-PidFileProcess -PidFile $supervisorPid -ExpectedImagePath $null
+            $stillSup = Test-SabiaSupervisorProcess -Root $Root
             $stillNode = Test-PidFileProcess -PidFile $nodePid -ExpectedImagePath $nodeExePath
             if (-not $stillSup -and -not $stillNode) { break }
             Start-Sleep -Milliseconds 500
@@ -308,21 +470,58 @@ function Install-Sabia {
         Remove-Item -LiteralPath $nodePid -ErrorAction SilentlyContinue
     }
 
+    # Polls run\supervisor.pid for up to TimeoutSeconds, using the same
+    # PID/path check Stop-SabiaService trusts, so a caller that just asked
+    # Windows to start the service can tell a real start from one that
+    # silently did nothing - observed on a real Windows box, 2026-09-28:
+    # Start-ScheduledTask on a logon task returns without error from a
+    # non-interactive session (runas/SSH) even though the task never runs.
+    function Wait-SabiaSupervisorStarted([string] $Root, [int] $TimeoutSeconds) {
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        do {
+            if (Test-SabiaSupervisorProcess -Root $Root) { return $true }
+            Start-Sleep -Milliseconds 500
+        } while ((Get-Date) -lt $deadline)
+        return $false
+    }
+
     # Starts (or re-starts) the service in whichever autostart mode a marker
     # recorded. Every path handed to Start-Process's -ArgumentList is
     # embedded in its own escaped double quotes: that parameter joins array
     # elements with a plain space and does not quote them itself, so an
     # unquoted element breaks for any install path containing a space.
+    #
+    # For Mode 'task', Start-ScheduledTask succeeding is not trusted by
+    # itself: it can return with no error from a non-interactive session
+    # while the task never actually runs (see Wait-SabiaSupervisorStarted).
+    # The task stays registered either way (for the next real logon), but
+    # this run falls back to starting the wrapper directly, exactly as
+    # 'startup-folder' mode does, whenever the verification does not see a
+    # live supervisor within the timeout. Returns $true when the direct
+    # fallback was used (the task did not visibly start it), $false when the
+    # task itself was confirmed running - so a caller can log accordingly.
+    # The wrapper script has its own single-instance guard (an existing live
+    # powershell/pwsh recorded in run\supervisor.pid makes it exit
+    # immediately), so this never risks starting a second supervisor.
     function Start-SabiaAutostartMode([string] $Root, [string] $Mode) {
         if ($Mode -eq 'task') {
-            try { Start-ScheduledTask -TaskName 'Sabia' -ErrorAction Stop; return } catch { Write-Verbose $_.Exception.Message }
+            $verified = $false
+            try {
+                Start-ScheduledTask -TaskName 'Sabia' -ErrorAction Stop
+                $verified = Wait-SabiaSupervisorStarted -Root $Root -TimeoutSeconds 10
+            } catch {
+                Write-Verbose $_.Exception.Message
+            }
+            if ($verified) { return $false }
         }
         if ($Mode -eq 'task' -or $Mode -eq 'startup-folder') {
             $scriptPath = Join-Path $Root 'bin\sabia-service.ps1'
             Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @(
                 '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$scriptPath`""
             )
+            return $true
         }
+        return $false
     }
 
     # ---- wrapper and task definitions (written at install time) -----------
@@ -350,10 +549,26 @@ foreach ($sabiaEnvKey in @('PORT', 'BIND_HOST', 'TLS_CERT_FILE', 'TLS_KEY_FILE',
 
 if (Test-Path -LiteralPath $supervisorPidFile) {
     $existingId = Get-Content -LiteralPath $supervisorPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($existingId) {
+    # A name check alone is not enough - a recycled PID can land on any
+    # powershell/pwsh process, including this one, once the previous
+    # supervisor has exited - so this also requires the real command line to
+    # name this exact script, and never accepts its own $PID.
+    if ($existingId -and ($existingId -ne $PID)) {
         $existing = Get-Process -Id $existingId -ErrorAction SilentlyContinue
         if ($existing -and ($existing.ProcessName -eq 'powershell' -or $existing.ProcessName -eq 'pwsh')) {
-            return
+            $existingCommandLine = $null
+            try {
+                $existingCommandLine = (Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$existingId" -ErrorAction Stop).CommandLine
+            } catch {
+                $existingCommandLine = $null
+            }
+            if ($existingCommandLine) {
+                $normalizedCommandLine = ($existingCommandLine -replace '\\{2,}', '\').ToLowerInvariant()
+                $normalizedSelf = ($PSCommandPath -replace '\\{2,}', '\').ToLowerInvariant()
+                if ($normalizedCommandLine.Contains($normalizedSelf)) {
+                    return
+                }
+            }
         }
     }
 }
@@ -546,7 +761,8 @@ try {
 
         $ruleNow = $null -ne (Get-NetFirewallRule -Name 'SabiaServer-In' -ErrorAction SilentlyContinue)
         if (-not $ruleNow) {
-            Write-Warn2 'The firewall rule SabiaServer-In was not created. LAN clients cannot reach the server until it is (a same-machine MCDU still works via https://127.0.0.1). If Windows shows a "blocked some features" prompt, choose Private and Allow.'
+            # Names the actual dialog: "Windows Defender Firewall has blocked some features of this app", naming node.exe, with Allow access / Private networks.
+            Write-Warn2 "The firewall rule SabiaServer-In was not created. LAN clients cannot reach the server until it is (a same-machine MCDU still works via https://127.0.0.1). When the server itself starts, Windows may show a 'Windows Defender Firewall has blocked some features of this app' prompt naming $nodeExe - check Private networks and click Allow access."
         }
 
         try {
@@ -561,12 +777,15 @@ try {
         }
 
         if ($taskRegistered) {
-            try { Start-ScheduledTask -TaskName 'Sabia' -ErrorAction Stop } catch { Start-SabiaAutostartMode -Root $Root -Mode 'startup-folder' }
+            $startedDirectly = Start-SabiaAutostartMode -Root $Root -Mode 'task'
+            if ($startedDirectly) {
+                Write-Info 'The logon task did not visibly start the service (seen on a non-interactive logon); started it directly for this run. It stays registered for future logons.'
+            }
             return 'task'
         }
 
         New-StartupShortcut -Root $Root
-        Start-SabiaAutostartMode -Root $Root -Mode 'startup-folder'
+        [void] (Start-SabiaAutostartMode -Root $Root -Mode 'startup-folder')
         return 'startup-folder'
     }
 
@@ -1002,16 +1221,15 @@ try {
         # busy port never costs an existing service its uptime.
         $portOrHostChanged = (-not $wasInstalled) -or ($null -eq $envBackup) -or ($priorPort -ne [string] $resolvedPort) -or ($priorBindHost -ne $resolvedBindHost)
         if ($portOrHostChanged) {
-            $portFreeResult = Invoke-Helper -NodeExe $activeNodeExe -CliPath $helperCli -CliArgs @('port-free', '--host', $resolvedBindHost, '--port', [string] $resolvedPort)
-            $portBusy = ($portFreeResult.ExitCode -eq 3)
-            if ($portBusy -or ($portFreeResult.ExitCode -ne 0)) {
+            $portCheck = Test-SabiaPortFree -NodeExe $activeNodeExe -HelperCli $helperCli -BindHostAddr $resolvedBindHost -Port $resolvedPort
+            if ($portCheck.Busy -or $portCheck.Failed) {
                 # Nothing has been stopped or swapped yet - restore the
                 # snapshot and leave the running service exactly as it was.
                 Restore-PreSwapConfig
-                if ($portBusy) {
+                if ($portCheck.Busy) {
                     throw "Port $resolvedPort is already used by another program; pass -Port to choose a different one."
                 } else {
-                    throw "port-free check failed: $($portFreeResult.Output)"
+                    throw "port-free check failed: $($portCheck.Output)"
                 }
             }
         }
@@ -1168,7 +1386,10 @@ try {
                         }
                     }
 
-                    Start-SabiaAutostartMode -Root $root -Mode $marker['autostart']
+                    $rollbackStartedDirectly = Start-SabiaAutostartMode -Root $root -Mode $marker['autostart']
+                    if ($rollbackStartedDirectly -and ($marker['autostart'] -eq 'task')) {
+                        Write-Info 'The logon task did not visibly start the rolled-back service; started it directly for this run.'
+                    }
                     # Re-check the restored old version actually comes back
                     # up - a rollback that silently leaves the old version
                     # unhealthy too is worse than reporting it.

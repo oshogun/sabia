@@ -103,6 +103,20 @@ To run a specific release rather than the tip of `main`, use
 There is no staged rollout, canary, or blue/green concept. This is a
 single-operator, self-hosted app with, typically, one running instance.
 
+## Prereleases
+
+A version with a prerelease suffix, such as `1.1.0-beta.1`, is released the
+same way, from a `v1.1.0-beta.1` tag. The suffix follows semver: dot-separated
+parts made of letters, digits and `-`, with no `+build` metadata. What differs:
+
+- The GitHub Release is marked as a prerelease, so it never becomes
+  "Latest". The installers' default "latest release" lookup skips it.
+- Docker Hub gets only `oshogun/sabia:1.1.0-beta.1`. `latest`, `1` and `1.1`
+  are not moved.
+- Testers install it explicitly: `--version 1.1.0-beta.1` (install.sh),
+  `SABIA_VERSION=1.1.0-beta.1` (either script), or
+  `SABIA_VERSION=1.1.0-beta.1 docker compose pull`.
+
 ## Cutting a release
 
 The version lives in four places, which must all match the tag:

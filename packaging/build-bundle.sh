@@ -20,8 +20,14 @@ if [ -z "$VERSION" ] || [ -z "$OUT_DIR" ]; then
   exit 1
 fi
 
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "error: version '$VERSION' does not match X.Y.Z" >&2
+# X.Y.Z, optionally followed by a semver 2.0 prerelease (-alpha, -beta.1, ...).
+# No build metadata (+...): a bundle name and a release tag both need to stay
+# a single unambiguous string, and build metadata is defined by semver to be
+# ignored in comparisons, which would make two different bundles collide.
+SEMVER_IDENT='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+VERSION_RE="^[0-9]+\\.[0-9]+\\.[0-9]+(-${SEMVER_IDENT}(\\.${SEMVER_IDENT})*)?\$"
+if ! [[ "$VERSION" =~ $VERSION_RE ]]; then
+  echo "error: version '$VERSION' does not match X.Y.Z or X.Y.Z-PRERELEASE (semver 2.0 prerelease identifiers)" >&2
   exit 1
 fi
 

@@ -199,8 +199,16 @@ jobs:
             exit 1
           fi
           BODY="$(git tag -l "$TAG" --format='%(contents:body)')"
+          TAG_VERSION="${TAG#v}"
+          # A version with a `-` (1.2.3-beta.1) is a prerelease: publish it
+          # marked as such, never as the repo's Latest release.
+          PRERELEASE_FLAGS=()
+          case "$TAG_VERSION" in
+            *-*) PRERELEASE_FLAGS+=(--prerelease) ;;
+          esac
           gh release create "$TAG" --repo "${{ github.repository }}" \
-            --verify-tag --title "$SUBJECT" --notes "$BODY"
+            --verify-tag --title "$SUBJECT" --notes "$BODY" \
+            "${PRERELEASE_FLAGS[@]}"
 
       - name: Upload release assets
         env:

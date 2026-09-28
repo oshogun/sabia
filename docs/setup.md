@@ -108,6 +108,16 @@ irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 |
 
 Each Release also carries both scripts as assets, for a pinned install.
 
+To try a prerelease, name it; the default install never picks one:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.sh | bash -s -- --version 1.1.0-beta.1
+```
+
+```powershell
+$env:SABIA_VERSION = '1.1.0-beta.1'; irm https://raw.githubusercontent.com/oshogun/sabia/main/packaging/install.ps1 | iex
+```
+
 ### What it does
 
 1. Downloads the latest Node 24 from nodejs.org into `<root>/node`, checked
@@ -173,7 +183,7 @@ $env:SABIA_PORT = '3443'; irm https://raw.githubusercontent.com/oshogun/sabia/ma
 
 | install.sh | install.ps1 | Variable | Meaning |
 |---|---|---|---|
-| `--version X.Y.Z` | `-Version` | `SABIA_VERSION` | Install this release instead of the latest |
+| `--version X.Y.Z` | `-Version` | `SABIA_VERSION` | Install this release instead of the latest (a prerelease such as `1.1.0-beta.1` too) |
 | `--bundle PATH_OR_URL` | `-Bundle` | `SABIA_BUNDLE` | Install from this bundle instead of a release lookup |
 | `--install-dir DIR` | `-InstallDir` | `SABIA_INSTALL_DIR` | Install root |
 | `--port N` | `-Port` | `SABIA_PORT` | Port, 1024–65535 (default 3000, or the existing value) |

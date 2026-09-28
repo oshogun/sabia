@@ -735,7 +735,11 @@ try {
             $bundleIsUrl = $Bundle -match '^https?://'
         } elseif ($Version) {
             $targetVersion = $Version.TrimStart('v')
-            if ($targetVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "-Version must look like X.Y.Z, got '$Version'." }
+            # X.Y.Z, optionally with a semver 2.0 prerelease (-beta.1, -rc.2,
+            # ...); no build metadata. Mirrors packaging/build-bundle.sh.
+            $semverIdent = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+            $versionPattern = "^[0-9]+\.[0-9]+\.[0-9]+(-$semverIdent(\.$semverIdent)*)?`$"
+            if ($targetVersion -notmatch $versionPattern) { throw "-Version must look like X.Y.Z or X.Y.Z-PRERELEASE (semver 2.0 prerelease identifiers), got '$Version'." }
         } else {
             try {
                 $apiText = Invoke-TextDownload -Uri $ApiUrl -Headers @{ 'User-Agent' = 'sabia-install.ps1' }
@@ -781,7 +785,20 @@ try {
             if ($actualHash -ne $nodeSha256.ToLowerInvariant()) { throw "Node download checksum mismatch for $nodeFile." }
             $nodeExtractDir = Join-Path $stagingDir 'node-extract'
             if (Test-Path -LiteralPath $nodeExtractDir) { Remove-Item -LiteralPath $nodeExtractDir -Recurse -Force }
-            Expand-Archive -LiteralPath $nodeZip -DestinationPath $nodeExtractDir -Force
+            # Deliberately not the Microsoft.PowerShell.Archive module's zip
+            # cmdlet: it is defined in a *script* module, and a script
+            # module's functions resolve preference variables like
+            # $ProgressPreference from the global scope, not the caller's
+            # function scope - so the local override above never reaches it,
+            # and its progress bar renders (slowly) on PowerShell 5.1 anyway.
+            # ZipFile.ExtractToDirectory is a compiled .NET API, ships since
+            # .NET 4.5 (present on every stock Windows 10/11 with 5.1), draws
+            # no progress, and is Unicode-safe. It creates the destination
+            # directory itself and throws if a file it would write already
+            # exists there - both fine here since $nodeExtractDir was just
+            # removed above.
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($nodeZip, $nodeExtractDir)
             $innerDir = Get-ChildItem -LiteralPath $nodeExtractDir -Directory | Select-Object -First 1
             $stagedNodeDir = Join-Path $stagingDir 'node'
             if (Test-Path -LiteralPath $stagedNodeDir) { Remove-Item -LiteralPath $stagedNodeDir -Recurse -Force }

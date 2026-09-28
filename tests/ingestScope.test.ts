@@ -7,7 +7,16 @@
 // fakes rather than through an express app and fetch.
 
 import type { Request, Response } from 'express';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// createIngestTokenScopeGate now verifies against the live token store on
+// every request; this file never touches a database, so the store is
+// replaced with a fixed "zero active UI tokens" answer, which reproduces
+// today's env/opt-out-only behaviour for every existing assertion below.
+vi.mock('../src/db/ingestTokens', () => ({
+  verifyIngestToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
+
 import {
   INGEST_SCOPED_ROUTES, createIngestTokenScopeGate, ingestScopeOf, isIngestScopedRoute,
 } from '../src/auth/ingestScope';
@@ -402,7 +411,10 @@ describe('the allowlist against the real route tables', () => {
   const groundSessionRoutes = routesOf(
     createGroundSessionsRouter({} as unknown as FlightManager),
   );
-  const settingsRoutes = routesOf(createSettingsRouter());
+  const settingsRoutes = routesOf(createSettingsRouter(
+    { token: null, allowUnauthenticated: true },
+    { token: null, enabled: false },
+  ));
   const plannedLegsRoutes = routesOf(
     createPlannedLegsRouter({} as unknown as FlightManager),
   );

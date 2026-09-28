@@ -14,6 +14,7 @@ import {
   sessionSet,
   sessionDestroy,
   sessionSweep,
+  sessionDestroyAllExcept,
 } from '../../src/db/settings';
 import { createScratchDb, destroyScratchDb, type ScratchDb } from '../helpers/db';
 
@@ -168,5 +169,29 @@ describe('session store', () => {
 
     expect(sessionSweep(1000)).toBe(0);
     expect(sessionGet('still-valid')).not.toBeNull();
+  });
+
+  it('sessionDestroyAllExcept deletes every other session, keeps the named one, and returns the count deleted', () => {
+    sessionSet('keep-me', '{}', 1000);
+    sessionSet('other-1', '{}', 1000);
+    sessionSet('other-2', '{}', 1000);
+
+    const deleted = sessionDestroyAllExcept('keep-me');
+
+    expect(deleted).toBe(2);
+    expect(sessionGet('keep-me')).not.toBeNull();
+    expect(sessionGet('other-1')).toBeNull();
+    expect(sessionGet('other-2')).toBeNull();
+  });
+
+  it('sessionDestroyAllExcept returns 0 when the kept sid is the only row', () => {
+    sessionSet('only-one', '{}', 1000);
+
+    expect(sessionDestroyAllExcept('only-one')).toBe(0);
+    expect(sessionGet('only-one')).not.toBeNull();
+  });
+
+  it('sessionDestroyAllExcept returns 0 on an empty session table', () => {
+    expect(sessionDestroyAllExcept('nonexistent')).toBe(0);
   });
 });

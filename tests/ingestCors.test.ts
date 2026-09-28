@@ -1,6 +1,13 @@
 import express from 'express';
 import type { Server } from 'http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// See tests/ingest.test.ts's identical mock: checkIngestCredential now reads
+// the live token store, and this file has none.
+vi.mock('../src/db/ingestTokens', () => ({
+  verifyIngestToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
+
 import { createIngestRouter } from '../src/ingest';
 import { makeFrame } from './helpers';
 

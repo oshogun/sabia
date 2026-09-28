@@ -44,6 +44,8 @@ describe('applySchema()', () => {
       'flight_points',
       'flights',
       'ground_sessions',
+      'ingest_tokens',
+      'mcp_tokens',
       'navdata_requests',
       'planned_alternates',
       'planned_legs',

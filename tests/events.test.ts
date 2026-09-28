@@ -11,7 +11,16 @@
 import express from 'express';
 import http from 'http';
 import type { Server } from 'http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// createIngestTokenScopeGate now reads the live token store on every
+// request; this file never touches a database, so it is replaced with a
+// fixed "zero active UI tokens" answer, which reproduces today's
+// env/opt-out-only behaviour for every existing assertion below.
+vi.mock('../src/db/ingestTokens', () => ({
+  verifyIngestToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
+
 import { createEventsRouter, EVENTS_MAX_STREAMS, parseTopicsParam } from '../src/routes/events';
 import { EventHub } from '../src/eventHub';
 import type { FlightStatePayload } from '../src/eventHub';

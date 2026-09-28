@@ -15,7 +15,9 @@ const METHOD_NOT_ALLOWED_BODY = {
  * POST /mcp behind createMcpTokenGate; GET and DELETE (and everything else)
  * answer 405 — a stateless server has no server-initiated stream to offer,
  * and the MCP spec explicitly allows 405 for a GET the server doesn't
- * support. Only called when config.mcp.enabled is true.
+ * support. Always mounted, regardless of whether any MCP credential is
+ * configured: createMcpTokenGate itself decides whether a request reaches
+ * this router at all.
  */
 export function createMcpRouter(mcp: McpConfig, flightManager: FlightManager, onChanged: () => void = () => {}): Router {
   // Startup assertion, run once here rather than per request: this is what

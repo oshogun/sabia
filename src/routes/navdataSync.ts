@@ -1,6 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'fs';
-import { ingestTokenDigest, ingestTokenMatches } from '../auth/ingestToken';
+import { checkIngestCredential } from '../auth/ingestAuth';
 import type { IngestConfig } from '../config';
 import { isNavdataBusy, NavdataBusyError } from '../navdata/connection';
 import { buildDemand, DemandSkipError, parseDemandSkip } from '../navdata/demand';
@@ -88,14 +88,11 @@ export function createNavdataSyncRouter(
   onDemandChanged: () => void = () => {},
 ): express.Router {
   const router = express.Router();
-  const tokenDigest = ingestTokenDigest(ingestConfig.token);
   let importing = false;
   const log = createRejectionLogger(now);
 
-  // Null digest is reachable only through the explicit
-  // ALLOW_UNAUTHENTICATED_INGEST opt-out.
   const requireToken = (req: Request, res: Response, next: NextFunction): void => {
-    if (!tokenDigest || ingestTokenMatches(req.get('x-ingest-token'), tokenDigest)) {
+    if (checkIngestCredential(ingestConfig, req.get('x-ingest-token')) !== 'invalid') {
       next();
       return;
     }

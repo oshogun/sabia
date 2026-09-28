@@ -3,7 +3,7 @@ import type { IngestConfig } from './config';
 import type { FlightManager } from './flightManager';
 import type { SimFrame, TrafficObject } from './types';
 import { TrafficStore, roundCoord, roundAlt, normHeading, applyRetentionCap } from './trafficStore';
-import { ingestTokenDigest, ingestTokenMatches } from './auth/ingestToken';
+import { checkIngestCredential } from './auth/ingestAuth';
 
 const STALE_TIMEOUT_MS = 10_000;
 const STALE_CHECK_INTERVAL_MS = 5_000;
@@ -146,11 +146,10 @@ export function createIngestRouter(
     next();
   });
 
-  // The token comes from AppConfig, not process.env: src/config.ts is the only
-  // module that reads the environment for security settings, and it already
-  // refused to start unless the token is set or ALLOW_UNAUTHENTICATED_INGEST
-  // opted out of it.
-  const tokenDigest = ingestTokenDigest(ingestConfig.token);
+  // The env token comes from AppConfig, not process.env: src/config.ts is the
+  // only module that reads the environment for security settings. Tokens
+  // created on the Settings page live in the database instead, so the check
+  // below is re-run on every request rather than computed once here.
   let lastFrameAt = 0;
 
   // Read once, at construction — same rule as the agent's. Independent of
@@ -159,10 +158,7 @@ export function createIngestRouter(
   let trafficDisabledLogged = false;
 
   const checkAuth = (req: Request, res: Response): boolean => {
-    // Reachable only through the explicit ALLOW_UNAUTHENTICATED_INGEST opt-out
-    // — loadConfig() will not hand us a null token otherwise.
-    if (!tokenDigest) return true;
-    if (ingestTokenMatches(req.get('x-ingest-token'), tokenDigest)) return true;
+    if (checkIngestCredential(ingestConfig, req.get('x-ingest-token')) !== 'invalid') return true;
     res.status(401).json({ error: 'Invalid or missing ingest token' });
     return false;
   };

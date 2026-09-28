@@ -95,18 +95,11 @@ describe('fatal branches', () => {
     );
   });
 
-  it('step 4: missing INGEST_TOKEN, no opt-out — the three-line message, verbatim, newlines included', () => {
-    let caught: unknown;
-    try {
-      loadConfig({ BIND_HOST: '127.0.0.1' } as NodeJS.ProcessEnv);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(ConfigError);
-    expect((caught as ConfigError).message).toBe(
-      '[Config] Refusing to start: INGEST_TOKEN is not set.\n' +
-        '[Config] The ingest endpoints (/api/ingest/frame, /event, /traffic) would accept flight data from anyone who can reach this server.\n' +
-        '[Config] Set INGEST_TOKEN to a shared secret and set the same value as the ingest token on the MCDU client (CFG NETWORK), or set ALLOW_UNAUTHENTICATED_INGEST=1 to run ingest unauthenticated (insecure - LAN only).'
+  it('step 4: missing INGEST_TOKEN, no opt-out — starts (does not throw) and warns with the exact message', () => {
+    const config = loadConfig({ BIND_HOST: '127.0.0.1' } as NodeJS.ProcessEnv);
+    expect(config.ingest).toEqual({ token: null, allowUnauthenticated: false });
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
+      '[Config] INGEST_TOKEN is not set - ingest accepts only tokens created on the Settings page. Until one exists, every ingest request is rejected with 401 and the MCDU client cannot connect.'
     );
   });
 
@@ -247,7 +240,9 @@ describe('MCP_TOKEN — optional, off by default, warns rather than blocks start
   it('unset: mcp.enabled is false, mcp.token is null, and a plain console.log (not a warning) explains why', () => {
     const config = loadConfig(baseEnv());
     expect(config.mcp).toEqual({ token: null, enabled: false });
-    expect(vi.mocked(console.log)).toHaveBeenCalledWith('MCP endpoint disabled (MCP_TOKEN is not set).');
+    expect(vi.mocked(console.log)).toHaveBeenCalledWith(
+      'MCP_TOKEN is not set - /mcp accepts only MCP tokens created on the Settings page and stays disabled until one exists.'
+    );
     expect(vi.mocked(console.warn)).not.toHaveBeenCalledWith(expect.stringContaining('MCP_TOKEN'));
   });
 
@@ -307,13 +302,14 @@ describe('MCP_TOKEN — optional, off by default, warns rather than blocks start
     );
   });
 
-  it('a bad MCP_TOKEN never pre-empts an existing fatal check — the step-4 ingest message still wins', () => {
-    expect(() => loadConfig({ MCP_TOKEN: 'short', BIND_HOST: '127.0.0.1' } as NodeJS.ProcessEnv)).toThrow(
-      new ConfigError(
-        '[Config] Refusing to start: INGEST_TOKEN is not set.\n' +
-          '[Config] The ingest endpoints (/api/ingest/frame, /event, /traffic) would accept flight data from anyone who can reach this server.\n' +
-          '[Config] Set INGEST_TOKEN to a shared secret and set the same value as the ingest token on the MCDU client (CFG NETWORK), or set ALLOW_UNAUTHENTICATED_INGEST=1 to run ingest unauthenticated (insecure - LAN only).'
-      )
+  it('a bad MCP_TOKEN never pre-empts the step-4 ingest warning — both are reported, and loadConfig still returns', () => {
+    const config = loadConfig({ MCP_TOKEN: 'short', BIND_HOST: '127.0.0.1' } as NodeJS.ProcessEnv);
+    expect(config.ingest).toEqual({ token: null, allowUnauthenticated: false });
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
+      '[Config] INGEST_TOKEN is not set - ingest accepts only tokens created on the Settings page. Until one exists, every ingest request is rejected with 401 and the MCDU client cannot connect.'
+    );
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
+      'MCP_TOKEN is shorter than 16 characters — consider a longer random value.'
     );
   });
 

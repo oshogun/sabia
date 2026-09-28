@@ -2,7 +2,9 @@ import * as http from 'http';
 import * as https from 'https';
 import * as fs from 'fs';
 import { loadConfig, ConfigError } from './config';
-import { initDb, closeDb, getAuthUser, sessionSweep } from './db';
+import { initDb, closeDb, getAuthUser, sessionSweep, countActiveIngestTokens, countActiveMcpTokens } from './db';
+import { ingestAuthMode } from './auth/ingestAuth';
+import { mcpAuthMode } from './auth/mcpAuth';
 import { openNavdata, closeNavDb } from './navdata/connection';
 import { loadAirportTiers } from './navdata/airportTiers';
 import { initAirports } from './airports';
@@ -18,10 +20,10 @@ try {
   config = loadConfig();
 } catch (err) {
   if (err instanceof ConfigError) {
-    // Some ConfigError messages (e.g. the missing-INGEST_TOKEN one)
-    // already carry a `[Config] ` prefix on every line; others are a single
-    // unprefixed line. Prefix only the lines that don't already have it, so
-    // stderr always ends up as one `[Config] ` line per sentence.
+    // Some ConfigError messages (e.g. a bad SESSION_SECRET) already carry a
+    // `[Config] ` prefix on every line; others are a single unprefixed line.
+    // Prefix only the lines that don't already have it, so stderr always
+    // ends up as one `[Config] ` line per sentence.
     for (const line of err.message.split('\n')) {
       console.error(line.startsWith('[Config]') ? line : `[Config] ${line}`);
     }
@@ -49,6 +51,23 @@ if (!authUser) {
   console.error('[Auth] Refusing to start: no operator account exists.');
   console.error('[Auth] Run `npm run set-password` to create one (README § First run).');
   process.exit(1);
+}
+
+// Only known once the database is open, so this runs after initDb() rather
+// than as part of loadConfig() — a Settings-page token cannot be seen before
+// that point.
+const activeIngest = countActiveIngestTokens();
+const ingestMode = ingestAuthMode(config.ingest, activeIngest);
+if (ingestMode === 'closed') {
+  console.warn('[Auth] WARNING: no ingest token exists (INGEST_TOKEN is unset and none has been created on the Settings page). Every ingest request will get 401 until you create one.');
+} else if (ingestMode === 'ui_tokens' && config.ingest.token !== null) {
+  console.log(`[Auth] ${activeIngest} ingest token(s) from the Settings page are enforced; INGEST_TOKEN is ignored.`);
+} else if (ingestMode === 'ui_tokens' && config.ingest.allowUnauthenticated) {
+  console.log(`[Auth] ${activeIngest} ingest token(s) from the Settings page are enforced; ALLOW_UNAUTHENTICATED_INGEST is ignored.`);
+}
+const activeMcp = countActiveMcpTokens();
+if (mcpAuthMode(config.mcp, activeMcp) === 'ui_tokens' && config.mcp.token !== null) {
+  console.log(`[Auth] ${activeMcp} MCP token(s) from the Settings page are enforced; MCP_TOKEN is ignored.`);
 }
 
 // Sweep expired sessions once at startup, then every 6 hours. The interval is

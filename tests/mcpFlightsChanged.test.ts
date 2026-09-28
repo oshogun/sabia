@@ -46,6 +46,11 @@ vi.mock('../src/db/groundSessions', () => ({
 vi.mock('../src/simbriefImport', () => ({
   importSimbriefLooseLeg: vi.fn(),
 }));
+// See tests/mcp.test.ts's identical mock: createMcpTokenGate now reads the
+// live token store, and this file has none.
+vi.mock('../src/db/mcpTokens', () => ({
+  verifyMcpToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
 
 import { createMcpRouter } from '../src/mcp/router';
 import * as flightsDb from '../src/db/flights';

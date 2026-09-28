@@ -108,3 +108,9 @@ export function sessionDestroy(sid: string): void {
 export function sessionSweep(now: number): number {
   return getDb().prepare('DELETE FROM auth_session WHERE expires_at <= ?').run(now).changes;
 }
+
+/** Deletes every session except `keepSid`. Returns the number deleted. Used by
+ *  a password change to log out every other session in one step. */
+export function sessionDestroyAllExcept(keepSid: string): number {
+  return getDb().prepare('DELETE FROM auth_session WHERE sid != ?').run(keepSid).changes;
+}

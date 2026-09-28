@@ -97,6 +97,75 @@ export interface SayIntentionsSettings {
   sayintentions_api_key_masked: string | null;
 }
 
+// ── API tokens and password ──────────────────────────────────────────────
+
+/** How ingest is authenticated right now. 'closed': no credential exists and no
+ *  opt-out — every ingest request is 401. */
+export type IngestAuthMode = 'ui_tokens' | 'env_token' | 'unauthenticated' | 'closed';
+
+/** One active ingest token. Never carries the secret or its digest. */
+export interface IngestTokenSummary {
+  id: number;
+  /** 8 lowercase hex chars, random, unrelated to the secret. */
+  public_id: string;
+  label: string;
+  /** ISO-8601 UTC. */
+  created_at: string;
+  /** ISO-8601 UTC, minute resolution; null = never used. */
+  last_used_at: string | null;
+}
+
+/** GET /api/settings/ingest-tokens, and the body of a revoke. */
+export interface IngestTokenListResponse {
+  tokens: IngestTokenSummary[];
+  mode: IngestAuthMode;
+  /** INGEST_TOKEN is set on the server (whether or not it is being used). */
+  env_token_set: boolean;
+  /** ALLOW_UNAUTHENTICATED_INGEST is set and INGEST_TOKEN is not. */
+  unauthenticated_opt_out_set: boolean;
+}
+
+/** POST /api/settings/ingest-tokens. `secret` appears here and never again. */
+export interface IngestTokenCreateResponse extends IngestTokenListResponse {
+  created: IngestTokenSummary;
+  secret: string;
+}
+
+export type McpAuthMode = 'ui_tokens' | 'env_token' | 'disabled';
+
+export interface McpTokenSummary {
+  id: number;
+  public_id: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface McpTokenListResponse {
+  tokens: McpTokenSummary[];
+  mode: McpAuthMode;
+  /** MCP_TOKEN is set on the server (whether or not it is being used). */
+  env_token_set: boolean;
+}
+
+export interface McpTokenCreateResponse extends McpTokenListResponse {
+  created: McpTokenSummary;
+  secret: string;
+}
+
+/** POST /api/settings/password body. */
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+/** POST /api/settings/password success. */
+export interface ChangePasswordResponse {
+  ok: true;
+  /** Sessions other than the caller's that were logged out. */
+  other_sessions_revoked: number;
+}
+
 // ── Planned legs ──────────────────────────────────────────────────────────────
 //
 // Mirrors src/types.ts and src/lnmpln.ts field-for-field, including

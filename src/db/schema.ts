@@ -662,4 +662,35 @@ export function applySchema(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_flights_planned_leg ON flights(planned_leg_id) WHERE planned_leg_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_trips_active        ON trips(is_active)        WHERE is_active = 1;
   `);
+
+  // Ingest credentials created on the Settings page. Only the SHA-256 digest of
+  // the secret is stored; the plaintext exists once, in the create response.
+  // public_id is a separate random value, never derived from the secret, so a
+  // listing reveals nothing about any token. A revoked row is kept (revoked_at
+  // set), never deleted.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ingest_tokens (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      public_id    TEXT    NOT NULL UNIQUE,
+      token_digest BLOB    NOT NULL UNIQUE CHECK (length(token_digest) = 32),
+      label        TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      last_used_at TEXT,
+      revoked_at   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_ingest_tokens_active ON ingest_tokens(id) WHERE revoked_at IS NULL;
+
+    -- Same shape, deliberately a separate table: an MCP token and an ingest token
+    -- must never be able to authenticate each other's endpoint.
+    CREATE TABLE IF NOT EXISTS mcp_tokens (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      public_id    TEXT    NOT NULL UNIQUE,
+      token_digest BLOB    NOT NULL UNIQUE CHECK (length(token_digest) = 32),
+      label        TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      last_used_at TEXT,
+      revoked_at   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_mcp_tokens_active ON mcp_tokens(id) WHERE revoked_at IS NULL;
+  `);
 }

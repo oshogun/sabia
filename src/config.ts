@@ -41,19 +41,16 @@ export type TlsConfig =
     };
 
 export interface IngestConfig {
-  /** INGEST_TOKEN. null iff unauthenticated ingest was explicitly opted into. */
+  /** INGEST_TOKEN, or null when unset. */
   token: string | null;
-  /** ALLOW_UNAUTHENTICATED_INGEST truthy. token is null when this is true. */
+  /** ALLOW_UNAUTHENTICATED_INGEST truthy and INGEST_TOKEN unset. */
   allowUnauthenticated: boolean;
 }
 
-/** MCP_TOKEN. `enabled: false` (token null) is the default: the /mcp endpoint
- *  is then never mounted. */
 export interface McpConfig {
   /** MCP_TOKEN, used verbatim. null iff unset/empty. */
   token: string | null;
-  /** true iff token !== null. The one flag the server branches on to decide
-   *  whether to mount the /mcp router at all. */
+  /** true iff token !== null. No longer decides whether /mcp is mounted. */
   enabled: boolean;
 }
 
@@ -66,7 +63,7 @@ export const ENV_VARS = [
   'BIND_HOST',                  // new, default 0.0.0.0
   'SESSION_SECRET',             // new, optional
   'ALLOW_UNAUTHENTICATED_INGEST', // new
-  'INGEST_TOKEN',               // existing, now required by default
+  'INGEST_TOKEN',               // existing, optional fallback when no Settings token exists
   'MCP_TOKEN',                  // new, optional — /mcp is unmounted when unset
 ] as const;
 
@@ -172,15 +169,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tlsConfig = { enabled: false, plaintextOptOut };
   }
 
-  // Step 4 — ingest token required.
+  // Step 4 — no env ingest token. Not fatal: ingest can also be authenticated by
+  // tokens created on the Settings page, which live in the database and cannot
+  // be seen from here. src/index.ts reports the real state after initDb().
   const rawToken = env.INGEST_TOKEN || '';
   const allowUnauthenticated = parseBooleanEnv(env.ALLOW_UNAUTHENTICATED_INGEST);
 
   if (!rawToken && !allowUnauthenticated) {
-    throw new ConfigError(
-      '[Config] Refusing to start: INGEST_TOKEN is not set.\n' +
-        '[Config] The ingest endpoints (/api/ingest/frame, /event, /traffic) would accept flight data from anyone who can reach this server.\n' +
-        '[Config] Set INGEST_TOKEN to a shared secret and set the same value as the ingest token on the MCDU client (CFG NETWORK), or set ALLOW_UNAUTHENTICATED_INGEST=1 to run ingest unauthenticated (insecure - LAN only).'
+    console.warn(
+      '[Config] INGEST_TOKEN is not set - ingest accepts only tokens created on the Settings page. Until one exists, every ingest request is rejected with 401 and the MCDU client cannot connect.'
     );
   }
 
@@ -198,7 +195,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const ingest: IngestConfig = rawToken
     ? { token: rawToken, allowUnauthenticated: false }
-    : { token: null, allowUnauthenticated: true };
+    : { token: null, allowUnauthenticated };
 
   // Opt-out set, no token: the server starts unauthenticated and warns on
   // every start. Not one of the ordered fatal steps 1-7, but the message
@@ -215,7 +212,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // there is no surface to leave unauthenticated and no reason to be fatal.
   const rawMcpToken = env.MCP_TOKEN || '';
   if (!rawMcpToken) {
-    console.log('MCP endpoint disabled (MCP_TOKEN is not set).');
+    console.log('MCP_TOKEN is not set - /mcp accepts only MCP tokens created on the Settings page and stays disabled until one exists.');
   } else {
     if (rawMcpToken.length < MCP_TOKEN_MIN_LEN) {
       console.warn('MCP_TOKEN is shorter than 16 characters — consider a longer random value.');

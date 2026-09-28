@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import type { McpConfig } from '../config';
-import { mcpTokenDigest, mcpTokenMatches } from './mcpToken';
+import { checkMcpCredential } from './mcpAuth';
 
 export interface McpScopedRoute {
   method: 'GET' | 'POST' | 'PATCH';
@@ -96,17 +96,19 @@ function bearerToken(header: string | undefined): string | undefined {
  * never reads req.session, and requireAuth/requireSameOrigin are untouched by
  * this run. A session cookie, if one is somehow present on the request, is
  * not read and buys nothing: the bearer token is the only credential this
- * gate ever checks. Digest computed once, at construction, not per request.
+ * gate ever checks. Verified against the live token store on every request,
+ * not a digest computed once at construction — a token created or revoked on
+ * the Settings page takes effect on the very next request, with no restart.
+ * The router itself is always mounted now (src/server.ts): with no MCP
+ * credential configured anywhere, `next('router')` leaves the request
+ * exactly as if /mcp had never been mounted, rather than answering here.
  */
 export function createMcpTokenGate(mcp: McpConfig): RequestHandler {
-  const tokenDigest = mcpTokenDigest(mcp.token);
-
   return (req, res, next) => {
     const presented = bearerToken(req.get('authorization'));
-    if (tokenDigest && mcpTokenMatches(presented, tokenDigest)) {
-      next();
-      return;
-    }
+    const decision = checkMcpCredential(mcp, presented);
+    if (decision === 'disabled') { next('router'); return; }
+    if (decision === 'valid') { next(); return; }
     res.status(401).set('WWW-Authenticate', 'Bearer realm="msfslogger-mcp"');
     res.json({ error: 'Invalid or missing MCP token', code: 'INVALID_MCP_TOKEN' });
   };

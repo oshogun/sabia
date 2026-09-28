@@ -1,6 +1,6 @@
 import type { Request, RequestHandler } from 'express';
 import type { IngestConfig } from '../config';
-import { ingestTokenDigest, ingestTokenMatches } from './ingestToken';
+import { checkIngestCredential } from './ingestAuth';
 
 export type IngestScopeResult = 'valid' | 'invalid' | 'absent';
 
@@ -58,17 +58,13 @@ export function ingestScopeOf(req: Request): IngestScopeResult | undefined {
 
 /**
  * Classifies a request against the ingest-token scope and marks it; never
- * sends a response itself. Built once per server, from the resolved
- * IngestConfig, so the token digest is computed once at construction rather
- * than on every request.
+ * sends a response itself. Verifies against the live token store on every
+ * request (via checkIngestCredential), not a digest computed once at
+ * construction, so a token created or revoked on the Settings page is
+ * reflected on the very next request.
  */
 export function createIngestTokenScopeGate(ingest: IngestConfig): RequestHandler {
-  const tokenDigest = ingestTokenDigest(ingest.token);
-
   return (req, res, next) => {
-    // No token configured (the explicit ALLOW_UNAUTHENTICATED_INGEST
-    // opt-out): the scope is off entirely, not widened to "anyone".
-    if (!tokenDigest) { next(); return; }
     if (!req.path.startsWith('/api/')) { next(); return; }
     // A valid session always wins and is never marked — this is also what
     // keeps the CSRF check at full strength for a browser.
@@ -78,9 +74,11 @@ export function createIngestTokenScopeGate(ingest: IngestConfig): RequestHandler
     if (!isIngestScopedRoute(req.method, req.path)) { next(); return; }
 
     const header = req.get('x-ingest-token');
-    const result: IngestScopeResult = !header
-      ? 'absent'
-      : ingestTokenMatches(header, tokenDigest) ? 'valid' : 'invalid';
+    const decision = checkIngestCredential(ingest, header);
+    // The unauthenticated opt-out: the scope is off entirely, not widened to
+    // "anyone" — same as the old "no digest configured" early exit.
+    if (decision === 'open') { next(); return; }
+    const result: IngestScopeResult = !header ? 'absent' : decision;
     (req as MarkedRequest)[INGEST_SCOPE] = result;
     next();
   };

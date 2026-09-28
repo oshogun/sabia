@@ -105,6 +105,8 @@ const ALL_TABLES = [
   'auth_user',
   'app_secret',
   'app_setting',
+  'ingest_tokens',
+  'mcp_tokens',
   'sqlite_sequence',
 ];
 

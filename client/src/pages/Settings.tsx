@@ -6,6 +6,9 @@ import {
 } from '../api';
 import { UnauthorizedError } from '../utils/api';
 import type { SayIntentionsSettings } from '../types';
+import { IngestTokensTile } from '../components/settings/IngestTokensTile';
+import { McpTokensTile } from '../components/settings/McpTokensTile';
+import { ChangePasswordTile } from '../components/settings/ChangePasswordTile';
 
 const helper: React.CSSProperties = { color: 'var(--cds-text-secondary)', fontSize: '0.875rem' };
 
@@ -153,6 +156,10 @@ export function Settings() {
             </Stack>
           </Form>
         </Tile>
+
+        <IngestTokensTile />
+        <McpTokensTile />
+        <ChangePasswordTile />
       </Stack>
     </>
   );

@@ -54,6 +54,13 @@ vi.mock('../src/db/groundSessions', () => ({
 vi.mock('../src/simbriefImport', () => ({
   importSimbriefLooseLeg: vi.fn(),
 }));
+// createMcpTokenGate now verifies against the live token store on every
+// request; this file never touches a database, so it is replaced with a
+// fixed "zero active UI tokens" answer, which reproduces today's
+// env-token-only behaviour for every existing assertion below.
+vi.mock('../src/db/mcpTokens', () => ({
+  verifyMcpToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
 
 import { createMcpRouter } from '../src/mcp/router';
 import { toFlightSummary } from '../src/mcp/projections';
@@ -302,6 +309,28 @@ describe('MCP_TOKEN gate', () => {
     });
     expect(invalid.status).toBe(401);
 
+    expect(getFlights).not.toHaveBeenCalled();
+  });
+
+  it('passes a request straight through when no MCP credential is configured anywhere, as if /mcp were never mounted', async () => {
+    const config: McpConfig = { token: null, enabled: false };
+    const app = express();
+    app.use(express.json());
+    app.use('/mcp', createMcpRouter(config, makeFlightManager()));
+    app.use((_req, res) => { res.status(404).end(); });
+
+    const server: Server = app.listen(0, '127.0.0.1');
+    await new Promise<void>(resolve => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Test server did not bind to a TCP port');
+    openServers.push(() => new Promise<void>((resolve, reject) => server.close(err => (err ? reject(err) : resolve()))));
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    });
+    expect(res.status).toBe(404);
     expect(getFlights).not.toHaveBeenCalled();
   });
 });

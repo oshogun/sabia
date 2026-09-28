@@ -126,13 +126,13 @@ export function createServer(flightManager: FlightManager): express.Express {
   app.use('/api/navdata', createNavdataSyncRouter(config.ingest, sidecarState, Date.now, requestDemand));
 
   // A protocol endpoint, not a REST resource, deliberately outside /api: it
-  // authenticates with its own MCP_TOKEN bearer gate rather than requireAuth,
-  // and mounting it here — above express-session, like the ingest router —
-  // means an MCP request never allocates or touches a session row. Unmounted
-  // entirely when no MCP_TOKEN is configured.
-  if (config.mcp.enabled) {
-    app.use('/mcp', createMcpRouter(config.mcp, flightManager, notifyPlanChanged));
-  }
+  // authenticates with its own MCP bearer gate rather than requireAuth, and
+  // mounting it here — above express-session, like the ingest router — means
+  // an MCP request never allocates or touches a session row. Always mounted:
+  // with no MCP credential configured anywhere (env or Settings page), the
+  // gate itself passes every request straight through untouched, so the
+  // observable behaviour is identical to never having mounted it at all.
+  app.use('/mcp', createMcpRouter(config.mcp, flightManager, notifyPlanChanged));
 
   // SESSION_SECRET when the operator set one, otherwise a random 32-byte secret
   // created on first run and stored in app_secret. There is no hard-coded
@@ -208,7 +208,7 @@ export function createServer(flightManager: FlightManager): express.Express {
   // Mounted here, in the position the routes used to occupy, because
   // registration order is what express matches on.
 
-  app.use('/api', createSettingsRouter());
+  app.use('/api', createSettingsRouter(config.ingest, config.mcp));
 
   // ── Planned legs ───────────────────────────────────────────────────────────
   // Mounted after ── Trips ── and before ── PDF and KML export ──, in the

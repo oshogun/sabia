@@ -1,6 +1,16 @@
 import express from 'express';
 import type { Server } from 'http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// checkIngestCredential (src/auth/ingestAuth.ts) now verifies against the live
+// token store on every request; this file never touches a database, so the
+// store is replaced with a fixed "zero active UI tokens" answer, which
+// reproduces today's env/opt-out-only behaviour for every existing assertion
+// below.
+vi.mock('../src/db/ingestTokens', () => ({
+  verifyIngestToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
+
 import { createIngestRouter } from '../src/ingest';
 import { roundAlt, roundCoord } from '../src/trafficStore';
 import { makeFrame } from './helpers';

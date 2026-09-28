@@ -7,7 +7,20 @@
 // with minimal fakes, the same style as tests/ingestScope.test.ts.
 
 import type { Request, Response } from 'express';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// This file builds both the MCP gate and the ingest gate, both of which now
+// verify against a live token store on every request; it never touches a
+// database, so both stores are replaced with a fixed "zero active UI tokens"
+// answer, which reproduces today's env-token-only behaviour for every
+// existing assertion below.
+vi.mock('../src/db/mcpTokens', () => ({
+  verifyMcpToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
+vi.mock('../src/db/ingestTokens', () => ({
+  verifyIngestToken: vi.fn(() => ({ activeCount: 0, matchedId: null })),
+}));
+
 import {
   MCP_SCOPED_ROUTES, ROUTELESS_TOOLS, assertToolRoutesAreScoped,
   createMcpTokenGate, isMcpScopedRoute,
@@ -157,6 +170,15 @@ function runGate(token: string | null, req: Request, res: Response): boolean {
   return called;
 }
 
+/** Captures the exact argument next() was called with — 'router' and no
+ *  argument at all are different signals to Express. */
+function runGateCapturingNext(token: string | null, req: Request, res: Response): unknown[] {
+  const gate = createMcpTokenGate({ token, enabled: token !== null });
+  const calls: unknown[] = [];
+  gate(req, res, ((arg?: unknown) => { calls.push(arg); }) as never);
+  return calls;
+}
+
 describe('createMcpTokenGate', () => {
   it('passes through a correct bearer token', () => {
     const req = makeReq({ headers: { authorization: `Bearer ${MCP_TOKEN}` } });
@@ -187,11 +209,11 @@ describe('createMcpTokenGate', () => {
     expect(runGate(MCP_TOKEN, req, res)).toBe(false);
   });
 
-  it('rejects everything when no MCP token is configured (fail closed, defense in depth)', () => {
+  it('leaves the router when no MCP credential is configured anywhere — same as an unmounted /mcp, not a 401', () => {
     const req = makeReq({ headers: { authorization: `Bearer ${MCP_TOKEN}` } });
     const res = makeRes();
-    expect(runGate(null, req, res)).toBe(false);
-    expect(res.statusCode).toBe(401);
+    expect(runGateCapturingNext(null, req, res)).toEqual(['router']);
+    expect(res.statusCode).toBe(0);
   });
 
   // Session cookie: the gate never reads req.session at all — a session,

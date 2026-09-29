@@ -179,8 +179,10 @@ line also moves `latest`.
 `sabia-server-X.Y.Z/` holding `dist/`, `client/dist/`, `package.json`,
 `package-lock.json`, `airports.json`, `airport-tiers.json`, `VERSION` and
 `LICENSE`, and no `node_modules`. It is the same for every OS: the
-installers run `npm ci --omit=dev` against it with their own Node 24, which
-fetches the native `better-sqlite3` binary for the machine. The first
+installers run `npm ci --omit=dev` against it with their own Node 24. The
+native `better-sqlite3` binary for the machine comes inside that npm
+package, so nothing is downloaded or compiled for it (see
+[troubleshooting.md](troubleshooting.md#server-wont-start)). The first
 release with a bundle is the first after v1.0.0.
 
 If a check fails, nothing is published. Delete the tag

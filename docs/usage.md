@@ -188,7 +188,7 @@ your process manager's own log capture — see [operations.md](operations.md)).
 |---|---|---|
 | Server exits immediately, `[Config] ...` on stderr | Missing/invalid env var | Read the printed message — it names the exact variable; see [configuration.md](configuration.md) |
 | Server exits, `[Auth] Refusing to start: no operator account exists.` | Never ran `set-password` | `npm run set-password` |
-| `better-sqlite3` fails to load / server won't start at all | Wrong Node version | `nvm use` (must be Node 24) |
+| `better-sqlite3` fails to load / server won't start at all | No prebuilt binary for this platform/CPU | Run on Windows, Linux or macOS (x64 or arm64); see [troubleshooting.md](troubleshooting.md#server-wont-start) |
 | MCDU `STATUS` shows the backend down, web UI shows `connected: false` | Wrong server URL or ingest token in the MCDU, or it doesn't trust the server's TLS cert | Check the MCDU's `ingestToken` matches an active Settings-page ingest token, or `INGEST_TOKEN` if none exists, exactly; for a self-signed cert set `certPath` on `CFG NETWORK` — see [troubleshooting.md](troubleshooting.md#sim-client--connectivity) |
 | `401 Invalid or missing ingest token` on a route other than `/api/ingest/*` | Token missing/mismatched, or that route isn't ingest-scoped | See the allow-list in [api.md](api.md#auth-model-in-one-table) |
 | `429` on login | Login throttle (10 failures / 15 min / IP) | Wait out the window (resets on server restart — the throttle is in-memory) |

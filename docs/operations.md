@@ -79,8 +79,9 @@ override that builds from your checkout instead (`build: .`, tagged
 [`Dockerfile`](../Dockerfile)) is a 3-stage Alpine build. The client and
 server stages run on the build machine's own platform, since their output
 is plain JavaScript. The runtime image has system Chromium (for PDF export
-via Puppeteer) and the native toolchain `better-sqlite3` falls back to when
-no prebuilt binary matches. `docker-compose.yml` bind-mounts `flights.db`,
+via Puppeteer) and no build toolchain: `better-sqlite3` loads the musl
+binary that ships inside its npm package (`linuxmusl-x64` or
+`linuxmusl-arm64`). `docker-compose.yml` bind-mounts `flights.db`,
 `flight_plans/` and the `navdata/` directory for persistence and passes
 `INGEST_TOKEN`, `MCP_TOKEN`, `TLS_CERT_FILE`, `TLS_KEY_FILE`,
 `ALLOW_PLAINTEXT_HTTP`, `SESSION_SECRET` through from the shell/`.env`. Mount

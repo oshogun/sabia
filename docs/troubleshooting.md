@@ -29,15 +29,15 @@ ignore it. The `[Auth]` line logged after it reflects the real state.
 Run `npm run set-password`. There is no HTTP-based first-run setup flow —
 the account must exist before the server will listen at all.
 
-**`better-sqlite3` throws on require, or the process fails with a native
-module / ABI error.**
-Wrong Node version. This project pins Node 24 (`.nvmrc`) because
-`better-sqlite3` is a native addon and needs a Node ABI it has a prebuilt
-binary for. Run `nvm use` (or `nvm install` first) before any
-`node`/`npm`/`npx` command. If this happens on Node 24 itself, `node_modules`
-likely has a stale native build from a previous Node version — delete
-`node_modules` and reinstall rather than assuming `better-sqlite3` itself is
-broken.
+**`better-sqlite3` throws on require, naming
+`build/Release/better_sqlite3.node`.**
+There is no prebuilt binary for this platform. `better-sqlite3` ships its
+binaries inside the npm package for Windows, Linux (glibc and musl) and
+macOS, each on x64 and arm64, and loads the matching one from `prebuilds/`.
+Anywhere else it falls back to a local build. There isn't one: `package.json`
+denies the package's `node-gyp` install step (`allowScripts`), so npm never
+compiles it. Changing the Node version doesn't help, since the binary is
+chosen by platform and CPU only; run Sabiá on one of the platforms above.
 
 ## Docker
 

@@ -8,7 +8,7 @@ ground with more explanation, plus Docker and troubleshooting-adjacent notes.
 
 | Tool | Version | Why |
 |---|---|---|
-| Node.js | **24** (pinned by [`.nvmrc`](../.nvmrc)), also declared via `engines.node` in `package.json` | `better-sqlite3` is a native addon; the pin keeps every contributor and CI on a Node ABI it has a confirmed prebuilt binary for. |
+| Node.js | **24** (pinned by [`.nvmrc`](../.nvmrc)), also declared via `engines.node` in `package.json` | The version CI, the installers and the Docker image run, and the only one tested. `better-sqlite3` is a native addon, but its N-API binaries aren't tied to one Node version. |
 | npm | bundled with Node 24 | |
 | Simulator | MSFS 2020, MSFS 2024, or FSX, on Windows | Only needed to actually log flights — the server/client run on any OS. |
 | Docker + Docker Compose | any recent version | Only for the [Docker install](#docker) path. |

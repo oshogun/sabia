@@ -64,10 +64,13 @@ afterward, which leaves the server down with no way back in for the agent.
     $ node -v
     v26.3.1          # default — WRONG, .nvmrc pins 24
 
-`better-sqlite3` is a native addon with no prebuilt binary for Node 26's ABI, so
-`require('better-sqlite3')` throws and the server will not start under the
-default node. The README documents this. It is not a new problem and not
-something to "fix" by rebuilding or upgrading the dependency.
+Node 24 is what `.nvmrc`, `engines` (`>=24 <25`), CI, the installers and the
+Docker image use, and the only version the suite is verified on. Since
+better-sqlite3 13 (bf9ea54) the addon is N-API and *does* load under Node 26
+(checked 2026-09-29 in this checkout: 13.0.3 on v24.21.0 and v26.3.1), so a
+wrong-Node mistake no longer fails loudly at `require`. It just runs untested,
+and `client/e2e/scratch-server.sh` refuses to start. Don't treat "it worked
+under the default node" as verification.
 
 Prefix every command that runs node, npm, npx or the server with:
 

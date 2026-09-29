@@ -6,15 +6,18 @@ import { LiveMapSlot } from './LiveMapSlot';
 
 function Readout({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
   return (
-    <Column sm={2} md={2} lg={wide ? 4 : 2} style={{ marginBottom: '1rem' }}>
-      <div style={{ fontSize: '0.75rem', letterSpacing: '0.32px', color: 'var(--cds-text-secondary)' }}>{label}</div>
-      <div style={{ fontSize: '1.75rem', lineHeight: 1.29, fontFamily: "'IBM Plex Mono', monospace" }}>{children}</div>
+    <Column
+      sm={2} md={2} lg={wide ? 8 : 4}
+      style={{ marginBottom: '1rem', minInlineSize: 0, overflowWrap: 'anywhere' }}
+    >
+      <div className="sabia-readout-label">{label}</div>
+      <div className="sabia-readout">{children}</div>
     </Column>
   );
 }
 
 const Unit = ({ children }: { children: string }) => (
-  <span style={{ fontSize: '0.875rem', color: 'var(--cds-text-secondary)', marginInlineStart: '0.25rem' }}>{children}</span>
+  <span className="sabia-unit">{children}</span>
 );
 
 export function LivePanel({ status }: { status: Status }) {
@@ -28,7 +31,7 @@ export function LivePanel({ status }: { status: Status }) {
     <Tile data-testid="live-panel" style={{ marginBottom: '1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
         <Tag type={paused ? 'magenta' : 'green'} size="md">{paused ? 'Paused' : 'Recording'}</Tag>
-        <h3 style={{ fontSize: '1.25rem', fontWeight: 400 }}>{aircraft || 'Unknown'}</h3>
+        <h2 className="sabia-heading-03">{aircraft || 'Unknown'}</h2>
       </div>
       <Grid condensed narrow style={{ padding: 0, marginInline: 0 }}>
         <Readout label="Airspeed">{Math.round(frame.airspeedKnots)}<Unit>kts</Unit></Readout>
@@ -39,13 +42,13 @@ export function LivePanel({ status }: { status: Status }) {
           <span style={{ color: vsColor }}>{(vs >= 0 ? '+' : '') + vs.toLocaleString()}</span><Unit>fpm</Unit>
         </Readout>
         <Readout label="Position" wide>
-          <span style={{ fontSize: '1rem' }}>{frame.lat.toFixed(3)}, {frame.lon.toFixed(3)}</span>
+          <span className="sabia-readout--compact">{frame.lat.toFixed(3)}, {frame.lon.toFixed(3)}</span>
         </Readout>
         {plannedLeg && (
           <>
             <Readout label={`Next waypoint → ${plannedLeg.destinationIdent}`} wide>{plannedLeg.nextWaypointIdent}</Readout>
             <Readout label="Remaining (planned route)" wide>
-              <span style={{ fontSize: '1.25rem' }}>approx. {formatDistance(plannedLeg.remainingDistanceNm)}</span><Unit>nm</Unit>
+              <span className="sabia-readout--compact">approx. {formatDistance(plannedLeg.remainingDistanceNm)}</span><Unit>nm</Unit>
             </Readout>
           </>
         )}

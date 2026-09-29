@@ -56,14 +56,14 @@
 
 .replay-readout-label {
   color: var(--cds-text-helper);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.32px;
   font-size: 0.75rem;
 }
 
 .replay-value {
   font-variant-numeric: tabular-nums;
   color: var(--cds-text-primary);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .replay-readout--gap [data-field='state'] {

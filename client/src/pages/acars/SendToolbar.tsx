@@ -61,7 +61,7 @@ export function SendToolbar(p: SendToolbarProps) {
   const leg = p.plannedLeg;
   return (
     <Tile>
-      <h2 className="acars-section-title">Send</h2>
+      <h2 className="sabia-heading-03 acars-section-title">Send</h2>
       {p.cannedError ? (
         <InlineNotification kind="error" role="alert" lowContrast hideCloseButton title={p.cannedError} />
       ) : (

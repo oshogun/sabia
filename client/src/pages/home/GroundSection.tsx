@@ -164,7 +164,7 @@ export function GroundSection({ status }: { status: Status | null }) {
                 <Tag type={card.source === 'auto' ? 'blue' : 'gray'} size="md">
                   {card.source === 'auto' ? 'Detected' : 'Manual entry'}
                 </Tag>
-                <span style={{ fontSize: '1.25rem' }}>
+                <span className="sabia-heading-03">
                   {card.airportIcao ? `${card.airportIcao} — ${card.airportName || 'Unknown airport'}` : 'Airport not resolved'}
                 </span>
               </div>
@@ -187,8 +187,8 @@ export function GroundSection({ status }: { status: Status | null }) {
           <Form onSubmit={handleSubmit} aria-label="Manual ground position entry">
             <Stack gap={5}>
               <div>
-                <h2 style={{ fontSize: '1rem', fontWeight: 600, lineHeight: 1.4 }}>Manual entry (fallback)</h2>
-                <p style={{ color: 'var(--cds-text-secondary)', fontSize: '0.875rem' }}>
+                <h2 className="sabia-heading-02">Manual entry (fallback)</h2>
+                <p className="sabia-helper">
                   Sabiá detects your airport and stand automatically. Use this only when detection could not resolve your position.
                 </p>
               </div>

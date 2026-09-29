@@ -9,8 +9,6 @@ import type { IngestTokenListResponse, IngestTokenSummary } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 import { TokenCreatedModal, type TokenCreatedInfo } from './TokenCreatedModal';
 
-const helper: React.CSSProperties = { color: 'var(--cds-text-secondary)', fontSize: '0.875rem' };
-
 function formatLastUsed(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : 'Never';
 }
@@ -91,7 +89,7 @@ export function IngestTokensTile() {
     <Tile data-testid="ingest-tokens-tile">
       <Stack gap={5}>
         <h2 className="sabia-heading-03">Ingest tokens (MCDU)</h2>
-        <p style={helper}>
+        <p className="sabia-helper">
           Tokens the MCDU client (CFG NETWORK) and other ingest clients use. Each token is shown once, when created.
         </p>
         {loadError && <InlineNotification kind="error" lowContrast hideCloseButton title="Could not load tokens" subtitle={loadError} />}
@@ -125,7 +123,7 @@ export function IngestTokensTile() {
               />
             )}
             {list.mode === 'env_token' && (
-              <p style={helper} data-testid="ingest-mode-env">
+              <p className="sabia-helper" data-testid="ingest-mode-env">
                 Currently authenticated by the INGEST_TOKEN environment variable. Creating a token here replaces it.
               </p>
             )}
@@ -148,7 +146,7 @@ export function IngestTokensTile() {
                     {tokens.map(t => (
                       <TableRow key={t.id} data-testid={`ingest-token-row-${t.id}`}>
                         <TableCell>{t.label}</TableCell>
-                        <TableCell style={{ fontFamily: 'monospace' }}>{t.public_id}</TableCell>
+                        <TableCell className="sabia-code">{t.public_id}</TableCell>
                         <TableCell>{new Date(t.created_at).toLocaleString()}</TableCell>
                         <TableCell>{formatLastUsed(t.last_used_at)}</TableCell>
                         <TableCell>

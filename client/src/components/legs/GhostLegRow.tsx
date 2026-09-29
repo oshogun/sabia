@@ -94,7 +94,6 @@ export function GhostLegRow({
   const routeTitle = `${leg.departure_name || leg.departure_ident} → ${leg.destination_name || leg.destination_ident}`;
   const landingNote = plannedLegLandingNote(leg);
   const dim = { opacity: 0.8 } as const;
-  const meta = { color: 'var(--cds-text-secondary)', fontSize: '0.75rem' } as const;
 
   return (
     <>
@@ -111,10 +110,10 @@ export function GhostLegRow({
         <TableCell>approx. {formatDistance(leg.approx_distance_nm)} nm</TableCell>
         <TableCell>
           <span title={routeTitle}>{leg.departure_ident} → {leg.destination_ident}</span>
-          <div style={meta}>
+          <div className="sabia-meta">
             {formatAlt(leg.cruise_alt_ft)} ft cruise · {leg.waypoint_count} wpt{leg.waypoint_count !== 1 ? 's' : ''}
           </div>
-          {landingNote && <div style={meta}>{landingNote}</div>}
+          {landingNote && <div className="sabia-meta">{landingNote}</div>}
         </TableCell>
         <TableCell>
           <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
@@ -158,9 +157,9 @@ export function GhostLegRow({
         <TableRow style={dim}>
           <TableCell colSpan={colSpan}>
             {linkableFlights === null ? (
-              <span style={meta}>Loading flights…</span>
+              <span className="sabia-meta">Loading flights…</span>
             ) : linkableFlights.length === 0 ? (
-              <span style={meta}>No unlinked flights available.</span>
+              <span className="sabia-meta">No unlinked flights available.</span>
             ) : (
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                 <div style={{ flex: '1 1 auto', maxInlineSize: '40rem' }}>
@@ -196,7 +195,7 @@ export function GhostLegRow({
         <TableRow style={dim}>
           <TableCell colSpan={colSpan}>
             {movePicker.trips === null ? (
-              <span style={meta}>Loading trips…</span>
+              <span className="sabia-meta">Loading trips…</span>
             ) : (
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                 <div style={{ flex: '1 1 auto', maxInlineSize: '40rem' }}>

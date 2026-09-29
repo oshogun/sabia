@@ -226,10 +226,7 @@ export function AllFlights() {
         <div>
           {f.aircraft || 'Unknown'}
           {(f.departure_icao || f.arrival_icao) && (
-            <div
-              title={`${f.departure_name || ''} → ${f.arrival_name || ''}`}
-              style={{ color: 'var(--cds-text-secondary)', fontSize: '0.75rem' }}
-            >
+            <div title={`${f.departure_name || ''} → ${f.arrival_name || ''}`} className="sabia-meta">
               {routeText(f)}
             </div>
           )}

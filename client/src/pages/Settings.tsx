@@ -10,8 +10,6 @@ import { IngestTokensTile } from '../components/settings/IngestTokensTile';
 import { McpTokensTile } from '../components/settings/McpTokensTile';
 import { ChangePasswordTile } from '../components/settings/ChangePasswordTile';
 
-const helper: React.CSSProperties = { color: 'var(--cds-text-secondary)', fontSize: '0.875rem' };
-
 export function Settings() {
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -101,7 +99,7 @@ export function Settings() {
           <Form onSubmit={e => { e.preventDefault(); if (sbDirty) void saveSb(); }}>
             <Stack gap={5}>
               <h2 className="sabia-heading-03">SimBrief</h2>
-              <p style={helper}>The pilot ID is stored here; importing a SimBrief plan itself stays on Prefiles.</p>
+              <p className="sabia-helper">The pilot ID is stored here; importing a SimBrief plan itself stays on Prefiles.</p>
               {loading ? <SkeletonText /> : (
                 <TextInput
                   id="settings-simbrief-user-id"
@@ -126,7 +124,7 @@ export function Settings() {
           <Form onSubmit={e => { e.preventDefault(); if (siKey) void saveSi(); }}>
             <Stack gap={5}>
               <h2 className="sabia-heading-03">SayIntentions</h2>
-              <p style={helper}>
+              <p className="sabia-helper">
                 Optional. Enables importing SayIntentions comms into a flight&apos;s ACARS thread and sending a PDC into your live session.
                 The key is write-only and never shown again.
               </p>
@@ -140,7 +138,7 @@ export function Settings() {
                   onChange={e => setSiKey(e.target.value)}
                 />
               )}
-              <p style={helper} data-testid="si-status">
+              <p className="sabia-helper" data-testid="si-status">
                 {loading ? 'Loading…' : siSaved?.sayintentions_api_key_set ? `Saved: ${siSaved.sayintentions_api_key_masked}` : 'No key saved'}
               </p>
               {siError && <InlineNotification kind="error" lowContrast hideCloseButton title="Save failed" subtitle={siError} />}

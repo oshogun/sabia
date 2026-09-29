@@ -77,6 +77,26 @@ describe('Home', () => {
       expect(MockEventSource.instances).toHaveLength(1);
     });
 
+    it('renders the live-panel aircraft name as an h2, keeping the page outline unbroken', async () => {
+      const flyingStatus = {
+        connected: true, flightState: 'FLYING', currentFlightId: 1, aircraft: 'Boeing 737-800',
+        frame: {
+          lat: 10, lon: 20, altitudeFt: 5000, airspeedKnots: 250, groundSpeedKnots: 260,
+          headingDeg: 90, verticalSpeedFpm: 0, onGround: false,
+        },
+        paused: false, pauseFlags: 0,
+      };
+      mockFetchRoutes({ ...BASE_ROUTES, '/api/status': [200, flyingStatus] });
+
+      renderWithProviders(<LiveEventsProvider><Home /></LiveEventsProvider>);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+
+      const es = MockEventSource.latest();
+      act(() => { es.open(); es.emit('status', flyingStatus); });
+
+      expect(screen.getByRole('heading', { level: 2, name: 'Boeing 737-800' })).toBeInTheDocument();
+    });
+
     it('refetches once for a flights-changed and a flight-state event from one write', async () => {
       mockFetchRoutes(BASE_ROUTES);
 

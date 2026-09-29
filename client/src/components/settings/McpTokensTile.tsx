@@ -9,8 +9,6 @@ import type { McpTokenListResponse, McpTokenSummary } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 import { TokenCreatedModal, type TokenCreatedInfo } from './TokenCreatedModal';
 
-const helper: React.CSSProperties = { color: 'var(--cds-text-secondary)', fontSize: '0.875rem' };
-
 function formatLastUsed(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : 'Never';
 }
@@ -91,7 +89,7 @@ export function McpTokensTile() {
     <Tile data-testid="mcp-tokens-tile">
       <Stack gap={5}>
         <h2 className="sabia-heading-03">MCP tokens</h2>
-        <p style={helper}>Bearer tokens for MCP clients at /mcp.</p>
+        <p className="sabia-helper">Bearer tokens for MCP clients at /mcp.</p>
         {loadError && <InlineNotification kind="error" lowContrast hideCloseButton title="Could not load tokens" subtitle={loadError} />}
         {loading ? <SkeletonText /> : list && (
           <>
@@ -102,7 +100,7 @@ export function McpTokensTile() {
               />
             )}
             {list.mode === 'disabled' && (
-              <p style={helper} data-testid="mcp-mode-disabled">/mcp is off until a token exists.</p>
+              <p className="sabia-helper" data-testid="mcp-mode-disabled">/mcp is off until a token exists.</p>
             )}
 
             {tokens.length === 0 ? (
@@ -123,7 +121,7 @@ export function McpTokensTile() {
                     {tokens.map(t => (
                       <TableRow key={t.id} data-testid={`mcp-token-row-${t.id}`}>
                         <TableCell>{t.label}</TableCell>
-                        <TableCell style={{ fontFamily: 'monospace' }}>{t.public_id}</TableCell>
+                        <TableCell className="sabia-code">{t.public_id}</TableCell>
                         <TableCell>{new Date(t.created_at).toLocaleString()}</TableCell>
                         <TableCell>{formatLastUsed(t.last_used_at)}</TableCell>
                         <TableCell>

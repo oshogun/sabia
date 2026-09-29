@@ -13,7 +13,6 @@ import type { Flight, PlannedLegWithChildren } from '../../types';
 import { interleaveTripRows } from './interleave';
 import { LEGS_PER_PAGE, type LegsTableProps } from './legsTableProps';
 
-const meta = { color: 'var(--cds-text-secondary)', fontSize: '0.75rem' } as const;
 const errorNote = (title: string, subtitle: string) => (
   <InlineNotification kind="error" lowContrast hideCloseButton title={title} subtitle={subtitle}
     style={{ maxInlineSize: 'none' }} />
@@ -57,9 +56,12 @@ function FlownRow({
             <span title={`${f.departure_name || ''} → ${f.arrival_name || ''}`}>
               {f.departure_icao || '???'} → {f.arrival_icao || '???'}
             </span>
-          ) : <span style={meta}>—</span>}
+          ) : <span className="sabia-meta">—</span>}
           {landingNote && (
-            <div style={{ ...meta, ...(linkedLeg?.status === 'diverted' ? { color: 'var(--cds-support-error)' } : {}) }}>
+            <div
+              className="sabia-meta"
+              style={linkedLeg?.status === 'diverted' ? { color: 'var(--cds-support-error)' } : undefined}
+            >
               {landingNote}
             </div>
           )}
@@ -95,9 +97,9 @@ function FlownRow({
         <TableRow>
           <TableCell colSpan={GHOST_LEG_COLUMNS.length}>
             {legs === null ? (
-              flightPicker.legsError ? null : <span style={meta}>Loading legs…</span>
+              flightPicker.legsError ? null : <span className="sabia-meta">Loading legs…</span>
             ) : legs.length === 0 ? (
-              <span style={meta}>No unlinked planned legs available.</span>
+              <span className="sabia-meta">No unlinked planned legs available.</span>
             ) : (
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                 <div style={{ flex: '1 1 auto', maxInlineSize: '40rem' }}>

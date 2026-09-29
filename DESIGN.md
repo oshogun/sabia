@@ -193,12 +193,19 @@ Mirrored as JS strings in `client/src/components/maps/palette.ts` and `navdata/n
 **Character:** Plex is the engineer's voice of the room: neutral and exact, with tabular-feeling numerals that suit readouts. Montserrat's heavy geometric caps echo the logo's wordmark and appear exactly once per screen.
 
 ### Hierarchy
+Each role is a class in `client/src/styles/index.scss` ("Type roles"). Components apply the class; they never set font size, weight or family inline.
 - **Display** (400, 2rem, 1.25): page title (`.sabia-heading-05`, Carbon heading-05). One h1 per page.
-- **Headline** (400, 1.75rem, 1.28572): major section headings (`.sabia-heading-04`).
-- **Title** (400, 1.25rem, 1.4): panel and tile titles (`.sabia-heading-03`).
+- **Headline** (400, 1.75rem, 1.28572): major section headings (`.sabia-heading-04`). Reserved; unused today.
+- **Title** (400, 1.25rem, 1.4): every page-section and tile/panel title (`.sabia-heading-03`), with no per-page overrides.
+- **Subtitle** (600, 1rem, 1.5): a subsection inside a section or disclosure, e.g. Home's *Recent flights* and *Manual entry* (`.sabia-heading-02`, Carbon heading-02).
 - **Body** (400, 0.875rem, 1.42857, 0.16px): Carbon body-01. Tables, forms, prose.
-- **Label** (400, 0.75rem, 1.33333, 0.32px): Carbon label-01. Field labels, captions, map tooltips.
-- **Readout** (400, 2rem, 1.25): stat-tile values (distance, time, altitude). Regular weight; the size carries it.
+- **Helper** (body-01, Annotation Gray): explanatory text under a title (`.sabia-helper`).
+- **Label / meta** (400, 0.75rem, 1.33333, 0.32px): Carbon label-01. Field labels, captions, map tooltips; secondary lines in tables and leg rows (`.sabia-meta`).
+- **Readout** (400, 2rem, 1.25, tabular numerals): stat-tile values and the live panel's readouts (`.sabia-readout`), with an Annotation Gray 0.875rem label above (`.sabia-readout-label`) and a 0.875rem unit after (`.sabia-unit`). Regular weight; the size carries it.
+- **Compact readout** (400, 1.25rem, 1.4, tabular): a readout too long for 2rem, such as coordinates or the remaining distance (`.sabia-readout--compact`).
+- **Code** (IBM Plex Mono): token ids and identifiers (`.sabia-code`); raw ACARS text.
+
+Data tables and structured lists use tabular numerals throughout, so columns of times and distances line up.
 
 ### Named Rules
 **The Outline-First Rule.** Heading elements follow the document outline (one h1, no level jumps). The `sabia-heading-0x` classes set the look independently of the element, so never pick an `h` level for its size.
@@ -264,7 +271,7 @@ is part of what marks a tag as status.
 - **`.cds--g90` inset zone:** available for a panel that needs one more step of contrast (background #262626 as its ground).
 
 ### Stat tiles (signature)
-A grid of readouts: Annotation Gray label (0.875rem) above a Readout White value (2rem, regular). Used on Home (aggregate stats) and flight/trip detail.
+A grid of readouts: Annotation Gray label (0.875rem) above a Readout White value (2rem, regular, tabular). Used on Home (aggregate stats) and flight/trip detail. Home's in-flight live panel uses the same readout roles, four to a row at ≥66rem.
 
 ### Inputs / Fields
 - **Style:** Carbon text input: #262626 fill, bottom border only, square.

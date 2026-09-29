@@ -19,7 +19,7 @@ export function SayIntentionsPanel({ status, sendingId, onLink, onUnlink, onImpo
   const busy = (id: string, text: string, label: string) => (sendingId === id ? <InlineLoading description={text} /> : label);
   return (
     <Tile>
-      <h2 className="acars-section-title">SayIntentions</h2>
+      <h2 className="sabia-heading-03 acars-section-title">SayIntentions</h2>
       {status === null || !status.api_key_set ? (
         <p className="acars-status" style={{ marginTop: 0 }}>SayIntentions: no API key saved. Add one in <Link as={RouterLink} to="/settings">Settings</Link>.</p>
       ) : (

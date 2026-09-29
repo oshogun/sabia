@@ -10,9 +10,9 @@ export interface EmptyStateProps {
 export function EmptyState({ title, description, action }: EmptyStateProps) {
   return (
     <Tile style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-      <p style={{ fontSize: '1.25rem' }}>{title}</p>
+      <p className="sabia-heading-03">{title}</p>
       {description && (
-        <p style={{ color: 'var(--cds-text-secondary)', marginTop: '0.5rem' }}>{description}</p>
+        <p className="sabia-helper" style={{ marginTop: '0.5rem' }}>{description}</p>
       )}
       {action && <div style={{ marginTop: '1rem' }}>{action}</div>}
     </Tile>

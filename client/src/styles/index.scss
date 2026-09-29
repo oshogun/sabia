@@ -117,12 +117,67 @@
   src: url('~@ibm/plex-mono/fonts/complete/woff2/IBMPlexMono-Regular.woff2') format('woff2');
 }
 
-// ── Heading type styles ────────────────────────────────────────────────────
+// ── Type roles ──────────────────────────────────────────────────────────────
 // Heading elements are chosen for document outline (one h1 per page, no level
-// jumps); these classes pin the look independently of the element.
+// jumps); these classes pin the look independently of the element. Non-heading
+// roles (readouts, helper text, metadata, code) live here too so every screen
+// picks a look from this one set instead of sizing text inline.
 .sabia-heading-05 { @include type.type-style('heading-05'); }
 .sabia-heading-04 { @include type.type-style('heading-04'); }
 .sabia-heading-03 { @include type.type-style('heading-03'); }
+.sabia-heading-02 { @include type.type-style('heading-02'); }
+
+// Numeric readout value, e.g. the live-panel altitude/speed figures.
+.sabia-readout {
+  font-size: 2rem;
+  line-height: 1.25;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+// Same role for a readout whose value runs long (position, route remaining).
+.sabia-readout--compact {
+  font-size: 1.25rem;
+  line-height: 1.4;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+// Label sitting above a readout value.
+.sabia-readout-label {
+  font-size: 0.875rem;
+  color: var(--cds-text-secondary);
+}
+
+// Unit following a readout value.
+.sabia-unit {
+  font-size: 0.875rem;
+  color: var(--cds-text-secondary);
+  margin-inline-start: 0.25rem;
+}
+
+// Explanatory text under a heading or a control.
+.sabia-helper {
+  @include type.type-style('body-01');
+  color: var(--cds-text-secondary);
+}
+
+// Small metadata line, e.g. a timestamp or a ghost-row note.
+.sabia-meta {
+  @include type.type-style('label-01');
+  color: var(--cds-text-secondary);
+}
+
+// Identifiers and token ids.
+.sabia-code {
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+// Tabular numerals wherever numbers line up in a column.
+.cds--data-table td,
+.cds--structured-list-td {
+  font-variant-numeric: tabular-nums;
+}
 
 // ── Leaflet ────────────────────────────────────────────────────────────────
 // leaflet/dist/leaflet.css is imported from the map wrapper module, not here,

@@ -62,7 +62,7 @@ export function Home() {
 
       <GroundSection status={status} />
 
-      <h2 style={{ fontSize: '1.25rem', fontWeight: 400, marginBottom: '1rem' }}>Flight log</h2>
+      <h2 className="sabia-heading-03" style={{ marginBottom: '1rem' }}>Flight log</h2>
 
       {error && (
         <InlineNotification kind="error" role="alert" title="Could not load flights" subtitle={error} hideCloseButton lowContrast />
@@ -82,7 +82,7 @@ export function Home() {
               { label: 'Total distance', value: `${formatDistance(totalDistanceNm)} nm` },
             ]}
           />
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: '1.5rem 0 0.5rem' }}>Recent flights</h3>
+          <h3 className="sabia-heading-02" style={{ margin: '1.5rem 0 0.5rem' }}>Recent flights</h3>
           <StructuredListWrapper isCondensed aria-label="Recent flights">
             <StructuredListHead>
               <StructuredListRow head>

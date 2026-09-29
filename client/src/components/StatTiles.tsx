@@ -18,9 +18,9 @@ export function StatTiles({ tiles }: { tiles: StatTile[] }) {
     <div className="stat-tiles">
       {tiles.map(t => (
         <Tile key={t.label} className="stat-tiles__tile" data-testid={statTestId(t.label)}>
-          <div className="stat-tiles__label">{t.label}</div>
-          <div className="stat-tiles__value">{t.value}</div>
-          {t.sub && <div className="stat-tiles__label">{t.sub}</div>}
+          <div className="sabia-readout-label">{t.label}</div>
+          <div className="sabia-readout">{t.value}</div>
+          {t.sub && <div className="sabia-readout-label">{t.sub}</div>}
         </Tile>
       ))}
     </div>

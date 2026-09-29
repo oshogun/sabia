@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "express": "^4.18.3",
     "express-session": "^1.19.0",
     "fast-xml-parser": "^5.11.1",
@@ -48,7 +48,7 @@
     "vitest": "4.1.11"
   },
   "allowScripts": {
-    "better-sqlite3@12.11.1": true,
+    "better-sqlite3": false,
     "puppeteer@25.11.0": true
   }
 }

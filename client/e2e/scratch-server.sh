@@ -36,9 +36,9 @@ if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 # Guard 5: the Node major must match .nvmrc. The default node on this
-# machine is a major better-sqlite3 has no prebuilt binary for, so a mismatch
-# here fails silently later as a 180s webServer readiness timeout instead of
-# the real "cannot load native module" error.
+# machine is a different major than the one this repo is pinned to
+# (package.json engines / .nvmrc), and a mismatch here fails silently later
+# as a 180s webServer readiness timeout instead of a clear error up front.
 want="$(tr -dc '0-9' < "$REPO_ROOT/.nvmrc" | head -c 2)"
 have="$(node -p 'process.versions.node.split(".")[0]')"
 if [ "$have" != "$want" ]; then

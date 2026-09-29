@@ -71,6 +71,12 @@ Actions fail.
 **[`/update-site`](.claude/skills/update-site/SKILL.md)**. It is tier 1, and
 every number on the page comes from a command run that session.
 
+**Performance benchmarks** ("run lighthouse", "did this make it faster",
+"benchmark before/after"): use
+**[`/lighthouse-benchmark`](.claude/skills/lighthouse-benchmark/SKILL.md)**.
+It is tier 1. It serves each revision from a seeded scratch copy on a
+scratch port and reports median Lighthouse tables.
+
 **Releases** ("cut a release", "tag vX.Y.Z", "bump the version"): use
 **[`/version-release`](.claude/skills/version-release/SKILL.md)**. It is tier 1.
 It bumps the four version fields and pushes an annotated tag. CI's `release`

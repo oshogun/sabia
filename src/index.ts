@@ -1,6 +1,7 @@
 import * as http from 'http';
 import * as https from 'https';
 import * as fs from 'fs';
+import * as path from 'path';
 import { loadConfig, ConfigError } from './config';
 import { initDb, closeDb, getAuthUser, sessionSweep, countActiveIngestTokens, countActiveMcpTokens } from './db';
 import { ingestAuthMode } from './auth/ingestAuth';
@@ -11,6 +12,7 @@ import { initAirports } from './airports';
 import { ensureFlightPlansDir } from './flightPlans';
 import { FlightManager } from './flightManager';
 import { createServer } from './server';
+import { warmAssets } from './staticAssets';
 
 // Configuration is read and validated before anything else — before the
 // database is opened, before any listener — so a misconfigured deployment
@@ -112,6 +114,9 @@ if (config.tls.enabled) {
 server.listen(config.port, config.bindHost, () => {
   const scheme = config.tls.enabled ? 'https' : 'http';
   console.log(`[HTTP] Server running at ${scheme}://${config.bindHost}:${config.port}`);
+  // Fire-and-forget: primes the compressed-asset cache so the first real
+  // request for each JS/CSS asset isn't the one paying for the brotli pass.
+  warmAssets(path.join(process.cwd(), 'client', 'dist')).catch(() => {});
 });
 
 // Close the database on the way out so the WAL is checkpointed back into

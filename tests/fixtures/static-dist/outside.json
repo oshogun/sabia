@@ -1,0 +1,3 @@
+{
+  "marker": "this file lives outside tests/fixtures/static-dist/assets on purpose — a traversal test failure here means a real path escaped the assets root, not just a missing file"
+}

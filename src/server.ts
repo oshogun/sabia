@@ -8,6 +8,7 @@ import { createIngestRouter } from './ingest';
 import { NAVDATA_BATCH_MAX_BYTES } from './navdata/store';
 import { SidecarStateStore } from './navdata/sidecarState';
 import { TrafficStore } from './trafficStore';
+import { createAssetsMiddleware } from './staticAssets';
 import { getConfig } from './config';
 import { getOrCreateAppSecret, setAcarsInsertListener } from './db';
 import { EventHub } from './eventHub';
@@ -45,6 +46,10 @@ export function createServer(flightManager: FlightManager): express.Express {
   // global limit.
   app.use('/api/navdata/rows', express.json({ limit: NAVDATA_BATCH_MAX_BYTES }));
   app.use(express.json({ limit: config.jsonBodyLimit }));
+  // One more public static handler ahead of the one below it, nothing else
+  // moves: hashed assets get compression and a long cache lifetime before
+  // falling through to the plain express.static that also serves index.html.
+  app.use('/assets', createAssetsMiddleware(path.join(process.cwd(), 'client', 'dist')));
   app.use(express.static(path.join(process.cwd(), 'client', 'dist')));
 
   // One instance per server (not a module-level singleton), so a scratch

@@ -4,6 +4,7 @@ import {
   Button, Checkbox, ContentSwitcher, InlineLoading, InlineNotification, SkeletonText, Switch, Tile,
 } from '@carbon/react';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { NotesTile } from '../components/NotesTile';
 import { PageHeader } from '../components/PageHeader';
 import { StatTiles } from '../components/StatTiles';
 import { StatusTag } from '../components/StatusTag';
@@ -193,6 +194,17 @@ export function TripDetail() {
     setEditNotes(trip.notes ?? '');
     setSaveError('');
     setEditOpen(true);
+  }
+
+  async function handleSaveNotes(notes: string | null) {
+    if (!trip) return;
+    try {
+      await api.patchTrip(trip.id, { notes });
+      await reload();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) return;
+      throw err;
+    }
   }
 
   async function handleSave() {
@@ -681,12 +693,7 @@ export function TripDetail() {
             { label: 'Legs', value: trip.flight_count },
           ]} />
 
-          {trip.notes && (
-            <Tile>
-              <h2 className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Notes</h2>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{trip.notes}</p>
-            </Tile>
-          )}
+          <NotesTile kind="trip" subject={trip.name} notes={trip.notes} onSave={handleSaveNotes} style={{}} />
 
           <Tile>
             <h2 className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Combined route</h2>
@@ -735,7 +742,7 @@ export function TripDetail() {
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBlockStart: '2rem', alignItems: 'center' }}>
         <Button kind="ghost" as={RouterLink} to="/">Back</Button>
-        <Button kind="tertiary" onClick={openEdit}>Edit</Button>
+        <Button kind="tertiary" onClick={openEdit}>Edit trip details</Button>
         <Button kind="tertiary" disabled={exportingPdf} onClick={() => void handleExportPdf()}>
           {exportingPdf ? 'Generating PDF…' : 'Export PDF'}
         </Button>

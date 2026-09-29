@@ -5,6 +5,7 @@ import {
   Tab, TabList, TabPanel, TabPanels, Tabs, Tile,
 } from '@carbon/react';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { NotesTile } from '../components/NotesTile';
 import { PageHeader } from '../components/PageHeader';
 import { StatTiles } from '../components/StatTiles';
 import { AltitudeChart } from '../components/charts';
@@ -151,6 +152,15 @@ export function FlightDetail() {
       setMarkError(errMsg(err));
     } finally {
       setMarkBusy(false);
+    }
+  }
+
+  async function handleSaveNotes(notes: string | null) {
+    try {
+      setFlight(await patchFlight(id, { notes }));
+    } catch (err) {
+      if (err instanceof UnauthorizedError) return;
+      throw err;
     }
   }
 
@@ -307,12 +317,7 @@ export function FlightDetail() {
 
       <div style={{ marginBottom: '1rem' }}><StatTiles tiles={tiles} /></div>
 
-      {flight.notes && (
-        <Tile style={{ marginBottom: '1rem' }}>
-          <h2 className="sabia-heading-03" style={{ marginBottom: '0.5rem' }}>Notes</h2>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{flight.notes}</p>
-        </Tile>
-      )}
+      <NotesTile kind="flight" subject={`flight #${flight.id}`} notes={flight.notes} onSave={handleSaveNotes} />
 
       {flight.planned_leg_id != null && (
         <PlannedLegSection
@@ -364,7 +369,7 @@ export function FlightDetail() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1.5rem' }}>
         <Button as={RouterLink} to="/" kind="ghost">← Back</Button>
-        <Button kind="ghost" onClick={() => { setSaveError(''); setEditOpen(true); }}>Edit</Button>
+        <Button kind="ghost" onClick={() => { setSaveError(''); setEditOpen(true); }}>Edit flight details</Button>
         <Button as={RouterLink} to={`/flight/${flight.id}/acars`} kind="ghost">ACARS messages</Button>
         <Button kind="ghost" disabled={exportingPdf} onClick={handleExportPdf}>
           {exportingPdf ? 'Generating PDF…' : 'Export PDF'}

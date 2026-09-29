@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { mockFetchRoutes, deferred } from '../test/mockFetch';
 import type { ResponseTuple } from '../test/mockFetch';
@@ -104,5 +105,117 @@ describe('FlightDetail', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'Track' }));
       expect(screen.queryByRole('region', { name: 'Flight replay' })).not.toBeInTheDocument();
     });
+  });
+
+  describe('Notes tile', () => {
+    it('shows an "Add notes" action for a flight with no notes', async () => {
+      mockFetchRoutes({
+        '/api/auth/session': SESSION_ROUTE,
+        '/api/flights/1': [200, flightFixture],
+      });
+      renderWithProviders(<FlightDetail />, ROUTE_OPTS);
+
+      await screen.findByRole('heading', { name: /Flight #1/ });
+      expect(screen.getByText('No notes for this flight.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Add notes for flight #1' })).toBeInTheDocument();
+    });
+
+    it('adding notes sends a PATCH with only { notes } and shows the new text without a reload', async () => {
+      const user = userEvent.setup();
+      let patchBody: unknown;
+      mockFetchRoutes({
+        '/api/auth/session': SESSION_ROUTE,
+        '/api/flights/1': {
+          GET: [200, flightFixture],
+          PATCH: (init) => {
+            patchBody = JSON.parse((init?.body as string) ?? '{}');
+            return [200, { ...flightFixture, notes: 'Smooth landing' }];
+          },
+        },
+      });
+      renderWithProviders(<FlightDetail />, ROUTE_OPTS);
+      await screen.findByRole('heading', { name: /Flight #1/ });
+
+      await user.click(screen.getByRole('button', { name: 'Add notes for flight #1' }));
+      const notesTile = within(screen.getByTestId('notes-tile'));
+      fireEvent.change(notesTile.getByRole('textbox'), { target: { value: 'Smooth landing' } });
+      await user.click(notesTile.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.getByText('Smooth landing')).toBeInTheDocument());
+      expect(patchBody).toEqual({ notes: 'Smooth landing' });
+    });
+
+    it('editing existing notes sends the new value', async () => {
+      const user = userEvent.setup();
+      let patchBody: unknown;
+      mockFetchRoutes({
+        '/api/auth/session': SESSION_ROUTE,
+        '/api/flights/1': {
+          GET: [200, { ...flightFixture, notes: 'Bumpy approach' }],
+          PATCH: (init) => {
+            patchBody = JSON.parse((init?.body as string) ?? '{}');
+            return [200, { ...flightFixture, notes: 'Bumpy approach, corrected' }];
+          },
+        },
+      });
+      renderWithProviders(<FlightDetail />, ROUTE_OPTS);
+      await screen.findByRole('heading', { name: /Flight #1/ });
+
+      await user.click(screen.getByRole('button', { name: 'Edit notes for flight #1' }));
+      const notesTile = within(screen.getByTestId('notes-tile'));
+      fireEvent.change(notesTile.getByRole('textbox'), { target: { value: 'Bumpy approach, corrected' } });
+      await user.click(notesTile.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.getByText('Bumpy approach, corrected')).toBeInTheDocument());
+      expect(patchBody).toEqual({ notes: 'Bumpy approach, corrected' });
+    });
+
+    it('clearing notes back to a blank draft returns to the empty state', async () => {
+      const user = userEvent.setup();
+      let patchBody: unknown;
+      mockFetchRoutes({
+        '/api/auth/session': SESSION_ROUTE,
+        '/api/flights/1': {
+          GET: [200, { ...flightFixture, notes: 'Bumpy approach' }],
+          PATCH: (init) => {
+            patchBody = JSON.parse((init?.body as string) ?? '{}');
+            return [200, { ...flightFixture, notes: null }];
+          },
+        },
+      });
+      renderWithProviders(<FlightDetail />, ROUTE_OPTS);
+      await screen.findByRole('heading', { name: /Flight #1/ });
+
+      await user.click(screen.getByRole('button', { name: 'Edit notes for flight #1' }));
+      const notesTile = within(screen.getByTestId('notes-tile'));
+      fireEvent.change(notesTile.getByRole('textbox'), { target: { value: '   ' } });
+      await user.click(notesTile.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.getByText('No notes for this flight.')).toBeInTheDocument());
+      expect(patchBody).toEqual({ notes: null });
+    });
+  });
+
+  it('renames the bottom-row Edit button and still opens the modal with its Notes field', async () => {
+    const user = userEvent.setup();
+    mockFetchRoutes({
+      '/api/auth/session': SESSION_ROUTE,
+      '/api/flights/1': [200, flightFixture],
+    });
+    renderWithProviders(<FlightDetail />, ROUTE_OPTS);
+    await screen.findByRole('heading', { name: /Flight #1/ });
+
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    // EditFlightModal is always mounted (Carbon's Modal toggles a CSS class rather
+    // than mounting/unmounting), so the dialog must be found closed before the click
+    // and open after it, not just present in the DOM either way.
+    expect(screen.queryAllByRole('dialog').some(d => d.parentElement?.classList.contains('is-visible'))).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: 'Edit flight details' }));
+
+    const dialog = screen.getAllByRole('dialog').find(d => d.parentElement?.classList.contains('is-visible'));
+    if (!dialog) throw new Error('no open dialog found');
+    expect(within(dialog).getByRole('heading', { name: 'Edit flight' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Notes')).toBeInTheDocument();
   });
 });

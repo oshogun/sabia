@@ -28,7 +28,7 @@ const TRIP_SEVEN: Trip = {
 const TRIP_WITH_LEG: Trip = { ...tripFixture, planned_legs: [plannedLegFixture] };
 
 describe('TripDetail', () => {
-  it('shows "Loading..." before the trip resolves, then the trip', async () => {
+  it('shows "Loading trip…" before the trip resolves, then the trip', async () => {
     const trip = deferred<ResponseTuple>();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
@@ -38,12 +38,12 @@ describe('TripDetail', () => {
 
     renderWithProviders(<TripDetail />, ROUTE_OPTS);
 
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading trip…')).toBeInTheDocument();
 
     trip.resolve([200, tripFixture]);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'E2E Baltic Hop' })).toBeInTheDocument());
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading trip…')).not.toBeInTheDocument();
   });
 
   it('renders the load error when the trip fetch fails (e.g. a 404 for an unknown id)', async () => {
@@ -55,8 +55,9 @@ describe('TripDetail', () => {
 
     renderWithProviders(<TripDetail />, ROUTE_OPTS);
 
-    await waitFor(() => expect(screen.getByText('Failed to load trip: Not found')).toBeInTheDocument());
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Could not load trip')).toBeInTheDocument());
+    expect(screen.getByText('Not found')).toBeInTheDocument();
+    expect(screen.queryByText('Loading trip…')).not.toBeInTheDocument();
   });
 
   describe('move to trip', () => {

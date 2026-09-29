@@ -7,7 +7,7 @@ import {
   TableToolbar, TableToolbarContent, TableToolbarSearch, TextInput,
 } from '@carbon/react';
 import { Add, Export, FolderAdd, Merge } from '@carbon/icons-react';
-import { EmptyState } from '../components/EmptyState';
+import { FirstFlightEmptyState } from '../components/FirstFlightEmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { StatusTag } from '../components/StatusTag';
 import { ConfirmModal, ModalPortal, useLauncherRef } from '../components/ConfirmModal';
@@ -47,7 +47,7 @@ export function AllFlights() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [collapsedTrips, setCollapsedTrips] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{ title: string; message: string } | null>(null);
   const [exportingKml, setExportingKml] = useState(false);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -138,21 +138,21 @@ export function AllFlights() {
     });
   }
 
-  async function run(label: string, fn: () => Promise<void>) {
+  async function run(title: string, fn: () => Promise<void>) {
     setBusy(true);
     setActionError(null);
     try {
       await fn();
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError(`${label}: ${(err as Error).message}`);
+      setActionError({ title, message: (err as Error).message });
     } finally {
       setBusy(false);
       setDialog(null);
     }
   }
 
-  const handleCombine = () => run('Combine failed', async () => {
+  const handleCombine = () => run('Could not combine flights', async () => {
     const result = await combineFlights(selA, selB);
     setSelectedIds(new Set());
     navigate(`/flight/${result.id}`);
@@ -162,12 +162,12 @@ export function AllFlights() {
     const name = tripName.trim();
     if (!name) return;
     if (dialog === 'blankTrip') {
-      return run('Failed to create trip', async () => {
+      return run('Could not create trip', async () => {
         const { id } = await createTrip(name);
         navigate(`/trip/${id}`);
       });
     }
-    return run('Failed to create trip', async () => {
+    return run('Could not create trip', async () => {
       const { id } = await createTrip(name);
       for (const flightId of selectedIds) await addFlightToTrip(id, flightId);
       setSelectedIds(new Set());
@@ -178,7 +178,7 @@ export function AllFlights() {
   const handleAddToTrip = () => {
     const tripId = Number(pickerTripId);
     if (!tripId) return;
-    return run('Failed to add to trip', async () => {
+    return run('Could not add flights to trip', async () => {
       for (const flightId of selectedIds) await addFlightToTrip(tripId, flightId);
       setSelectedIds(new Set());
       await loadFlights();
@@ -193,7 +193,7 @@ export function AllFlights() {
       await downloadFlightSetKml([...selectedIds]);
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Export failed: ' + (err as Error).message);
+      setActionError({ title: 'Could not export KML', message: (err as Error).message });
     } finally {
       setExportingKml(false);
     }
@@ -277,7 +277,7 @@ export function AllFlights() {
           </div>
         </TableCell>
         <TableCell>
-          <Button as={Link} to={`/trip/${trip.id}`} kind="ghost" size="sm">View Trip</Button>
+          <Button as={Link} to={`/trip/${trip.id}`} kind="ghost" size="sm">View trip</Button>
         </TableCell>
       </TableExpandRow>,
       expanded && (
@@ -303,8 +303,8 @@ export function AllFlights() {
                   <TableHeader>Date</TableHeader>
                   <TableHeader>Duration</TableHeader>
                   <TableHeader>Distance</TableHeader>
-                  <TableHeader>Max Alt</TableHeader>
-                  <TableHeader>Max Speed</TableHeader>
+                  <TableHeader>Max alt</TableHeader>
+                  <TableHeader>Max speed</TableHeader>
                   <TableHeader />
                 </TableRow>
               </TableHead>
@@ -346,12 +346,12 @@ export function AllFlights() {
     // state even if a later background poll fails — a poll failure loses the
     // fresh data, not the fact that the log is empty, and dropping to the
     // raw table below would render a blank body with no explanation.
-    body = <EmptyState title="No flights recorded yet." description="Start MSFS 2024 and take off to begin logging." />;
+    body = <FirstFlightEmptyState />;
   } else {
     const headers = [
       { key: 'aircraft', header: 'Aircraft' }, { key: 'date', header: 'Date' },
       { key: 'duration', header: 'Duration' }, { key: 'distance', header: 'Distance' },
-      { key: 'alt', header: 'Max Alt' }, { key: 'speed', header: 'Max Speed' },
+      { key: 'alt', header: 'Max alt' }, { key: 'speed', header: 'Max speed' },
     ];
     body = (
       <DataTable rows={[]} headers={headers} isSortable={false}>
@@ -371,12 +371,12 @@ export function AllFlights() {
                     : n === 2 ? `Flights #${selA} and #${selB} selected`
                     : `${state?.totalSelected ?? n} flights selected`}
               >
-                <TableBatchAction renderIcon={FolderAdd} onClick={() => openNewTrip('newTrip')}>New Trip</TableBatchAction>
+                <TableBatchAction renderIcon={FolderAdd} onClick={() => openNewTrip('newTrip')}>New trip</TableBatchAction>
                 {trips.length > 0 && (
-                  <TableBatchAction renderIcon={Add} onClick={openAddToTrip}>Add to Trip</TableBatchAction>
+                  <TableBatchAction renderIcon={Add} onClick={openAddToTrip}>Add to trip</TableBatchAction>
                 )}
                 <TableBatchAction renderIcon={Merge} disabled={n !== 2} onClick={() => setDialog('combine')}>
-                  Combine Selected
+                  Combine selected
                 </TableBatchAction>
                 <TableBatchAction
                   renderIcon={Export}
@@ -397,7 +397,7 @@ export function AllFlights() {
                     setPage(1);
                   }}
                 />
-                <Button kind="primary" size="md" renderIcon={Add} onClick={() => openNewTrip('blankTrip')}>New Trip</Button>
+                <Button kind="primary" size="md" renderIcon={Add} onClick={() => openNewTrip('blankTrip')}>New trip</Button>
               </TableToolbarContent>
             </TableToolbar>
             <div className="allflights-scroll">
@@ -433,7 +433,7 @@ export function AllFlights() {
                     rows.push(
                       <TableRow key="ungrouped" data-testid="ungrouped-row">
                         <TableCell colSpan={COLUMN_COUNT + 1} style={{ color: 'var(--cds-text-secondary)', fontWeight: 600 }}>
-                          Ungrouped Flights
+                          Ungrouped flights
                         </TableCell>
                       </TableRow>,
                     );
@@ -471,7 +471,7 @@ export function AllFlights() {
 
   return (
     <>
-      <PageHeader title="Flight Log" />
+      <PageHeader title="All flights" />
       {error && (
         <InlineNotification
           kind="error" lowContrast hideCloseButton title="Could not load flights" subtitle={error}
@@ -479,7 +479,7 @@ export function AllFlights() {
       )}
       {actionError && (
         <InlineNotification
-          kind="error" lowContrast title="Action failed" subtitle={actionError} onCloseButtonClick={() => setActionError(null)}
+          kind="error" lowContrast title={actionError.title} subtitle={actionError.message} onCloseButtonClick={() => setActionError(null)}
         />
       )}
       {body}
@@ -488,7 +488,7 @@ export function AllFlights() {
         open={dialog === 'combine'}
         title="Combine flights"
         message={`Combine flights #${selA} and #${selB} into one? Both originals will be deleted.`}
-        confirmLabel="Combine"
+        confirmLabel="Combine flights"
         onConfirm={handleCombine}
         onCancel={() => setDialog(null)}
       />

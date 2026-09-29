@@ -109,7 +109,7 @@ export function Settings() {
                   onChange={e => setSbId(e.target.value)}
                 />
               )}
-              {sbError && <InlineNotification kind="error" lowContrast hideCloseButton title="Save failed" subtitle={sbError} />}
+              {sbError && <InlineNotification kind="error" lowContrast hideCloseButton title="Could not save" subtitle={sbError} />}
               {sbOk && <InlineNotification kind="success" lowContrast hideCloseButton title={sbOk} />}
               <div>
                 <Button type="submit" kind="primary" disabled={loading || sbSaving || !sbDirty}>
@@ -141,7 +141,7 @@ export function Settings() {
               <p className="sabia-helper" data-testid="si-status">
                 {loading ? 'Loading…' : siSaved?.sayintentions_api_key_set ? `Saved: ${siSaved.sayintentions_api_key_masked}` : 'No key saved'}
               </p>
-              {siError && <InlineNotification kind="error" lowContrast hideCloseButton title="Save failed" subtitle={siError} />}
+              {siError && <InlineNotification kind="error" lowContrast hideCloseButton title="Could not save" subtitle={siError} />}
               {siOk && <InlineNotification kind="success" lowContrast hideCloseButton title={siOk} />}
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <Button type="submit" kind="primary" disabled={loading || siSaving || !siKey}>

@@ -56,7 +56,7 @@ describe('Prefiles', () => {
     renderWithProviders(<Prefiles />);
 
     expect(screen.getByRole('heading', { name: 'Prefiles' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('No planned legs yet.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('No planned legs yet')).toBeInTheDocument());
   });
 
   it('renders the load-error banner when the planned-legs fetch fails', async () => {
@@ -69,7 +69,7 @@ describe('Prefiles', () => {
 
     renderWithProviders(<Prefiles />);
 
-    await waitFor(() => expect(screen.getByText('Failed to load planned legs')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Could not load planned legs')).toBeInTheDocument());
     expect(screen.getByText('Database is locked')).toBeInTheDocument();
   });
 

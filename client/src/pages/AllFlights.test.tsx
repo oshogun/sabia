@@ -27,7 +27,7 @@ describe('AllFlights', () => {
 
     expect(document.querySelector('.cds--data-table-container.cds--skeleton')).toBeInTheDocument();
     expect(screen.queryByText(/Airbus A320neo/)).not.toBeInTheDocument();
-    expect(screen.queryByText('No flights recorded yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No flights recorded yet')).not.toBeInTheDocument();
 
     flights.resolve([200, [flightFixture]]);
 
@@ -45,7 +45,7 @@ describe('AllFlights', () => {
 
     renderWithProviders(<AllFlights />);
 
-    await waitFor(() => expect(screen.getByText('No flights recorded yet.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('No flights recorded yet')).toBeInTheDocument());
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 

@@ -46,7 +46,7 @@ export function FlightDetail() {
   const [uploadError, setUploadError] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingKml, setExportingKml] = useState(false);
-  const [actionError, setActionError] = useState('');
+  const [actionError, setActionError] = useState<{ title: string; message: string } | null>(null);
   const [includePlan, setIncludePlan] = useState(true);
 
   const [plannedLeg, setPlannedLeg] = useState<PlannedLegWithChildren | null>(null);
@@ -101,7 +101,7 @@ export function FlightDetail() {
       .catch(err => {
         if (cancelled) return;
         if (err instanceof UnauthorizedError) return;
-        setPlannedLegError('Failed to load planned leg: ' + errMsg(err));
+        setPlannedLegError(errMsg(err));
       })
       .finally(() => {
         if (!cancelled) setPlannedLegLoading(false);
@@ -135,7 +135,7 @@ export function FlightDetail() {
       setFlight(await linkFlightToLeg(id, null));
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setUnlinkError('Unlink failed: ' + errMsg(err));
+      setUnlinkError(errMsg(err));
     } finally {
       setUnlinkBusy(false);
     }
@@ -148,7 +148,7 @@ export function FlightDetail() {
       setPlannedLeg(await setFlightPlannedLegStatus(id, target));
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setMarkError('Mark failed: ' + errMsg(err));
+      setMarkError(errMsg(err));
     } finally {
       setMarkBusy(false);
     }
@@ -162,7 +162,7 @@ export function FlightDetail() {
       setEditOpen(false);
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setSaveError('Save failed: ' + errMsg(err));
+      setSaveError(errMsg(err));
     } finally {
       setSaving(false);
     }
@@ -175,7 +175,7 @@ export function FlightDetail() {
       navigate('/flights');
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Delete failed: ' + errMsg(err));
+      setActionError({ title: 'Could not delete flight', message: errMsg(err) });
     }
   }
 
@@ -190,7 +190,7 @@ export function FlightDetail() {
       setFlight(await attachFlightPlan(id, file));
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setUploadError('Upload failed: ' + errMsg(err));
+      setUploadError(errMsg(err));
     } finally {
       setUploading(false);
     }
@@ -202,19 +202,19 @@ export function FlightDetail() {
       setFlight(await removeFlightPlan(id));
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Remove failed: ' + errMsg(err));
+      setActionError({ title: 'Could not remove flight plan', message: errMsg(err) });
     }
   }
 
   async function handleExportPdf() {
     if (!flight) return;
     setExportingPdf(true);
-    setActionError('');
+    setActionError(null);
     try {
       await downloadPdf(`/api/flights/${flight.id}/export.pdf`, `flight-${flight.id}.pdf`, { includePlans: includePlan });
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Export failed: ' + errMsg(err));
+      setActionError({ title: 'Could not generate PDF', message: errMsg(err) });
     } finally {
       setExportingPdf(false);
     }
@@ -223,12 +223,12 @@ export function FlightDetail() {
   async function handleExportKml() {
     if (!flight) return;
     setExportingKml(true);
-    setActionError('');
+    setActionError(null);
     try {
       await downloadKml(`/api/flights/${flight.id}/export.kml`, `flight-${flight.id}.kml`);
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Export failed: ' + errMsg(err));
+      setActionError({ title: 'Could not export KML', message: errMsg(err) });
     } finally {
       setExportingKml(false);
     }
@@ -236,7 +236,7 @@ export function FlightDetail() {
 
   const backLink = (
     <div style={{ marginBottom: '1rem' }}>
-      <Link as={RouterLink} to="/flights">← All Flights</Link>
+      <Link as={RouterLink} to="/flights">← All flights</Link>
     </div>
   );
 
@@ -244,7 +244,7 @@ export function FlightDetail() {
     return (
       <>
         {backLink}
-        <InlineNotification kind="error" title={`Failed to load flight: ${loadError}`} hideCloseButton />
+        <InlineNotification kind="error" title="Could not load flight" subtitle={loadError} hideCloseButton />
       </>
     );
   }
@@ -252,7 +252,7 @@ export function FlightDetail() {
     return (
       <>
         {backLink}
-        <InlineLoading description="Loading..." />
+        <InlineLoading description="Loading flight…" />
       </>
     );
   }
@@ -269,8 +269,8 @@ export function FlightDetail() {
   const tiles = [
     { label: 'Duration', value: formatDuration(flight.duration_sec) },
     { label: 'Distance', value: `${formatDistance(flight.distance_nm)} nm` },
-    { label: 'Max Altitude', value: `${formatAlt(flight.max_altitude_ft)} ft` },
-    { label: 'Max Airspeed', value: `${formatSpeed(flight.max_airspeed_kts)} kts` },
+    { label: 'Max altitude', value: `${formatAlt(flight.max_altitude_ft)} ft` },
+    { label: 'Max airspeed', value: `${formatSpeed(flight.max_airspeed_kts)} kts` },
     { label: 'Points', value: flight.point_count ?? points.length },
     {
       label: 'Departure',
@@ -301,7 +301,7 @@ export function FlightDetail() {
     <>
       {backLink}
       <PageHeader
-        title={`Flight #${flight.id} — ${flight.aircraft || 'Unknown Aircraft'}`}
+        title={`Flight #${flight.id} — ${flight.aircraft || 'Unknown aircraft'}`}
         subtitle={`${formatDate(flight.start_time)}${flight.end_time ? ` → ${formatDate(flight.end_time)}` : ' (in progress)'}`}
       />
 
@@ -357,7 +357,7 @@ export function FlightDetail() {
 
       {points.length >= 2 && (
         <Tile style={{ marginTop: '1rem' }} data-testid="altitude-section">
-          <h2 className="sabia-heading-03" style={{ marginBottom: '0.75rem' }}>Altitude Profile</h2>
+          <h2 className="sabia-heading-03" style={{ marginBottom: '0.75rem' }}>Altitude profile</h2>
           <AltitudeChart points={points} />
         </Tile>
       )}
@@ -365,7 +365,7 @@ export function FlightDetail() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '1.5rem' }}>
         <Button as={RouterLink} to="/" kind="ghost">← Back</Button>
         <Button kind="ghost" onClick={() => { setSaveError(''); setEditOpen(true); }}>Edit</Button>
-        <Button as={RouterLink} to={`/flight/${flight.id}/acars`} kind="ghost">ACARS Messages</Button>
+        <Button as={RouterLink} to={`/flight/${flight.id}/acars`} kind="ghost">ACARS messages</Button>
         <Button kind="ghost" disabled={exportingPdf} onClick={handleExportPdf}>
           {exportingPdf ? 'Generating PDF…' : 'Export PDF'}
         </Button>
@@ -381,14 +381,14 @@ export function FlightDetail() {
             onChange={(_, { checked }) => setIncludePlan(checked)}
           />
         )}
-        <Button kind="danger" onClick={() => setConfirm('delete')}>Delete Flight</Button>
+        <Button kind="danger" onClick={() => setConfirm('delete')}>Delete flight</Button>
       </div>
       {actionError && (
         <InlineNotification
           kind="error"
-          title="Action failed"
-          subtitle={actionError}
-          onCloseButtonClick={() => setActionError('')}
+          title={actionError.title}
+          subtitle={actionError.message}
+          onCloseButtonClick={() => setActionError(null)}
         />
       )}
 
@@ -403,16 +403,16 @@ export function FlightDetail() {
       <ConfirmModal
         open={confirm === 'delete'}
         title="Delete flight"
-        message="Delete this flight log?"
-        confirmLabel="Delete"
+        message={`Delete flight #${flight.id}? Its track, ACARS messages and attached flight plan are deleted permanently. A linked planned leg goes back to planned.`}
+        confirmLabel="Delete flight"
         danger
         onConfirm={handleDelete}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmModal
         open={confirm === 'unlink'}
-        title="Unlink planned leg"
-        message="Unlink this flight from its planned leg?"
+        title="Unlink flight"
+        message="Unlink this flight from its planned leg? The leg goes back to planned."
         confirmLabel="Unlink"
         onConfirm={handleUnlink}
         onCancel={() => setConfirm(null)}
@@ -420,8 +420,8 @@ export function FlightDetail() {
       <ConfirmModal
         open={confirm === 'removePlan'}
         title="Remove flight plan"
-        message="Remove the attached flight plan?"
-        confirmLabel="Remove"
+        message={`Remove the attached flight plan${flight.flight_plan_name ? ` (${flight.flight_plan_name})` : ''}? The flight itself is kept.`}
+        confirmLabel="Remove plan"
         onConfirm={handleRemovePlan}
         onCancel={() => setConfirm(null)}
       />

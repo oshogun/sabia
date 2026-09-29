@@ -38,7 +38,7 @@ export function SkipLegConfirm({ leg, busy = false, error, onConfirm, onCancel }
           : `Mark ${route} as skipped? You can unskip it later.`}
       </p>
       {error && (
-        <InlineNotification kind="error" lowContrast hideCloseButton title="Not allowed"
+        <InlineNotification kind="error" lowContrast hideCloseButton title={unskip ? 'Could not unskip leg' : 'Could not skip leg'}
           subtitle={error} style={{ maxInlineSize: 'none', marginBlockStart: '1rem' }} />
       )}
     </Modal>

@@ -135,7 +135,14 @@ export function LegsTable(props: LegsTableProps) {
   const { flights, plannedLegs, page, onPageChange, legPicker, onMoveLeg, reorderingLegId, onRequestDeleteLeg,
     onRequestSkip, skipBusyLegId, skipErrorByLeg, legMovePicker } = props;
   const rows = interleaveTripRows(flights, plannedLegs);
-  if (rows.length === 0) return <EmptyState title="No flights in this trip." />;
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        title="No legs in this trip yet"
+        description="Import a Little Navmap or SimBrief plan above, or add flights from All flights."
+      />
+    );
+  }
 
   const pageCount = Math.max(1, Math.ceil(rows.length / LEGS_PER_PAGE));
   const current = Math.min(Math.max(1, page), pageCount);

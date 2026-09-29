@@ -48,13 +48,13 @@ export function EditTripModal({
           id="edit-trip-notes"
           labelText="Notes"
           rows={4}
-          placeholder="Free-form notes about this trip..."
+          placeholder="Free-form notes about this trip…"
           value={notes}
           onChange={e => onNotesChange(e.target.value)}
           style={{ marginBlockStart: '1rem' }}
         />
         {error && (
-          <InlineNotification kind="error" lowContrast hideCloseButton title="Save failed"
+          <InlineNotification kind="error" lowContrast hideCloseButton title="Could not save"
             subtitle={error} style={{ maxInlineSize: 'none', marginBlockStart: '1rem' }} />
         )}
       </Modal>

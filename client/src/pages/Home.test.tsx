@@ -31,13 +31,13 @@ describe('Home', () => {
 
     // Nothing has resolved yet: neither the empty state nor the stats have
     // rendered, only the loading skeleton.
-    expect(screen.queryByText('No flights recorded yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No flights recorded yet')).not.toBeInTheDocument();
     expect(screen.queryByText('Total flights')).not.toBeInTheDocument();
 
     flights.resolve([200, [flightFixture]]);
 
     await waitFor(() => expect(screen.getByText('Total flights')).toBeInTheDocument());
-    expect(screen.queryByText('No flights recorded yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('No flights recorded yet')).not.toBeInTheDocument();
   });
 
   it('renders the empty state once the flights request resolves with none', async () => {
@@ -45,7 +45,7 @@ describe('Home', () => {
 
     renderWithProviders(<Home />);
 
-    await waitFor(() => expect(screen.getByText('No flights recorded yet.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('No flights recorded yet')).toBeInTheDocument());
     expect(screen.queryByText('Total flights')).not.toBeInTheDocument();
   });
 

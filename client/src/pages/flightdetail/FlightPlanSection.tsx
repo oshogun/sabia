@@ -13,7 +13,7 @@ export interface FlightPlanSectionProps {
 export function FlightPlanSection({ flight, uploading, uploadError, onFile, onRemove }: FlightPlanSectionProps) {
   return (
     <Tile style={{ marginBottom: '1rem' }} data-testid="flight-plan-section">
-      <h2 className="sabia-heading-03" style={{ marginBottom: '0.75rem' }}>Flight Plan</h2>
+      <h2 className="sabia-heading-03" style={{ marginBottom: '0.75rem' }}>Flight plan</h2>
       {flight.flight_plan_name ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <Link href={`/api/flights/${flight.id}/flight-plan`} data-testid="flight-plan-name">
@@ -36,10 +36,10 @@ export function FlightPlanSection({ flight, uploading, uploadError, onFile, onRe
               if (file) onFile(file);
             }}
           />
-          {uploading && <InlineLoading description="Uploading..." />}
+          {uploading && <InlineLoading description="Uploading flight plan…" />}
         </div>
       )}
-      {uploadError && <InlineNotification kind="error" title="Flight plan" subtitle={uploadError} hideCloseButton lowContrast />}
+      {uploadError && <InlineNotification kind="error" title="Could not upload flight plan" subtitle={uploadError} hideCloseButton lowContrast />}
     </Tile>
   );
 }

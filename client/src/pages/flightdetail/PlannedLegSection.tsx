@@ -54,9 +54,9 @@ export function PlannedLegSection({
 
   return (
     <Tile style={{ marginBottom: '1rem' }} data-testid="planned-leg-section">
-      <h2 className="sabia-heading-03" style={{ marginBottom: '0.75rem' }}>Planned Leg</h2>
+      <h2 className="sabia-heading-03" style={{ marginBottom: '0.75rem' }}>Planned leg</h2>
       {loading && <InlineLoading description="Loading planned leg…" />}
-      {loadError && <InlineNotification kind="error" title="Planned leg" subtitle={loadError} hideCloseButton lowContrast />}
+      {loadError && <InlineNotification kind="error" title="Could not load planned leg" subtitle={loadError} hideCloseButton lowContrast />}
       {leg && (
         <>
           <p style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -96,8 +96,8 @@ export function PlannedLegSection({
               {unlinkBusy ? 'Unlinking…' : 'Unlink'}
             </Button>
           </div>
-          {unlinkError && <InlineNotification kind="error" title="Unlink" subtitle={unlinkError} hideCloseButton lowContrast />}
-          {markError && <InlineNotification kind="error" title="Mark" subtitle={markError} hideCloseButton lowContrast />}
+          {unlinkError && <InlineNotification kind="error" title="Could not unlink" subtitle={unlinkError} hideCloseButton lowContrast />}
+          {markError && <InlineNotification kind="error" title="Could not change leg status" subtitle={markError} hideCloseButton lowContrast />}
         </>
       )}
     </Tile>

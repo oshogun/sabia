@@ -102,7 +102,7 @@ export function Prefiles() {
       await loadLegs();
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setImportError('Import failed: ' + (err as Error).message);
+      setImportError((err as Error).message);
     } finally {
       setImporting(false);
     }
@@ -151,7 +151,7 @@ export function Prefiles() {
       await loadLegs();
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setDeleteError('Failed to delete planned leg: ' + (err as Error).message);
+      setDeleteError('Could not delete this leg: ' + (err as Error).message);
     }
   }
 
@@ -267,12 +267,12 @@ export function Prefiles() {
       </div>
 
             {loadError && (
-        <InlineNotification kind="error" lowContrast hideCloseButton title="Failed to load planned legs"
+        <InlineNotification kind="error" lowContrast hideCloseButton title="Could not load planned legs"
           subtitle={loadError} style={{ maxInlineSize: 'none' }} />
       )}
       {legs === null && !loadError && <SkeletonText paragraph lineCount={6} />}
       {legs !== null && legs.length === 0 && (
-        <EmptyState title="No planned legs yet."
+        <EmptyState title="No planned legs yet"
           description="Import a .lnmpln file or a SimBrief plan above to prefile one." />
       )}
       {legs !== null && legs.length > 0 && (
@@ -297,7 +297,7 @@ export function Prefiles() {
             </TableToolbarContent>
           </TableToolbar>
           {filteredLegs !== null && filteredLegs.length === 0 ? (
-            <EmptyState title="No planned legs match these filters." />
+            <EmptyState title="No planned legs match these filters" />
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <Table size="lg" aria-label="Planned legs" data-testid="legs-table">
@@ -368,9 +368,9 @@ export function Prefiles() {
         onConfirm={confirmSkip} onCancel={() => { setSkipTarget(null); setSkipError(''); }} />
       <ConfirmModal open={deleteTarget !== null} danger title="Delete planned leg"
         message={deleteError || (deleteTarget
-          ? `Delete ${deleteTarget.departure_ident} → ${deleteTarget.destination_ident}? This cannot be undone.`
+          ? `Delete ${deleteTarget.departure_ident} → ${deleteTarget.destination_ident}? A flight linked to it is kept. This cannot be undone.`
           : '')}
-        confirmLabel="Delete" onConfirm={confirmDelete} onCancel={() => { setDeleteTarget(null); setDeleteError(''); }} />
+        confirmLabel="Delete leg" onConfirm={confirmDelete} onCancel={() => { setDeleteTarget(null); setDeleteError(''); }} />
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, TextArea, TextInput } from '@carbon/react';
+import { InlineNotification, Modal, TextArea, TextInput } from '@carbon/react';
 import { ModalPortal, useLauncherRef } from '../../components/ConfirmModal';
 import type { Flight } from '../../types';
 
@@ -32,8 +32,8 @@ export function EditFlightModal({ open, flight, saving, error, onSave, onCancel 
         open={open}
         launcherButtonRef={launcherRef}
         size="sm"
-        modalHeading="Edit Flight"
-        primaryButtonText={saving ? 'Saving...' : 'Save'}
+        modalHeading="Edit flight"
+        primaryButtonText={saving ? 'Saving…' : 'Save'}
         secondaryButtonText="Cancel"
         primaryButtonDisabled={saving}
         onRequestSubmit={() => onSave({ aircraft: aircraft.trim() || null, notes: notes.trim() || null })}
@@ -53,11 +53,14 @@ export function EditFlightModal({ open, flight, saving, error, onSave, onCancel 
             labelText="Notes"
             rows={4}
             value={notes}
-            placeholder="Free-form notes about this flight..."
+            placeholder="Free-form notes about this flight…"
             onChange={e => setNotes(e.target.value)}
           />
         </div>
-        {error && <p role="alert" style={{ color: 'var(--cds-text-error)', marginTop: '1rem' }}>{error}</p>}
+        {error && (
+          <InlineNotification kind="error" lowContrast hideCloseButton title="Could not save flight"
+            subtitle={error} style={{ maxInlineSize: 'none', marginBlockStart: '1rem' }} />
+        )}
       </Modal>
     </ModalPortal>
   );

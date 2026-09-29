@@ -4,7 +4,7 @@ import {
   InlineNotification, Link, StructuredListBody, StructuredListCell, StructuredListRow, StructuredListWrapper,
   StructuredListHead, SkeletonText, Tile,
 } from '@carbon/react';
-import { EmptyState } from '../components/EmptyState';
+import { FirstFlightEmptyState } from '../components/FirstFlightEmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { StatTiles } from '../components/StatTiles';
 import { listFlights, listTrips } from '../api';
@@ -71,7 +71,7 @@ export function Home() {
       {flights === null && !error ? (
         <Tile><SkeletonText paragraph lineCount={3} /></Tile>
       ) : flights !== null && flights.length === 0 ? (
-        <EmptyState title="No flights recorded yet." description="Start MSFS 2024 and take off to begin logging." />
+        <FirstFlightEmptyState />
       ) : flights !== null ? (
         <>
           <StatTiles

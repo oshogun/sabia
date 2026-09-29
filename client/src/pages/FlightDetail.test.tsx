@@ -23,7 +23,7 @@ const SESSION_ROUTE: ResponseTuple = [200, { authenticated: true, user: { userna
 const ROUTE_OPTS = { path: '/flight/:id', route: '/flight/1' };
 
 describe('FlightDetail', () => {
-  it('shows "Loading..." before the flight resolves, then the flight', async () => {
+  it('shows "Loading flight…" before the flight resolves, then the flight', async () => {
     const flight = deferred<ResponseTuple>();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
@@ -32,14 +32,14 @@ describe('FlightDetail', () => {
 
     renderWithProviders(<FlightDetail />, ROUTE_OPTS);
 
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading flight…')).toBeInTheDocument();
 
     flight.resolve([200, flightFixture]);
 
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: /Flight #1.*Airbus A320neo/ })).toBeInTheDocument()
     );
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading flight…')).not.toBeInTheDocument();
   });
 
   it('renders the load error when the flight fetch fails (e.g. a 404 for an unknown id)', async () => {
@@ -50,8 +50,9 @@ describe('FlightDetail', () => {
 
     renderWithProviders(<FlightDetail />, ROUTE_OPTS);
 
-    await waitFor(() => expect(screen.getByText('Failed to load flight: Not found')).toBeInTheDocument());
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Could not load flight')).toBeInTheDocument());
+    expect(screen.getByText('Not found')).toBeInTheDocument();
+    expect(screen.queryByText('Loading flight…')).not.toBeInTheDocument();
   });
 
   describe('replay entry', () => {

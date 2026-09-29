@@ -41,7 +41,7 @@ export interface JourneyMapProps {
 /** Every leg of a trip on one map, tinted by order, with an airport dot for each ICAO. */
 export function JourneyMap({ legs, airports, highlightId, onHighlight, height = '32rem', children }: JourneyMapProps) {
   if (legs.length === 0) {
-    return <EmptyState title="No flights recorded yet." />;
+    return <EmptyState title="No flights in this trip yet" />;
   }
 
   const ordered = sortedJourneyLegs(legs);

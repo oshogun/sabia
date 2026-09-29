@@ -24,19 +24,19 @@ export function TripAtlas({ journey, mapChildren }: TripAtlasProps) {
   const [highlightId, setHighlightId] = useState<number | null>(null);
 
   if (journey.legCount === 0) {
-    return <EmptyState title="No flights in this trip yet." />;
+    return <EmptyState title="No flights in this trip yet" />;
   }
 
   const tiles: StatTile[] = [
     { label: 'Distance (nm)', value: formatDistance(journey.totalDistanceNm) },
-    { label: 'Air Time', value: formatDuration(journey.totalDurationSec) },
+    { label: 'Air time', value: formatDuration(journey.totalDurationSec) },
     { label: 'Legs', value: journey.legCount },
     { label: 'Airports', value: journey.airports.length },
     { label: 'Aircraft', value: journey.aircraftCount },
     { label: 'Ceiling (ft)', value: formatAlt(journey.maxAltitudeFt) },
-    { label: 'Top Speed (kts)', value: formatSpeed(journey.maxAirspeedKts) },
+    { label: 'Top speed (kts)', value: formatSpeed(journey.maxAirspeedKts) },
     {
-      label: journey.longestLeg?.route ? `Longest Leg (nm) · ${journey.longestLeg.route}` : 'Longest Leg (nm)',
+      label: journey.longestLeg?.route ? `Longest leg (nm) · ${journey.longestLeg.route}` : 'Longest leg (nm)',
       value: journey.longestLeg ? formatDistance(journey.longestLeg.distanceNm) : '—',
     },
   ];
@@ -50,7 +50,7 @@ export function TripAtlas({ journey, mapChildren }: TripAtlasProps) {
 
       {progress !== undefined && (
         <section>
-          <h2 className="sabia-heading-03 tripatlas__section-title">Planned Route Progress</h2>
+          <h2 className="sabia-heading-03 tripatlas__section-title">Planned route progress</h2>
           <ProgressBar
             label="Planned route progress"
             hideLabel
@@ -88,7 +88,7 @@ export function TripAtlas({ journey, mapChildren }: TripAtlasProps) {
       )}
 
       <section>
-        <h2 className="sabia-heading-03 tripatlas__section-title">Every Leg</h2>
+        <h2 className="sabia-heading-03 tripatlas__section-title">Every leg</h2>
         <JourneyMap
           legs={journey.legs}
           airports={journey.airports}

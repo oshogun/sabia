@@ -351,7 +351,9 @@ export function AcarsMessages() {
             {ordered.length === 0 ? (
               <EmptyState
                 title="No messages yet"
-                description={scope === 'planned-leg' ? 'No ACARS messages for this planned leg yet.' : 'No ACARS messages for this flight yet.'}
+                description={scope === 'planned-leg'
+                  ? 'ACARS messages sent or received for this planned leg appear here.'
+                  : 'ACARS messages sent or received for this flight appear here.'}
               />
             ) : (
               <div className="acars-thread">

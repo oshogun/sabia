@@ -26,7 +26,7 @@ export function LnmplnImportPanel({ onFiles, importing = false, error, results, 
 
   return (
     <section aria-label="Import planned route">
-      <H className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Import Planned Route (.lnmpln)</H>
+      <H className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Import a Little Navmap plan (.lnmpln)</H>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
         <FileUploaderButton
           labelText="Choose .lnmpln files"
@@ -45,11 +45,11 @@ export function LnmplnImportPanel({ onFiles, importing = false, error, results, 
         {importing && <InlineLoading description="Importing…" />}
       </div>
       {error && (
-        <InlineNotification kind="error" lowContrast hideCloseButton title="Import failed"
+        <InlineNotification kind="error" lowContrast hideCloseButton title="Could not import plan"
           subtitle={error} style={{ maxInlineSize: 'none' }} />
       )}
       {notice && (
-        <InlineNotification kind="info" lowContrast hideCloseButton title="Ordering"
+        <InlineNotification kind="info" lowContrast hideCloseButton title="Import order"
           subtitle={notice} style={{ maxInlineSize: 'none' }} />
       )}
       {rejected.map(r => (

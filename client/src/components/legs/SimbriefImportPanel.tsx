@@ -40,7 +40,7 @@ export function SimbriefImportPanel({ userId, importing = false, onImport, error
         )}
       </div>
       {error && (
-        <InlineNotification kind="error" lowContrast hideCloseButton title="Import failed"
+        <InlineNotification kind="error" lowContrast hideCloseButton title="Could not import plan"
           subtitle={error} style={{ maxInlineSize: 'none' }} />
       )}
       {result?.status === 'imported' && (

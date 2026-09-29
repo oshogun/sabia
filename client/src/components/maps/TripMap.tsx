@@ -74,7 +74,7 @@ export function TripMap({ flights, plannedLegs = [], height = '28rem', zoomContr
   const hasPoints = flights.some(f => f.points && f.points.length > 0);
   const hasPlannedWaypoints = plannedLegs.some(l => l.waypoints && l.waypoints.length > 0);
   if (!hasPoints && !hasPlannedWaypoints) {
-    return <EmptyState title="No GPS points recorded for this trip." />;
+    return <EmptyState title="No GPS points recorded for this trip" />;
   }
 
   const plannedChains = plannedLegChains(plannedLegs);

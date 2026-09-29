@@ -49,7 +49,7 @@ export function TripDetail() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [loadError, setLoadError] = useState('');
   const [tracksError, setTracksError] = useState(false);
-  const [actionError, setActionError] = useState('');
+  const [actionError, setActionError] = useState<{ title: string; message: string } | null>(null);
 
   const [includePlans, setIncludePlans] = useState(true);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -138,7 +138,7 @@ export function TripDetail() {
       setJourneyError('');
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Could not reload the trip: ' + (err as Error).message);
+      setActionError({ title: 'Could not reload trip', message: (err as Error).message });
     } finally {
       setRefreshing(false);
     }
@@ -207,7 +207,7 @@ export function TripDetail() {
       document.title = `${editName.trim()} — Sabiá`;
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setSaveError('Save failed: ' + (err as Error).message);
+      setSaveError((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -217,7 +217,7 @@ export function TripDetail() {
     const c = confirm;
     setConfirm(null);
     if (!c || !trip) return;
-    setActionError('');
+    setActionError(null);
     switch (c.kind) {
       case 'active': {
         setActiveBusy(true);
@@ -226,7 +226,10 @@ export function TripDetail() {
           await reload();
         } catch (err) {
           if (err instanceof UnauthorizedError) return;
-          setActionError('Failed: ' + (err as Error).message);
+          setActionError({
+            title: c.activating ? 'Could not set active trip' : 'Could not clear active trip',
+            message: (err as Error).message,
+          });
         } finally {
           setActiveBusy(false);
         }
@@ -238,7 +241,7 @@ export function TripDetail() {
           navigate('/');
         } catch (err) {
           if (err instanceof UnauthorizedError) return;
-          setActionError('Delete failed: ' + (err as Error).message);
+          setActionError({ title: 'Could not delete trip', message: (err as Error).message });
         }
         return;
       case 'removeFlight':
@@ -247,7 +250,7 @@ export function TripDetail() {
           await reload();
         } catch (err) {
           if (err instanceof UnauthorizedError) return;
-          setActionError('Failed to remove leg: ' + (err as Error).message);
+          setActionError({ title: 'Could not remove flight from trip', message: (err as Error).message });
         }
         return;
       case 'deleteLeg':
@@ -256,7 +259,7 @@ export function TripDetail() {
           await reload();
         } catch (err) {
           if (err instanceof UnauthorizedError) return;
-          setActionError('Failed to delete planned leg: ' + (err as Error).message);
+          setActionError({ title: 'Could not delete leg', message: (err as Error).message });
         }
         return;
       case 'unlink': {
@@ -287,7 +290,7 @@ export function TripDetail() {
       await reload();
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setImportError('Import failed: ' + (err as Error).message);
+      setImportError((err as Error).message);
     } finally {
       setImporting(false);
     }
@@ -325,7 +328,7 @@ export function TripDetail() {
       setTrip(t => (t ? { ...t, planned_legs: updated } : t));
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setReorderError('Reorder failed: ' + (err as Error).message);
+      setReorderError((err as Error).message);
     } finally {
       setReorderingLegId(null);
     }
@@ -445,7 +448,7 @@ export function TripDetail() {
       await downloadPdf(`/api/trips/${trip.id}/export.pdf`, `trip-${trip.id}.pdf`, { includePlans });
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setExportPdfError('Export failed: ' + (err as Error).message);
+      setExportPdfError((err as Error).message);
     } finally {
       setExportingPdf(false);
     }
@@ -454,12 +457,12 @@ export function TripDetail() {
   async function handleExportKml() {
     if (!trip) return;
     setExportingKml(true);
-    setActionError('');
+    setActionError(null);
     try {
       await downloadKml(`/api/trips/${trip.id}/export.kml`, `trip-${trip.id}.kml`);
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
-      setActionError('Export failed: ' + (err as Error).message);
+      setActionError({ title: 'Could not export KML', message: (err as Error).message });
     } finally {
       setExportingKml(false);
     }
@@ -495,7 +498,7 @@ export function TripDetail() {
     return (
       <>
         <PageHeader title="Trip" />
-        <InlineNotification kind="error" hideCloseButton title={`Failed to load trip: ${loadError}`} />
+        <InlineNotification kind="error" hideCloseButton title="Could not load trip" subtitle={loadError} />
       </>
     );
   }
@@ -503,7 +506,7 @@ export function TripDetail() {
     return (
       <>
         <PageHeader title="Trip" />
-        <InlineLoading description="Loading..." />
+        <InlineLoading description="Loading trip…" />
       </>
     );
   }
@@ -519,6 +522,14 @@ export function TripDetail() {
   const subtitle = `${trip.flight_count} leg${trip.flight_count !== 1 ? 's' : ''}` +
     (trip.total_distance_nm != null ? ` · ${formatDistance(trip.total_distance_nm)} nm total` : '');
 
+  const deleteLegMessage = (() => {
+    if (confirm?.kind !== 'deleteLeg') return '';
+    const leg = plannedLegs.find(l => l.id === confirm.legId);
+    return leg
+      ? `Delete ${leg.departure_ident} → ${leg.destination_ident}? A flight linked to it is kept. This cannot be undone.`
+      : 'Delete this planned leg? A flight linked to it is kept. This cannot be undone.';
+  })();
+
   const confirmCopy: Record<Confirm['kind'], { title: string; message: string; label: string; danger: boolean }> = {
     active: {
       title: confirm?.kind === 'active' && !confirm.activating ? 'Clear active trip' : 'Set active trip',
@@ -529,18 +540,18 @@ export function TripDetail() {
       danger: false,
     },
     deleteTrip: {
-      title: 'Delete trip', message: `Delete trip "${trip.name}"? The flights will not be deleted.`,
-      label: 'Delete', danger: true,
+      title: 'Delete trip', message: `Delete trip "${trip.name}"? Its planned legs are deleted too. Flown flights are kept.`,
+      label: 'Delete trip', danger: true,
     },
     removeFlight: {
       title: 'Remove from trip', message: 'Remove this leg from the trip? The flight itself is kept.',
-      label: 'Remove', danger: true,
+      label: 'Remove from trip', danger: true,
     },
-    deleteLeg: { title: 'Delete planned leg', message: 'Delete this planned leg?', label: 'Delete', danger: true },
+    deleteLeg: { title: 'Delete planned leg', message: deleteLegMessage, label: 'Delete leg', danger: true },
     unlink: {
       title: 'Unlink flight',
-      message: 'Unlink this flight from its planned leg? The leg becomes unflown again.',
-      label: 'Unlink', danger: false,
+      message: 'Unlink this flight from its planned leg? The leg goes back to planned.',
+      label: 'Unlink flight', danger: false,
     },
   };
   const copy = confirmCopy[confirm?.kind ?? 'deleteTrip'];
@@ -622,14 +633,14 @@ export function TripDetail() {
       <PageHeader
         title={trip.name}
         subtitle={subtitle}
-        breadcrumbs={[{ label: 'All Flights', href: '/flights' }, { label: trip.name }]}
+        breadcrumbs={[{ label: 'All flights', href: '/flights' }, { label: trip.name }]}
         actions={
           <>
-            {isActive && <StatusTag kind="active-trip">Active Trip</StatusTag>}
+            {isActive && <StatusTag kind="active-trip">Active trip</StatusTag>}
             {showActiveTripControl && (
               <Button kind="tertiary" size="md" disabled={activeBusy}
                 onClick={() => setConfirm({ kind: 'active', activating: !isActive })}>
-                {activeBusy ? 'Working…' : (isActive ? 'Clear Active Trip' : 'Set as Active Trip')}
+                {activeBusy ? 'Working…' : (isActive ? 'Clear active trip' : 'Set as active trip')}
               </Button>
             )}
           </>
@@ -637,8 +648,8 @@ export function TripDetail() {
       />
 
       {actionError && (
-        <InlineNotification kind="error" lowContrast title="Action failed" subtitle={actionError}
-          onCloseButtonClick={() => setActionError('')} style={{ maxInlineSize: 'none' }} />
+        <InlineNotification kind="error" lowContrast title={actionError.title} subtitle={actionError.message}
+          onCloseButtonClick={() => setActionError(null)} style={{ maxInlineSize: 'none' }} />
       )}
 
       <div style={{ maxInlineSize: '20rem', marginBlockEnd: '1.5rem' }}>
@@ -654,7 +665,7 @@ export function TripDetail() {
 
       {view === 'atlas' ? (
         journeyError ? (
-          <InlineNotification kind="error" lowContrast hideCloseButton title="Failed to load atlas"
+          <InlineNotification kind="error" lowContrast hideCloseButton title="Could not load atlas"
             subtitle={journeyError} style={{ maxInlineSize: 'none' }} />
         ) : journey ? (
           <TripAtlas journey={journey} mapChildren={<NavdataOverlay />} />
@@ -664,9 +675,9 @@ export function TripDetail() {
       ) : (
         <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'minmax(0, 1fr)' }}>
           <StatTiles tiles={[
-            { label: 'Total Duration', value: formatDuration(trip.total_duration_sec) },
-            { label: 'Total Distance (nm)', value: formatDistance(trip.total_distance_nm) },
-            { label: 'Peak Altitude (ft)', value: formatAlt(trip.max_altitude_ft) },
+            { label: 'Total duration', value: formatDuration(trip.total_duration_sec) },
+            { label: 'Total distance (nm)', value: formatDistance(trip.total_distance_nm) },
+            { label: 'Peak altitude (ft)', value: formatAlt(trip.max_altitude_ft) },
             { label: 'Legs', value: trip.flight_count },
           ]} />
 
@@ -678,7 +689,7 @@ export function TripDetail() {
           )}
 
           <Tile>
-            <h2 className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Combined Route</h2>
+            <h2 className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Combined route</h2>
             {tracksError && (
               <InlineNotification kind="warning" lowContrast hideCloseButton title="Tracks unavailable"
                 subtitle="Some flight tracks could not be loaded, so the map may be incomplete."
@@ -714,7 +725,7 @@ export function TripDetail() {
           <section aria-label="Legs">
             <h2 className="sabia-heading-03" style={{ marginBlockEnd: '0.5rem' }}>Legs</h2>
             {reorderError && (
-              <InlineNotification kind="error" lowContrast title="Reorder failed" subtitle={reorderError}
+              <InlineNotification kind="error" lowContrast title="Could not reorder legs" subtitle={reorderError}
                 onCloseButtonClick={() => setReorderError('')} style={{ maxInlineSize: 'none' }} />
             )}
             <LegsTable {...legsTableProps} />
@@ -740,10 +751,10 @@ export function TripDetail() {
             onChange={(_e, { checked }) => setIncludePlans(checked)}
           />
         )}
-        <Button kind="danger--tertiary" onClick={() => setConfirm({ kind: 'deleteTrip' })}>Delete Trip</Button>
+        <Button kind="danger--tertiary" onClick={() => setConfirm({ kind: 'deleteTrip' })}>Delete trip</Button>
       </div>
       {exportPdfError && (
-        <InlineNotification kind="error" lowContrast title="Export failed" subtitle={exportPdfError}
+        <InlineNotification kind="error" lowContrast title="Could not export PDF" subtitle={exportPdfError}
           onCloseButtonClick={() => setExportPdfError('')} style={{ maxInlineSize: 'none', marginBlockStart: '0.5rem' }} />
       )}
 

@@ -6,7 +6,7 @@
 //      using with" (observed with $css--font-face after @use ...themes).
 //   2. Component styles are imported one by one, not via the `@carbon/react`
 //      barrel: the barrel emits 929 kB of CSS (102 kB gzip), this list emits
-//      527 kB (54.6 kB gzip). Adding a Carbon component to a screen means
+//      577 kB (60.2 kB gzip). Adding a Carbon component to a screen means
 //      adding its line here — the component renders unstyled otherwise.
 //   3. `:root { @include theme.theme(); }` is what actually emits
 //      --cds-* custom properties. Without it the build still works (token
@@ -45,7 +45,6 @@
 @use '@carbon/react/scss/components/form';
 @use '@carbon/react/scss/components/inline-loading';
 @use '@carbon/react/scss/components/link';
-@use '@carbon/react/scss/components/list';
 @use '@carbon/react/scss/components/list-box'; // required by dropdown/select
 @use '@carbon/react/scss/components/menu'; // required by overflow-menu
 @use '@carbon/react/scss/components/loading';
@@ -70,14 +69,8 @@
 @use '@carbon/react/scss/components/tooltip';
 @use '@carbon/react/scss/components/ui-shell';
 @use '@carbon/react/scss/components/accordion';
-@use '@carbon/react/scss/components/combo-box';
-@use '@carbon/react/scss/components/contained-list';
-@use '@carbon/react/scss/components/multiselect';
-@use '@carbon/react/scss/components/number-input';
-@use '@carbon/react/scss/components/pagination-nav';
 @use '@carbon/react/scss/components/radio-button';
 @use '@carbon/react/scss/components/toggletip';
-@use '@carbon/react/scss/components/progress-indicator';
 
 // ── Theme emission ─────────────────────────────────────────────────────────
 // Gray 100 everywhere. Verified emitted value: --cds-background: #161616,

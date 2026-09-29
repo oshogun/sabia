@@ -1,5 +1,7 @@
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+// Bundled rather than loaded from a CDN: the PDF export renders this page
+// headlessly, and a CDN outage would silently produce unstyled, broken maps.
 import 'leaflet/dist/leaflet.css';
 import './CarbonMap.scss';
 

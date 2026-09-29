@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Column, Grid, Tag, Tile } from '@carbon/react';
 import type { Status } from '../../types';
 import { formatAlt, formatDistance } from '../../utils/format';
-import { LiveMapSlot } from './LiveMapSlot';
+
+// Home's only path to Leaflet, so it's kept out of the first-load bundle.
+const LiveMapSlot = lazy(() => import('./LiveMapSlot').then((m) => ({ default: m.LiveMapSlot })));
 
 function Readout({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
   return (
@@ -53,7 +55,9 @@ export function LivePanel({ status }: { status: Status }) {
           </>
         )}
       </Grid>
-      <LiveMapSlot status={status} />
+      <Suspense fallback={<div data-testid="live-map-slot-loading" style={{ marginTop: '1rem', height: '20rem' }} />}>
+        <LiveMapSlot status={status} />
+      </Suspense>
     </Tile>
   );
 }

@@ -49,7 +49,10 @@ afterward, which leaves the server down with no way back in for the agent.
   this machine, not something to read or reason about from git history).
   `./start.sh -d` starts detached, `./start.sh -r -d` restarts, `./start.sh
   -s` stops. It sets `TLS_CERT_FILE`/`TLS_KEY_FILE`/`INGEST_TOKEN` correctly
-  (the server serves HTTPS with a self-signed cert, not plaintext HTTP) and
+  (the server serves HTTPS, not plaintext HTTP — a Let's Encrypt cert for
+  `flights.sabiaflightdb.com.br` since 2026-09-25, copied into `certs/` and the
+  server restarted by a root certbot deploy hook on renewal; see the
+  `letsencrypt_cert_setup` memory) and
   rebuilds only when `src`/`client/src` are newer than `dist/index.js`. A
   bare `node dist/index.js` reproduces none of that env and will either fail
   the TLS/`BIND_HOST` startup guard or come up with the wrong `INGEST_TOKEN`

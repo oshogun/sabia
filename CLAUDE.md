@@ -1,7 +1,6 @@
 # msfslogger
 
-MSFS 2024 flight logger. Express + TypeScript + better-sqlite3 server (`src/`),
-React + Vite client (`client/`). Simulators connect through the Tauri/MCDU
+MSFS 2024 flight logger: server in `src/`, client in `client/`. Simulators connect through the Tauri/MCDU
 desktop client, https://github.com/oshogun/sabia_mcdu — it used to live here at
 `windows-client/`, and a Node SimConnect agent used to live at `agent/`
 (retired 2026-09-25); neither is in this tree, do not look for them.
@@ -65,6 +64,18 @@ workflow file — it picks the tier for the specific change and gives the
 scratch-clone verification recipe this repo's live-server hazards require, so
 a broken workflow gets caught locally instead of by pushing and watching
 Actions fail.
+
+**The project website** (`www.sabiaflightdb.com.br`, source in
+`/home/guilherme/sabia-site/public/`, outside this repo): "update the site",
+"refresh the development status", "retake the site screenshots". Use
+**[`/update-site`](.claude/skills/update-site/SKILL.md)**. It is tier 1, and
+every number on the page comes from a command run that session.
+
+**Releases** ("cut a release", "tag vX.Y.Z", "bump the version"): use
+**[`/version-release`](.claude/skills/version-release/SKILL.md)**. It is tier 1.
+It bumps the four version fields and pushes an annotated tag. CI's `release`
+job then publishes the GitHub Release from that tag's message. Confirm the
+version number and notes with the user before pushing.
 
 ### The loop
 
@@ -160,14 +171,10 @@ times in a run.
 
 ## Verification
 
-`npm test` (Vitest) covers the pure/near-pure decision logic: flight state
-transitions, pause detection, track-derived duration (`src/flightManager.ts`),
-leg matching (`src/legMatcher.ts`), planned-leg hand-close (`src/plannedLegClose.ts`),
-ICAO/CSV parsing (`src/airports.ts`), and `.lnmpln` route parsing (`src/lnmpln.ts`).
+`npm test` (Vitest) covers the pure/near-pure decision logic in `src/`.
 It never touches `flights.db`, the network, or the live server — `./db` and
 `./airports` are mocked (`tests/helpers/index.ts`), and `.lnmpln` fixtures are
-read read-only from `samples/lnmpln/`. `npm run test:watch` for watch mode,
-`npm run test:types` to typecheck `tests/**`. See `git show runs-archive:.claude/runs/2026-09-09-vitest-unit-tests/design.md`
+read read-only from `samples/lnmpln/`. See `git show runs-archive:.claude/runs/2026-09-09-vitest-unit-tests/design.md`
 for the design (mock shapes, fake-clock pattern, fixture conventions) and worked
 example.
 

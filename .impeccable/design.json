@@ -1,0 +1,496 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-28T21:50:23.576716+00:00",
+  "title": "Design System: Sabiá",
+  "extensions": {
+    "colorMeta": {
+      "interactive-blue": {
+        "role": "primary",
+        "displayName": "Interactive Blue",
+        "tonalRamp": [
+          "#001d6c",
+          "#002d9c",
+          "#0043ce",
+          "#0f62fe",
+          "#4589ff",
+          "#78a9ff",
+          "#a6c8ff",
+          "#d0e2ff"
+        ]
+      },
+      "link-blue": {
+        "role": "secondary",
+        "displayName": "Link Blue",
+        "tonalRamp": [
+          "#001d6c",
+          "#002d9c",
+          "#0043ce",
+          "#0f62fe",
+          "#4589ff",
+          "#78a9ff",
+          "#a6c8ff",
+          "#d0e2ff"
+        ]
+      },
+      "track-blue": {
+        "role": "tertiary",
+        "displayName": "Track Blue",
+        "tonalRamp": [
+          "#001d6c",
+          "#002d9c",
+          "#0043ce",
+          "#0f62fe",
+          "#4589ff",
+          "#78a9ff",
+          "#a6c8ff",
+          "#d0e2ff"
+        ]
+      },
+      "departure-green": {
+        "role": "tertiary",
+        "displayName": "Departure Green",
+        "tonalRamp": [
+          "#044317",
+          "#0e6027",
+          "#198038",
+          "#24a148",
+          "#42be65",
+          "#6fdc8c",
+          "#a7f0ba",
+          "#defbe6"
+        ]
+      },
+      "arrival-red": {
+        "role": "tertiary",
+        "displayName": "Arrival Red",
+        "tonalRamp": [
+          "#750e13",
+          "#a2191f",
+          "#da1e28",
+          "#fa4d56",
+          "#ff8389",
+          "#ffb3b8",
+          "#ffd7d9",
+          "#fff1f1"
+        ]
+      },
+      "planned-gray": {
+        "role": "tertiary",
+        "displayName": "Planned Gray",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "caution-yellow": {
+        "role": "tertiary",
+        "displayName": "Caution Yellow",
+        "tonalRamp": [
+          "#302400",
+          "#483700",
+          "#684e00",
+          "#8e6a00",
+          "#b28600",
+          "#d2a106",
+          "#f1c21b",
+          "#fddc69"
+        ]
+      },
+      "navaid-cyan": {
+        "role": "tertiary",
+        "displayName": "Navaid Cyan",
+        "tonalRamp": [
+          "#012749",
+          "#003a6d",
+          "#00539a",
+          "#0072c3",
+          "#1192e8",
+          "#33b1ff",
+          "#82cfff",
+          "#bae6ff"
+        ]
+      },
+      "waypoint-purple": {
+        "role": "tertiary",
+        "displayName": "Waypoint Purple",
+        "tonalRamp": [
+          "#31135e",
+          "#491d8b",
+          "#6929c4",
+          "#8a3ffc",
+          "#a56eff",
+          "#be95ff",
+          "#d4bbff",
+          "#e8daff"
+        ]
+      },
+      "leg-orange": {
+        "role": "tertiary",
+        "displayName": "Leg Orange",
+        "tonalRamp": [
+          "#3e1a00",
+          "#5e2900",
+          "#8a3800",
+          "#ba4e00",
+          "#eb6200",
+          "#ff832b",
+          "#ffb784",
+          "#ffd9be"
+        ]
+      },
+      "leg-magenta": {
+        "role": "tertiary",
+        "displayName": "Leg Magenta",
+        "tonalRamp": [
+          "#510224",
+          "#740937",
+          "#9f1853",
+          "#d02670",
+          "#ee5396",
+          "#ff7eb6",
+          "#ffafd2",
+          "#ffd6e8"
+        ]
+      },
+      "sabia-cobalt": {
+        "role": "brand",
+        "displayName": "Sabiá Cobalt",
+        "tonalRamp": [
+          "#010a4f",
+          "#020f77",
+          "#03159f",
+          "#1a2fc4",
+          "#3d52e0",
+          "#6a7cf0",
+          "#a3aff7",
+          "#d6dcfc"
+        ]
+      },
+      "sabia-ember": {
+        "role": "brand",
+        "displayName": "Sabiá Ember",
+        "tonalRamp": [
+          "#4a1406",
+          "#7a210a",
+          "#b0300f",
+          "#f54a1c",
+          "#f87451",
+          "#fa9c82",
+          "#fcc4b4",
+          "#fee6de"
+        ]
+      },
+      "sabia-plum": {
+        "role": "brand",
+        "displayName": "Sabiá Plum",
+        "tonalRamp": [
+          "#26002c",
+          "#4a0156",
+          "#710284",
+          "#9311ab",
+          "#b247c7",
+          "#cb7ddb",
+          "#e0b0ea",
+          "#f3e0f7"
+        ]
+      },
+      "sabia-wordmark": {
+        "role": "brand",
+        "displayName": "Wordmark Slate",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "ops-floor": {
+        "role": "neutral",
+        "displayName": "Ops Floor",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "console-panel": {
+        "role": "neutral",
+        "displayName": "Console Panel",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "panel-seam": {
+        "role": "neutral",
+        "displayName": "Panel Seam",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "readout-white": {
+        "role": "neutral",
+        "displayName": "Readout White",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "annotation-gray": {
+        "role": "neutral",
+        "displayName": "Annotation Gray",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "placeholder-gray": {
+        "role": "neutral",
+        "displayName": "Placeholder Gray",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      },
+      "focus-white": {
+        "role": "neutral",
+        "displayName": "Focus White",
+        "tonalRamp": [
+          "#161616",
+          "#262626",
+          "#393939",
+          "#525252",
+          "#6f6f6f",
+          "#8d8d8d",
+          "#c6c6c6",
+          "#f4f4f4"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "brand": {
+        "displayName": "Brand",
+        "purpose": "Header product name only (Montserrat 700)."
+      },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page title, one h1 per page (.sabia-heading-05)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Major section headings (.sabia-heading-04)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel and tile titles (.sabia-heading-03)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Tables, forms and prose (Carbon body-01)."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, captions, map tooltips (Carbon label-01)."
+      },
+      "readout": {
+        "displayName": "Readout",
+        "purpose": "Stat-tile values; large and regular, never bold."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Codes, tokens, raw ACARS text."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "productive-standard",
+        "value": "cubic-bezier(0.2, 0, 0.38, 0.9)",
+        "purpose": "Carbon productive easing; Carbon components' default."
+      },
+      {
+        "name": "override-border",
+        "value": "border-color 0.4s",
+        "purpose": "Easter-egg Override frame only."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "header-full",
+        "value": "42rem"
+      },
+      {
+        "name": "lg-docked-nav",
+        "value": "66rem"
+      }
+    ],
+    "mapTileFilter": "invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9)"
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary action per view.",
+      "html": "<button class=\"ds-btn-primary\">Import plan</button>",
+      "css": ".ds-btn-primary{background:#0f62fe;color:#fff;border:0;border-radius:0;height:48px;padding:0 64px 0 16px;font:400 0.875rem/1.28572 'IBM Plex Sans',system-ui,sans-serif;letter-spacing:0.16px;text-align:left;cursor:pointer;transition:background 70ms cubic-bezier(0,0,0.38,0.9)}.ds-btn-primary:hover{background:#0050e6}.ds-btn-primary:active{background:#002d9c}.ds-btn-primary:focus-visible{outline:2px solid #fff;outline-offset:-2px;box-shadow:inset 0 0 0 3px #161616}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Row, toolbar and header actions; the workhorse.",
+      "html": "<button class=\"ds-btn-ghost\">Move to trip</button>",
+      "css": ".ds-btn-ghost{background:transparent;color:#78a9ff;border:0;border-radius:0;height:48px;padding:0 16px;font:400 0.875rem/1.28572 'IBM Plex Sans',system-ui,sans-serif;letter-spacing:0.16px;cursor:pointer;transition:background 70ms cubic-bezier(0,0,0.38,0.9)}.ds-btn-ghost:hover{background:#333333;color:#f4f4f4}.ds-btn-ghost:focus-visible{outline:2px solid #fff;outline-offset:-2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Delete, remove, skip — always behind a confirmation modal.",
+      "html": "<button class=\"ds-btn-danger\">Delete flight</button>",
+      "css": ".ds-btn-danger{background:#da1e28;color:#fff;border:0;border-radius:0;height:48px;padding:0 64px 0 16px;font:400 0.875rem/1.28572 'IBM Plex Sans',system-ui,sans-serif;cursor:pointer}.ds-btn-danger:hover{background:#b81921}.ds-btn-danger:focus-visible{outline:2px solid #fff;outline-offset:-2px;box-shadow:inset 0 0 0 3px #161616}"
+    },
+    {
+      "name": "Live Status Tag",
+      "kind": "chip",
+      "refersTo": null,
+      "description": "Header live-status tag; one colour per state.",
+      "html": "<span class=\"ds-tag ds-tag--green\">Recording · A320neo</span> <span class=\"ds-tag ds-tag--magenta\">Paused · A320neo</span> <span class=\"ds-tag ds-tag--blue\">Connected · Idle</span> <span class=\"ds-tag ds-tag--gray\">Sim not connected</span> <span class=\"ds-tag ds-tag--red\">Server unreachable</span>",
+      "css": ".ds-tag{display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:1rem;font:400 0.75rem/1.33333 'IBM Plex Sans',system-ui,sans-serif;letter-spacing:0.32px;margin:4px}.ds-tag--green{background:#044317;color:#a7f0ba}.ds-tag--magenta{background:#740937;color:#ffafd2}.ds-tag--blue{background:#002d9c;color:#a6c8ff}.ds-tag--gray{background:#393939;color:#e0e0e0}.ds-tag--red{background:#a2191f;color:#ffd7d9}"
+    },
+    {
+      "name": "Stat Tile",
+      "kind": "card",
+      "refersTo": "tile",
+      "description": "Readout tile: small gray label over a large regular value.",
+      "html": "<div class=\"ds-stat-grid\"><div class=\"ds-stat\"><div class=\"ds-stat__label\">Total flights</div><div class=\"ds-stat__value\">142</div></div><div class=\"ds-stat\"><div class=\"ds-stat__label\">Block time</div><div class=\"ds-stat__value\">318 h 40 m</div></div></div>",
+      "css": ".ds-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;background:#161616;padding:1rem}.ds-stat{background:#262626;padding:1rem;color:#f4f4f4;font-family:'IBM Plex Sans',system-ui,sans-serif}.ds-stat__label{color:#c6c6c6;font-size:0.875rem}.ds-stat__value{font-size:2rem;line-height:1.25;font-weight:400}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "text-input",
+      "description": "Carbon field: filled, bottom border, square.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field__label\">Pilot ID</span><input class=\"ds-input\" placeholder=\"SimBrief pilot ID\"></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:8px;font-family:'IBM Plex Sans',system-ui,sans-serif}.ds-field__label{color:#c6c6c6;font-size:0.75rem;letter-spacing:0.32px}.ds-input{background:#262626;color:#f4f4f4;border:0;border-bottom:1px solid #8d8d8d;border-radius:0;height:40px;padding:0 16px;font:400 0.875rem 'IBM Plex Sans',system-ui,sans-serif}.ds-input::placeholder{color:#6f6f6f}.ds-input:hover{background:#333333}.ds-input:focus-visible{outline:2px solid #fff;outline-offset:-2px}"
+    },
+    {
+      "name": "Header",
+      "kind": "nav",
+      "refersTo": "header",
+      "description": "UI Shell header: logo, Montserrat product name, live status, account.",
+      "html": "<header class=\"ds-header\"><span class=\"ds-header__name\">Sabiá</span><span class=\"ds-header__tag\">Recording · A320neo</span><span class=\"ds-header__user\">operator</span></header>",
+      "css": ".ds-header{display:flex;align-items:center;gap:16px;height:48px;padding:0 16px;background:#161616;border-bottom:1px solid #393939;color:#f4f4f4;font-family:'IBM Plex Sans',system-ui,sans-serif}.ds-header__name{font:700 1.25rem/1 Montserrat,sans-serif;letter-spacing:-0.02em}.ds-header__tag{padding:0 8px;min-height:24px;display:inline-flex;align-items:center;border-radius:1rem;background:#044317;color:#a7f0ba;font-size:0.75rem}.ds-header__user{margin-left:auto;color:#c6c6c6;font-size:0.875rem}"
+    },
+    {
+      "name": "Map Frame",
+      "kind": "custom",
+      "refersTo": "map-frame",
+      "description": "Dark-inverted basemap in a square seam-bordered frame; data in Carbon 40 tints.",
+      "html": "<div class=\"ds-map\"><svg viewBox=\"0 0 320 140\" width=\"100%\" height=\"140\"><polyline points=\"20,110 90,70 170,80 240,40 300,30\" fill=\"none\" stroke=\"#a8a8a8\" stroke-width=\"2\" stroke-dasharray=\"6 4\"/><polyline points=\"20,110 80,78 160,76 235,45 300,30\" fill=\"none\" stroke=\"#78a9ff\" stroke-width=\"3\"/><circle cx=\"20\" cy=\"110\" r=\"6\" fill=\"#42be65\" stroke=\"#f4f4f4\" stroke-width=\"2\"/><circle cx=\"300\" cy=\"30\" r=\"6\" fill=\"#fa4d56\" stroke=\"#f4f4f4\" stroke-width=\"2\"/></svg></div>",
+      "css": ".ds-map{background:#262626;border:1px solid #393939;border-radius:0;padding:0;line-height:0}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Dispatch Office",
+    "overview": "**Creative North Star: \"The Dispatch Office\"**\n\nAn airline operations room after hours. The room is dark and quiet. Every screen is a working console: dense tables, tiles of readouts, a map with the aircraft on it, and status tags that change colour only when something has changed. Nothing decorates. Colour is information, so a pilot glancing over from the sim during a flight reads the header tag and the live panel at once, and at the desk after the flight the same room holds the whole logbook in tables that reward scanning.\n\nThe system is IBM Carbon, Gray 100 theme, used as a base rather than a costume. Carbon supplies the components, the `--cds-*` tokens, the grid, the square geometry and the flat surfaces. Sabiá's identity sits on top in a few deliberate places: the bird logo and the Montserrat product name in the header, the map as a first-class instrument with a dark-inverted basemap, and a fixed colour vocabulary for flight data and status that means the same thing on every screen. New Sabiá-specific touches are welcome when they are as deliberate as those; they draw on the logo's own colours and never compete with status colour.\n\nThe PDF/print export is a second, deliberately different sub-system: a light paper document. It is documented under Components → Print documents.",
+    "keyCharacteristics": [
+      "Dark, flat, square: Gray 100 background (#161616), panels one step up (#262626), zero corner radius.",
+      "Colour is reserved for meaning: status tags, flight data on maps, support states.",
+      "IBM Plex Sans throughout; Montserrat only for the header product name.",
+      "The map is an instrument, not an illustration: inverted dark tiles, Carbon-ramp data colours.",
+      "Dense at the desk, glanceable in flight."
+    ],
+    "rules": [
+      {
+        "name": "The Status Owns Colour Rule",
+        "body": "A hue on a tag or chip means one thing everywhere. Live status: green *Recording*, magenta *Paused*, blue *Connected · Idle*, gray *Sim not connected* / *Checking...*, red *Server unreachable*. Legs: cool-gray *planned*, green *flown*, red *diverted*, gray *skipped*, purple *active trip*. ACARS: blue PDC, teal WX, cyan position report, purple dispatch, green OOOI, gray free text. New statuses get a new entry in `StatusTag.tsx`'s `KINDS` table, never an inline colour.",
+        "section": "colors"
+      },
+      {
+        "name": "The Logo-Only Brand Colour Rule",
+        "body": "Sabiá's own colours come from the bird, are used sparingly (a mark, an edge, a moment, never a surface fill or a button), and never on anything that could be mistaken for a status.",
+        "section": "colors"
+      },
+      {
+        "name": "The Outline-First Rule",
+        "body": "Heading elements follow the document outline (one h1, no level jumps). The `sabia-heading-0x` classes set the look independently of the element, so never pick an `h` level for its size.",
+        "section": "typography"
+      },
+      {
+        "name": "The Light Readout Rule",
+        "body": "Numbers are large and regular, never bold. Weight is for emphasis in prose; size is for data.",
+        "section": "typography"
+      },
+      {
+        "name": "The Lights-Off Rule",
+        "body": "Nothing glows, lifts or floats. If something needs to stand out, it changes layer or takes a status colour.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** use Carbon components and `--cds-*` tokens for everything the app draws; add a component's SCSS `@use` line to `client/src/styles/index.scss` when you introduce it, or it renders unstyled.",
+      "**Do** take map and chart colours from `palette.ts` / `navdataPalette.ts`, and status colours from `StatusTag.tsx`'s `KINDS`.",
+      "**Do** keep surfaces flat and square: layer #161616 → #262626 → #393939, hairline borders.",
+      "**Do** keep one primary button per view; row and toolbar actions are ghost buttons.",
+      "**Do** confirm every destructive action in a Modal.",
+      "**Do** draw Sabiá-specific accents from the logo's colours (#03159f, #f54a1c, #710284), sparingly."
+    ],
+    "donts": [
+      "**Don't** hard-code hex values in components; the Override easter egg's fallbacks are the only exception.",
+      "**Don't** add shadows, glows, gradients or rounded corners to app chrome.",
+      "**Don't** reuse a status hue for decoration, or give one status two colours.",
+      "**Don't** use Montserrat anywhere but the header product name, or bold weights for numeric readouts.",
+      "**Don't** invert data layers on the map; only the tile pane is filtered.",
+      "**Don't** import the full `@carbon/react` style barrel (929 kB vs 527 kB CSS).",
+      "**Don't** apply these rules to the print export or the project website; each has its own world."
+    ]
+  }
+}

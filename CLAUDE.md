@@ -83,6 +83,11 @@ It bumps the four version fields and pushes an annotated tag. CI's `release`
 job then publishes the GitHub Release from that tag's message. Confirm the
 version number and notes with the user before pushing.
 
+**GitHub issues** ("/issue 3", "look at issue #7", an issue URL): use
+**[`/issue`](.claude/skills/issue/SKILL.md)**. It is tier 1. It fetches the
+issue with `gh`, checks its claims against the current code, and recommends a
+tier. It stops there and waits for the user to say go before any intake.
+
 ### The loop
 
 1. **Intake** — restate the goal and success criteria, and write

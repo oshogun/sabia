@@ -11,8 +11,9 @@
 // Every log and warn text is asserted whole. Operators grep these lines.
 //
 // The last block drives a real FlightManager (with './acarsEvents' replaced
-// too) to pin the one thing only the coordinator's sequencing can get wrong:
-// a resume reaches no ground tracking at all.
+// too) to pin what only the coordinator's sequencing can get wrong: a resume
+// reaches no ground tracking at all, and from IDLE the airborne check runs
+// before the parked streak is counted.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { CreateGroundSession, GroundSession, SimFrame } from '../../src/types';
@@ -939,5 +940,28 @@ describe('GroundTracker under the coordinator', () => {
     expect(dbMock.insertFlight).not.toHaveBeenCalled();
     expect(closeOpenGroundSession).not.toHaveBeenCalled();
     expect(fm.getGroundSessionStatus()).toMatchObject({ groundSessionId: 61, airportIcao: 'KSBA' });
+  });
+
+  it('a flight resumed on a parked first frame leaves no parked streak behind: after it lands, GROUND takes the full debounce', () => {
+    const fm = new FlightManager();
+    dbMock.getOpenFlight.mockReturnValue({
+      id: 77, aircraft: 'A320', start_time: T0, departure_lat: KSBA.lat, departure_lon: KSBA.lon,
+    });
+    const feedParked = (): void => {
+      vi.advanceTimersByTime(1000);
+      fm.onFrame(parked());
+    };
+
+    fm.onFrame(parked());
+    expect(fm.appState.flightState).toBe('FLYING');
+    for (let i = 0; i < 50 && fm.appState.flightState === 'FLYING'; i++) feedParked();
+    expect(fm.appState.flightState).toBe('IDLE');
+
+    for (let i = 1; i < GROUND_DEBOUNCE_FRAMES; i++) {
+      feedParked();
+      expect(fm.appState.flightState).toBe('IDLE');
+    }
+    feedParked();
+    expect(fm.appState.flightState).toBe('GROUND');
   });
 });

@@ -1,28 +1,24 @@
 import type {
-  SimFrame, FlightState, AppState, PlannedLegWithChildren, PlannedLegLiveStatus,
+  SimFrame, FlightState, AppState, PlannedLegLiveStatus,
   GroundSession, GroundSessionLiveStatus, GroundSessionEndReason,
 } from './types';
 import type { FlightStatePayload } from './eventHub';
 import type { OpenFlightRow, FlightTrackPoint } from './db';
 import {
-  insertFlight, insertPoint, closeFlight, getFlightPlannedLegId,
-  getActiveTripId, getPlannedLegCandidatesForActiveTrip, getPlannedLegById,
-  linkFlightToPlannedLeg, recordPlannedLegArrival, getTripName,
+  insertFlight, insertPoint, closeFlight, getPlannedLegById, getTripName,
   getOpenFlight, getFlightTrackPoints,
 } from './db';
 import {
   insertGroundSession, getOpenGroundSession, closeOpenGroundSession, fillOpenGroundSessionGaps,
 } from './db/groundSessions';
 import { findNearestAirport } from './airports';
-import { matchPlannedLeg, DEPARTURE_RADIUS_NM, ARRIVAL_RADIUS_NM } from './legMatcher';
-import type { LegMatchResult } from './legMatcher';
 import { nextParkedStreak, hasParkedDebounce, hasLeftAnchor } from './groundState';
 import { buildOooiMessage, buildPositionReportMessage, parsePositionReportIntervalMs } from './acars';
 import { fileAcarsMessageOnce } from './acarsEvents';
 import { haversineNm } from './geo';
 import { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
-import { buildRemainingFromNm, progressAlongLeg } from './flight/legProgress';
 import { summarizeTrack } from './flight/summarizeTrack';
+import { PlannedLegLink } from './flight/plannedLegLink';
 
 export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
@@ -30,73 +26,11 @@ const RECORD_INTERVAL_MS = 5000;
 const AIRBORNE_DEBOUNCE_FRAMES = 3;
 const LANDED_DEBOUNCE_FRAMES = 10;
 
-/** `result.distanceNm` is unrounded and null before the radius is applied. */
-function formatNm(distanceNm: number | null): string {
-  return distanceNm === null ? 'unknown distance' : `${distanceNm.toFixed(1)} nm`;
-}
-
-/**
- * The parenthetical that follows a refusal's reason code in the log.
- *
- * `nearbyLegIds` does not mean one thing: for AMBIGUOUS it is the *eligible*
- * ids — the choices, which is what the line should name — and for every
- * other outcome reached after the radius test it is every id within the
- * radius. Before the radius is usefully applied it is empty, and then the
- * only thing worth reporting is how far the nearest planned departure was, if
- * the matcher got far enough to measure one.
- */
-function describeRefusal(result: LegMatchResult): string {
-  const legs = result.nearbyLegIds;
-  const named = `${legs.length === 1 ? 'leg' : 'legs'} ${legs.join(', ')} within ${DEPARTURE_RADIUS_NM} nm`;
-  if (result.reason === 'AMBIGUOUS') {
-    return ` (${named})`;
-  }
-  if (legs.length > 0) {
-    return ` (${named}, nearest ${formatNm(result.distanceNm)})`;
-  }
-  if (result.distanceNm !== null) {
-    return ` (nearest planned departure ${formatNm(result.distanceNm)} away)`;
-  }
-  return '';
-}
-
-/**
- * Live-status cache for the flight currently FLYING, built once — at
- * auto-link time, or refreshed on a manual link/unlink — never re-read from
- * the database per status poll. `waypoints` mirrors the leg's own
- * planned_waypoints order (departure first, destination last, per
- * lnmpln.ts); `remainingFromNm[i]` is the great-circle distance from
- * `waypoints[i]` to the destination, following that same chain.
- */
-interface PlannedLegCache {
-  flightId: number;
-  plannedLegId: number;
-  tripId: number | null;
-  tripName: string | null;
-  destinationIdent: string;
-  waypoints: { ident: string; lat: number; lon: number }[];
-  remainingFromNm: number[];
-}
-
-function buildPlannedLegCache(flightId: number, leg: PlannedLegWithChildren): PlannedLegCache {
-  const waypoints = leg.waypoints.map(w => ({ ident: w.ident, lat: w.lat, lon: w.lon }));
-  const remainingFromNm = buildRemainingFromNm(waypoints);
-  return {
-    flightId,
-    plannedLegId: leg.id,
-    tripId: leg.trip_id,
-    tripName: leg.trip_id !== null ? getTripName(leg.trip_id) ?? '' : null,
-    destinationIdent: leg.destination_ident,
-    waypoints,
-    remainingFromNm,
-  };
-}
-
 /**
  * GroundSessionLiveStatus doubles as the in-memory cache: its fields are
  * exactly what /api/status needs and nothing this class computes per poll.
  * Built once at ground-session entry (or adoption) and never re-read from
- * the database per frame — same reasoning as PlannedLegCache above.
+ * the database per frame — same reasoning as the planned-leg link's cache.
  */
 function buildGroundSessionCache(session: GroundSession): GroundSessionLiveStatus {
   let tripId: number | null = null;
@@ -134,7 +68,7 @@ function buildGroundSessionCache(session: GroundSession): GroundSessionLiveStatu
 export class FlightManager {
   private state: FlightState = 'IDLE';
   private currentFlightId: number | null = null;
-  private plannedLegCache: PlannedLegCache | null = null;
+  private readonly link = new PlannedLegLink();
   private airborneStreak = 0;
   private landedStreak = 0;
   // Consecutive parked-qualifying frames while IDLE or GROUND; see groundState.ts.
@@ -212,15 +146,15 @@ export class FlightManager {
 
   /**
    * The current flight/leg scope, resolved the same way at every call: for a
-   * flight in progress, the effective leg is whatever this.plannedLegCache
-   * holds (never a database read); otherwise it is the open ground session's
+   * flight in progress, the effective leg is whatever the planned-leg link's
+   * cache holds (never a database read); otherwise it is the open ground session's
    * planned_leg_id, if any, which covers a manual session open before or
    * between flights.
    */
   getFlightStatePayload(): FlightStatePayload {
     const currentFlightId = this.appState.currentFlightId;
     const plannedLegId = currentFlightId !== null
-      ? this.plannedLegCache?.plannedLegId ?? null
+      ? this.link.currentLegId()
       : getOpenGroundSession()?.planned_leg_id ?? null;
     return { flightState: this.appState.flightState, currentFlightId, plannedLegId };
   }
@@ -399,7 +333,7 @@ export class FlightManager {
       const startedAt = new Date().toISOString();
       const open = getOpenGroundSession();
       const ap = findNearestAirport(frame.lat, frame.lon);
-      const match = this.matchGroundPlannedLeg(frame, startedAt);
+      const match = this.link.matchForGround(frame, startedAt);
 
       let session: GroundSession;
       if (open) {
@@ -468,46 +402,6 @@ export class FlightManager {
   }
 
   /**
-   * The ground-session twin of autoLinkPlannedLeg(): same matcher, same
-   * candidates, same radius, but it must never consume a leg the way a real
-   * takeoff does — no linkFlightToPlannedLeg(), no status change on the leg.
-   * A ground session only records which leg it *would* attach to; the flight
-   * itself still matches independently at rotation.
-   */
-  private matchGroundPlannedLeg(frame: SimFrame, startTime: string): { plannedLegId: number | null; parkingPosition: string | null } {
-    try {
-      const result = matchPlannedLeg({
-        lat: frame.lat,
-        lon: frame.lon,
-        startTime,
-        aircraft: frame.aircraft,
-        activeTripId: getActiveTripId(),
-        candidates: getPlannedLegCandidatesForActiveTrip(),
-        flightAlreadyLinkedTo: null,
-      });
-
-      if (result.reason === 'MATCHED' && result.plannedLegId !== null) {
-        const leg = getPlannedLegById(result.plannedLegId);
-        const route = leg ? `${leg.departure_ident}→${leg.destination_ident}, ` : '';
-        console.log(
-          `[FlightManager] Ground session matched planned leg #${result.plannedLegId} (${route}${formatNm(result.distanceNm)}, ${result.reason})`
-        );
-        // No SimVar publishes the parking spot's name. The one honest source
-        // on this path is the matched leg's own filed departure stand.
-        return { plannedLegId: result.plannedLegId, parkingPosition: leg?.departure_start ?? null };
-      }
-
-      console.log(
-        `[FlightManager] Ground session not linked to a planned leg — ${result.reason}${describeRefusal(result)}`
-      );
-      return { plannedLegId: null, parkingPosition: null };
-    } catch (err) {
-      console.warn('[FlightManager] Ground session leg match failed:', err);
-      return { plannedLegId: null, parkingPosition: null };
-    }
-  }
-
-  /**
    * Closes whatever ground session is open, whatever its source, and returns
    * to IDLE. Used for the exits that are themselves positive evidence the
    * aircraft is no longer where the session says it is: a slew, or a jump
@@ -558,22 +452,6 @@ export class FlightManager {
   }
 
   /**
-   * A plain `this.plannedLegCache?.x` read is fine almost everywhere, but not
-   * right after `this.plannedLegCache = null;` followed by a call to
-   * autoLinkPlannedLeg() (startFlight()'s own reset-then-relink sequence):
-   * TypeScript's control-flow narrowing there types a direct read as
-   * always-null, since it cannot see into the called method. Going through a
-   * separate method call breaks that stale narrowing instead of masking it
-   * with a cast.
-   */
-  private plannedLegRefs(): { destinationIdent: string | null; plannedLegId: number | null } {
-    return {
-      destinationIdent: this.plannedLegCache?.destinationIdent ?? null,
-      plannedLegId: this.plannedLegCache?.plannedLegId ?? null,
-    };
-  }
-
-  /**
    * Fired at most once per flight, on the first frame back on the ground.
    * The flag is set before anything else so a rollout that stays onGround
    * for many frames still resolves the airport and files ON exactly once —
@@ -585,6 +463,7 @@ export class FlightManager {
 
     const at = new Date().toISOString();
     const ap = findNearestAirport(frame.lat, frame.lon);
+    const refs = this.link.refs();
     const msg = buildOooiMessage({
       flightId: this.currentFlightId,
       event: 'ON',
@@ -592,8 +471,8 @@ export class FlightManager {
       airportIcao: ap?.icao ?? null,
       stand: null,
       aircraft: frame.aircraft,
-      destinationIdent: this.plannedLegCache?.destinationIdent ?? null,
-      plannedLegId: this.plannedLegCache?.plannedLegId ?? null,
+      destinationIdent: refs.destinationIdent,
+      plannedLegId: refs.plannedLegId,
       estimated: false,
     });
     fileAcarsMessageOnce(msg, `Flight #${this.currentFlightId} ON`);
@@ -616,7 +495,7 @@ export class FlightManager {
     // Unconditional, whatever this.state was: a manual ground session may
     // exist with no agent ever having connected, so it is never known only
     // from in-memory ground-tracking. Wrapped and swallowed for the same
-    // reason autoLinkPlannedLeg() is below — nothing about a ground session
+    // reason link.autoLink() is below — nothing about a ground session
     // may stand between a sim session and the flight row that records it.
     try {
       closeOpenGroundSession('flight-started', id);
@@ -626,8 +505,8 @@ export class FlightManager {
     this.groundAnchor = null;
     this.groundSessionCache = null;
 
-    this.plannedLegCache = null;
-    this.autoLinkPlannedLeg(id, frame, startTime);
+    this.link.clear();
+    this.link.autoLink(id, frame, startTime);
 
     this.currentFlightId = id;
     this.state = 'FLYING';
@@ -659,7 +538,7 @@ export class FlightManager {
     }
 
     const outEstimated = outAt === null;
-    const link = this.plannedLegRefs();
+    const refs = this.link.refs();
     fileAcarsMessageOnce(buildOooiMessage({
       flightId: id,
       event: 'OUT',
@@ -667,8 +546,8 @@ export class FlightManager {
       airportIcao: outAirportIcao,
       stand: outStand,
       aircraft: frame.aircraft,
-      destinationIdent: link.destinationIdent,
-      plannedLegId: link.plannedLegId,
+      destinationIdent: refs.destinationIdent,
+      plannedLegId: refs.plannedLegId,
       estimated: outEstimated,
     }), `Flight #${id} OUT`);
     fileAcarsMessageOnce(buildOooiMessage({
@@ -678,8 +557,8 @@ export class FlightManager {
       airportIcao: dep?.icao ?? null,
       stand: null,
       aircraft: frame.aircraft,
-      destinationIdent: link.destinationIdent,
-      plannedLegId: link.plannedLegId,
+      destinationIdent: refs.destinationIdent,
+      plannedLegId: refs.plannedLegId,
       estimated: false,
     }), `Flight #${id} OFF`);
     this.outBlocksAt = null;
@@ -739,7 +618,7 @@ export class FlightManager {
 
     // Reloaded read-only: this flight's link (if any) was already made at its
     // real takeoff, and matching again here would consume a leg a second time.
-    this.plannedLegCache = null;
+    this.link.clear();
     try {
       this.refreshPlannedLegForFlight(row.id);
     } catch (err) {
@@ -792,7 +671,11 @@ export class FlightManager {
       (excludedSec > 0 ? ` (${excludedSec}s interrupted, excluded)` : '')
     );
 
-    this.recordArrivalOnPlannedLeg(this.currentFlightId, frame);
+    this.link.recordArrival(this.currentFlightId, frame);
+
+    // ON and IN both carry the link's refs, so they are read before the link
+    // is cleared below.
+    const refs = this.link.refs();
 
     // ON's fallback: only when no touchdown frame was ever seen (crash, sim
     // exit or agent loss while airborne) — the touchdown path (fileTouchdownOn)
@@ -805,8 +688,8 @@ export class FlightManager {
         airportIcao: arr?.icao ?? null,
         stand: null,
         aircraft: frame.aircraft,
-        destinationIdent: this.plannedLegCache?.destinationIdent ?? null,
-        plannedLegId: this.plannedLegCache?.plannedLegId ?? null,
+        destinationIdent: refs.destinationIdent,
+        plannedLegId: refs.plannedLegId,
         estimated: true,
       }), `Flight #${this.currentFlightId} ON`);
       this.onEventFiled = true;
@@ -818,13 +701,13 @@ export class FlightManager {
       airportIcao: arr?.icao ?? null,
       stand: null,
       aircraft: frame.aircraft,
-      destinationIdent: this.plannedLegCache?.destinationIdent ?? null,
-      plannedLegId: this.plannedLegCache?.plannedLegId ?? null,
+      destinationIdent: refs.destinationIdent,
+      plannedLegId: refs.plannedLegId,
       estimated: false,
     }), `Flight #${this.currentFlightId} IN`);
 
     this.currentFlightId = null;
-    this.plannedLegCache = null;
+    this.link.clear();
     this.state = 'IDLE';
     this.appState.flightState = 'IDLE';
     this.appState.currentFlightId = null;
@@ -834,159 +717,29 @@ export class FlightManager {
   }
 
   /**
-   * The live-panel context for /api/status, or null while
-   * unlinked. Reads only the cache built at link time plus the two
-   * coordinates the caller already has — no query, so a 1 Hz poll costs
-   * nothing here. `lat`/`lon` come from the last frame, not stored, since the
-   * server already holds it and passing it keeps this method pure.
-   *
-   * "Next waypoint" is the far end of whichever route segment the current
-   * position is nearest to by cross-track distance (see crossTrackNm in
-   * src/flight/legProgress.ts), which is what actually tracks progress along a
-   * nearly-straight route.
-   * `remainingDistanceNm` is then the direct distance to that waypoint plus
-   * the rest of the chain from there to the destination — never a fraction
-   * of raw distance flown, and always via the file's own waypoint chain.
+   * The live-panel context for /api/status, or null while unlinked. Reads the
+   * link's cache only, so a 1 Hz poll costs nothing here; see
+   * PlannedLegLink.status() in src/flight/plannedLegLink.ts.
    */
   getPlannedLegStatus(lat: number, lon: number): PlannedLegLiveStatus | null {
-    const cache = this.plannedLegCache;
-    if (!cache) return null;
-
-    const { nextWaypointIdent, remainingDistanceNm } = progressAlongLeg(cache.waypoints, cache.remainingFromNm, lat, lon);
-
-    return {
-      plannedLegId: cache.plannedLegId,
-      tripId: cache.tripId,
-      tripName: cache.tripName,
-      destinationIdent: cache.destinationIdent,
-      nextWaypointIdent,
-      remainingDistanceNm: Math.round(remainingDistanceNm * 10) / 10,
-      distanceIsApproximate: true,
-    };
+    return this.link.status(lat, lon);
   }
 
   /**
    * Called by the manual link/unlink endpoint, which talks
    * to the database directly and never goes through FlightManager. Without
    * this, linking or unlinking the in-progress flight by hand would leave the
-   * live-status cache pointed at whatever autoLinkPlannedLeg last set (or at
+   * live-status cache pointed at whatever link.autoLink last set (or at
    * nothing), silently disagreeing with the row the rest of the app now
    * reads. A no-op for any flight that isn't the one currently flying.
+   *
+   * The scope listener is told after every call, including one for a flight
+   * that is not current; a throw from the link's reads propagates with no
+   * notification.
    */
   refreshPlannedLegForFlight(flightId: number): void {
-    if (flightId !== this.currentFlightId) { this.notifyScopeChange(); return; }
-    const legId = getFlightPlannedLegId(flightId);
-    if (legId === null) { this.plannedLegCache = null; this.notifyScopeChange(); return; }
-    const leg = getPlannedLegById(legId);
-    this.plannedLegCache = leg ? buildPlannedLegCache(flightId, leg) : null;
+    this.link.refreshForFlight(flightId, this.currentFlightId);
     this.notifyScopeChange();
-  }
-
-  /**
-   * Auto-match at takeoff — exactly once per flight, never from
-   * onFrame/recordPoint/writePoint. The candidates are loaded here and the
-   * matcher works on the legs' own stored coordinates, so
-   * findNearestAirport() stays at its three calls per flight (departure in
-   * startFlight(), the ON station in fileTouchdownOn(), and arrival in
-   * endFlight() — OFF reuses startFlight()'s own `dep`) and the frame path
-   * gains nothing at all.
-   *
-   * Everything is caught, deliberately and without rethrowing. insertFlight()
-   * has already run by the time this is reached, and nothing the trip planner
-   * does may stand between a sim session and the row that records it: a link
-   * that failed is one click to fix in the UI, a flight that was never written
-   * is gone with the session. So a throw from either query, from the matcher or
-   * from the link write degrades to an unlinked flight and a log line.
-   */
-  private autoLinkPlannedLeg(flightId: number, frame: SimFrame, startTime: string): void {
-    try {
-      const result = matchPlannedLeg({
-        lat: frame.lat,
-        lon: frame.lon,
-        startTime,
-        aircraft: frame.aircraft,
-        activeTripId: getActiveTripId(),
-        candidates: getPlannedLegCandidatesForActiveTrip(),
-        // startFlight() inserted the flight row immediately before this call,
-        // so a freshly inserted flight cannot already carry a link — this
-        // argument is always null here, and step 0 is structurally
-        // unreachable from this call site by construction. It stays a real
-        // guard for matchPlannedLeg()'s other potential callers and for its
-        // own scenario harness (inspect-legmatch.ts), which is a pure
-        // function with no database and exercises step 0 directly. Note:
-        // linkFlightToPlannedLeg() (the manual PUT path) does not call the
-        // matcher at all, so it is not what this guard is for.
-        flightAlreadyLinkedTo: null,
-      });
-
-      if (result.reason === 'MATCHED' && result.plannedLegId !== null) {
-        // The one read the auto-match path doesn't budget for, and only on
-        // the matched path: the candidates carry departureIdent but no
-        // destination, and the frozen log line names the whole route. Read
-        // before the write so that a link which succeeded can never be
-        // reported as a failure because the label lookup was the thing that
-        // threw.
-        const leg = getPlannedLegById(result.plannedLegId);
-        linkFlightToPlannedLeg(flightId, result.plannedLegId, 'auto');
-        if (leg) this.plannedLegCache = buildPlannedLegCache(flightId, leg);
-        const route = leg ? `${leg.departure_ident}→${leg.destination_ident}, ` : '';
-        console.log(
-          `[FlightManager] Flight #${flightId} linked to planned leg #${result.plannedLegId} ` +
-          `(${route}${formatNm(result.distanceNm)}, ${result.reason})`
-        );
-        return;
-      }
-
-      // A non-match is never silent: every refusal names its reason code, so an
-      // unlinked flight is always explainable after the fact.
-      console.log(
-        `[FlightManager] Flight #${flightId} not linked — ${result.reason}${describeRefusal(result)}`
-      );
-    } catch (err) {
-      console.warn(`[FlightManager] Flight #${flightId} auto-link failed, flight recorded unlinked:`, err);
-    }
-  }
-
-  /**
-   * Landing outcome for a linked flight. Runs after
-   * closeFlight() for the same reason the takeoff match runs after
-   * insertFlight(): by the time it can fail, the flight is already safely
-   * closed, so a throw costs the leg's arrival state and nothing else.
-   *
-   * The link is read from the flight row rather than remembered from
-   * startFlight(). The user can link or unlink a flight from the UI while it
-   * is still in the air, and the row is the only thing that knows about it —
-   * remembering the takeoff match would mark a leg the user had since unlinked.
-   * getFlightPlannedLegId() exists so that read costs one integer rather than
-   * the flight's whole track.
-   *
-   * Reached from onCrash() and onSimDisconnect() as well as from a normal
-   * landing, so `frame` may be anywhere at all — mid-ocean, mid-climb. That is
-   * simply a large deviation and a 'diverted' leg, which is the honest record;
-   * it is not a special case and must not become one.
-   */
-  private recordArrivalOnPlannedLeg(flightId: number, frame: SimFrame): void {
-    try {
-      const legId = getFlightPlannedLegId(flightId);
-      if (legId === null) return;
-
-      const leg = getPlannedLegById(legId);
-      if (!leg) return;
-
-      const deviationNm = haversineNm(frame.lat, frame.lon, leg.destination_lat, leg.destination_lon);
-      // The link is kept either way — a diversion never auto-unlinks, because
-      // the link records the intent and that stays true when the destination
-      // changed. arrival_deviation_nm is written on both paths.
-      const status = deviationNm <= ARRIVAL_RADIUS_NM ? 'flown' : 'diverted';
-      recordPlannedLegArrival(legId, status, Math.round(deviationNm * 10) / 10);
-
-      console.log(
-        `[FlightManager] Flight #${flightId} landed ${deviationNm.toFixed(1)} nm from ` +
-        `planned ${leg.destination_ident} — leg #${legId} marked ${status}`
-      );
-    } catch (err) {
-      console.warn(`[FlightManager] Flight #${flightId} arrival not recorded on its planned leg:`, err);
-    }
   }
 
   private recordPoint(frame: SimFrame): void {
@@ -1047,7 +800,7 @@ export class FlightManager {
     try {
       if (this.currentFlightId === null) return;
       if (this.positionReportIntervalMs <= 0) return;
-      if (this.plannedLegCache === null) return;
+      if (this.link.currentLegId() === null) return;
 
       const windowIndex = Math.floor((nowMs - this.flightStartMs) / this.positionReportIntervalMs);
       if (windowIndex < 1 || windowIndex <= this.lastPositionReportWindow) return;

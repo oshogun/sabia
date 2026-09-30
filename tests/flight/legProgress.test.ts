@@ -35,6 +35,13 @@ describe('lonDeltaDeg', () => {
     expect(lonDeltaDeg(170, -170)).toBe(20);
   });
 
+  it('reads an exact half turn as -180, whichever way round the two longitudes are given', () => {
+    expect(lonDeltaDeg(0, 180)).toBe(-180);
+    expect(lonDeltaDeg(180, 0)).toBe(-180);
+    expect(lonDeltaDeg(-90, 90)).toBe(-180);
+    expect(lonDeltaDeg(90, -90)).toBe(-180);
+  });
+
   it('always lands within a half turn of zero and is congruent to the raw difference mod 360', () => {
     for (let from = -180; from <= 180; from += 30) {
       for (let to = -180; to <= 180; to += 30) {
@@ -187,6 +194,22 @@ describe('progressAlongLeg', () => {
     expect(crossTrackNm(35.1, -120, 35, -121, 35, -120))
       .toBe(crossTrackNm(35.1, -120, 35, -120, 35, -119));
     expect(p.nextWaypointIdent).toBe('MID');
+  });
+
+  it('keeps the first segment at a corner where both neighbours are nearest at the shared waypoint', () => {
+    // Pins a floating-point outcome, not a geometric rule. Past the apex V of
+    // A -> V -> B the nearest point of both segments is V itself, so the two
+    // cross-track distances are mathematically equal. Evaluated with each
+    // segment's endpoints in route order, the first comes out smaller by one
+    // bit and V stays "next"; with the endpoints swapped the second wins and
+    // the answer flips to B, about 46 nm less remaining.
+    const route = [wp('A', 50, -40), wp('V', 51, -30), wp('B', 50, -20)];
+    const remaining = buildRemainingFromNm(route);
+    const lat = 51.96086502075195;
+    const lon = -30.063890075683595;
+    const p = progressAlongLeg(route, remaining, lat, lon);
+    expect(p.nextWaypointIdent).toBe('V');
+    expect(p.remainingDistanceNm).toBe(haversineNm(lat, lon, 51, -30) + remaining[1]);
   });
 
   it('lets a zero-length segment win when it is the nearest, rather than skipping it as NaN', () => {

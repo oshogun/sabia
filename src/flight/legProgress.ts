@@ -17,7 +17,7 @@ export interface LegProgress {
 
 /**
  * Signed east-positive longitude difference `to - from`, wrapped into
- * (-180, 180]. Raw longitude subtraction is forbidden everywhere in this tree
+ * [-180, 180). Raw longitude subtraction is forbidden everywhere in this tree
  * (src/geo.ts, legMatcher.ts step 3) for the same reason it is forbidden here:
  * across the antimeridian 179°E → 179°W subtracts to -358° rather than the
  * 2° it is, which would make a Pacific route segment read as ~360° wide and

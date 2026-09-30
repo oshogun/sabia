@@ -170,6 +170,11 @@ describe('summarizeTrack start time', () => {
     expect(summarizeTrack([pt(0, 35, -120)], ROW, FRAME).startMs).toBe(Date.parse('2026-03-01T11:58:00.000Z'));
   });
 
+  it('is 0 for a start_time at the epoch, not null: the instant 0 is a real start time', () => {
+    expect(summarizeTrack([pt(0, 35, -120)], { ...ROW, start_time: '1970-01-01T00:00:00.000Z' }, FRAME).startMs).toBe(0);
+    expect(summarizeTrack([], { ...ROW, start_time: '1970-01-01T00:00:00.000Z' }, FRAME).startMs).toBe(0);
+  });
+
   it('is null when start_time does not parse, so the caller can pick its own fallback', () => {
     expect(summarizeTrack([pt(0, 35, -120)], { ...ROW, start_time: 'yesterday-ish' }, FRAME).startMs).toBeNull();
     expect(summarizeTrack([], { ...ROW, start_time: '' }, FRAME).startMs).toBeNull();

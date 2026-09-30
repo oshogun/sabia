@@ -14,7 +14,7 @@ test.describe('SideNav identity', () => {
     await page.goto('/');
     await expect(page.getByRole('main').getByRole('heading', { name: 'Home' })).toBeVisible();
 
-    const tripMenuButton = page.getByRole('button', { name: 'E2E Baltic Hop' });
+    const tripMenuButton = page.getByRole('button', { name: 'E2E Baltic Hop', exact: true });
     await tripMenuButton.click();
     const overviewLink = page.getByRole('link', { name: 'Trip overview' });
     await expect(overviewLink).toBeVisible();
@@ -24,7 +24,7 @@ test.describe('SideNav identity', () => {
     await expect(page.getByRole('main').getByRole('heading', { name: 'E2E Baltic Hop', level: 1 })).toBeVisible();
 
     try {
-      await page.getByRole('button', { name: 'Edit' }).click();
+      await page.getByRole('button', { name: 'Edit trip details' }).click();
       await expect(page.getByRole('heading', { name: 'Edit trip' })).toBeVisible();
       const nameField = page.getByLabel('Trip name');
       await nameField.fill('E2E Baltic Hop Renamed');
@@ -35,7 +35,7 @@ test.describe('SideNav identity', () => {
       // The rename is the write; subscribeMutations debounces 150ms before
       // useNavTree refetches. The renamed SideNavMenu must still be the same
       // open submenu, not a freshly-mounted, freshly-collapsed one.
-      const renamedMenuButton = page.getByRole('button', { name: 'E2E Baltic Hop Renamed' });
+      const renamedMenuButton = page.getByRole('button', { name: 'E2E Baltic Hop Renamed', exact: true });
       await expect(renamedMenuButton).toBeVisible();
       await expect(renamedMenuButton).toHaveAttribute('aria-expanded', 'true');
       await expect(page.getByRole('link', { name: 'Trip overview' })).toBeVisible();

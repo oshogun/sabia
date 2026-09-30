@@ -55,7 +55,7 @@ test.describe('AllFlights', () => {
   test('groups flight 1 under its trip and lists flight 2 as ungrouped', async ({ page }) => {
     await page.goto('/flights');
     const main = page.getByRole('main');
-    await expect(main.getByRole('heading', { name: 'Flight Log' })).toBeVisible();
+    await expect(main.getByRole('heading', { name: 'All flights' })).toBeVisible();
 
     await expect(main.getByText('E2E Baltic Hop')).toBeVisible();
     await expect(main.getByText('1 leg')).toBeVisible();

@@ -1,0 +1,12 @@
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #1 linked to planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)
+log [FlightManager] Flight #1 position reports every 0.5 min
+log [FlightManager] Flight #1 started — Cessna 172
+log [FlightManager] Arrival airport: KMRY (Monterey Rgnl)
+log [FlightManager] Flight #1 ended — 10 points, 162.5 nm, 45s
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #2 linked to planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)
+log [FlightManager] Flight #2 position reports every 0.5 min
+log [FlightManager] Flight #2 started — Cessna 172
+log [FlightManager] Arrival airport: KMRY (Monterey Rgnl)
+log [FlightManager] Flight #2 ended — 10 points, 162.5 nm, 45s

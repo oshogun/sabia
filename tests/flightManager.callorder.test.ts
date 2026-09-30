@@ -610,6 +610,26 @@ describe('call order', () => {
     expect(consoleText(log)).toContain('log [FlightManager] Ground session not linked to a planned leg — LEG_ALREADY_FLOWN (leg 11 within 10 nm, nearest 0.0 nm)\n');
     expect(consoleText(log)).toContain('log [FlightManager] Flight #1 not linked — LEG_ALREADY_FLOWN (leg 11 within 10 nm, nearest 0.0 nm)\n');
   });
+
+  it('S-40 a second linked flight starts from its own takeoff maxima and files its own first position-report window', () => {
+    process.env.POSITION_REPORT_INTERVAL_MIN = '0.5';
+    arrangeLeg();
+    const HIGH = { altitudeFt: 9000, airspeedKnots: 150 };
+    const fm = newFm();
+    takeoff(fm, HIGH); cruise(fm, 7, HIGH); land(fm);
+    takeoff(fm); cruise(fm, 7); land(fm); feed(fm, 3, LANDED);
+    const log = takeLog();
+    const g = golden('S-40', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 4 });
+    expect(warns(log)).toEqual([]);
+    expect(callsTo(log, 'db.closeFlight').map(c => [c.args[0], c.args[6], c.args[7]])).toEqual([[1, 9000, 150], [2, 1500, 110]]);
+    expect(callsTo(log, 'acars.buildPositionReportMessage').map(c => {
+      const a = c.args[0] as { flightId: number; windowIndex: number };
+      return [a.flightId, a.windowIndex];
+    })).toEqual([[1, 1], [2, 1]]);
+  });
 });
 
 describe('error policy', () => {
@@ -1212,5 +1232,22 @@ describe('error policy', () => {
     expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
     expect(warns(log)).toEqual(['[FlightManager] Ground session close (sim-exit) failed: Error: close failed']);
     expect(callsTo(log, 'groundSessions.closeOpenGroundSession').map(c => c.args)).toEqual([['sim-exit']]);
+  });
+
+  it('E-40 a failed takeoff point still starts the point clock: the next point is written 5 s after the takeoff, not on the next frame', () => {
+    behave.db.insertPoint = boom('point failed');
+    const fm = newFm();
+    fm.onFrame(makeFrame()); fm.onFrame(makeFrame());
+    const threw = thrown(() => fm.onFrame(makeFrame()));
+    behave.db.insertPoint = () => undefined;
+    feed(fm, 4); cruise(fm, 1);
+    const log = takeLog();
+    const g = golden('E-40', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBe('point failed');
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 1 });
+    expect(warns(log)).toEqual([]);
+    expect(callsTo(log, 'db.insertPoint').map(c => c.args[1])).toEqual([iso(0), iso(9000)]);
   });
 });

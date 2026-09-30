@@ -1,0 +1,80 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.getOpenGroundSession",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.426201,
+      -119.841507
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getActiveTripId",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegCandidatesForActiveTrip",
+    "args": []
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Ground session not linked to a planned leg — NO_ACTIVE_TRIP"
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.insertGroundSession",
+    "args": [
+      {
+        "source": "auto",
+        "airport_icao": "KSBA",
+        "airport_name": "Santa Barbara Muni",
+        "lat": 34.426201,
+        "lon": -119.841507,
+        "parking_position": null,
+        "parking_position_source": null,
+        "planned_leg_id": null,
+        "planned_leg_link_source": null,
+        "aircraft": "Cessna 172",
+        "started_at": "2026-09-09T12:00:05.000Z"
+      }
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Ground session #100 — KSBA (Santa Barbara Muni)"
+  },
+  {
+    "t": "notify",
+    "flightState": "GROUND",
+    "currentFlightId": null,
+    "plannedLegId": null
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.closeOpenGroundSession",
+    "args": [
+      "slew"
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Ground session close (slew) failed: Error: close failed"
+  },
+  {
+    "t": "notify",
+    "flightState": "IDLE",
+    "currentFlightId": null,
+    "plannedLegId": null
+  }
+]

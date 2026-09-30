@@ -1,0 +1,18 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightTrackPoints",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: track read failed"
+  }
+]

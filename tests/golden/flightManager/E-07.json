@@ -1,0 +1,51 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightTrackPoints",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightPlannedLegId",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "notify",
+    "flightState": "FLYING",
+    "currentFlightId": 77,
+    "plannedLegId": null
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #77 resumed after restart — 0 points, 0.0 nm, 0s counted before the interruption"
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:01.000Z",
+      34.50947817574098,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: point write failed"
+  }
+]

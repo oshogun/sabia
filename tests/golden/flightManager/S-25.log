@@ -1,0 +1,6 @@
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #1 linked to planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)
+log [FlightManager] Flight #1 position reports every 0.5 min
+log [FlightManager] Flight #1 started — Cessna 172
+warn [FlightManager] Position report not filed: TypeError: Cannot read properties of undefined (reading 'lat')
+warn [FlightManager] Position report not filed: TypeError: Cannot read properties of undefined (reading 'lat')

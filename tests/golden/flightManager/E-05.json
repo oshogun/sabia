@@ -1,0 +1,11 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: open lookup failed"
+  }
+]

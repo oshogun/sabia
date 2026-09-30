@@ -1,0 +1,16 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.getOpenGroundSession",
+    "args": []
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Ground session entry failed, staying IDLE: Error: open session read failed"
+  }
+]

@@ -1,0 +1,6 @@
+log [FlightManager] Ground session matched planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)
+log [FlightManager] Ground session #100 — KSBA (Santa Barbara Muni)
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #1 linked to planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)
+log [FlightManager] Flight #1 position reports every 10.0 min
+log [FlightManager] Flight #1 started — Cessna 172

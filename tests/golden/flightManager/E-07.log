@@ -1,0 +1,2 @@
+log [FlightManager] Flight #77 resumed after restart — 0 points, 0.0 nm, 0s counted before the interruption
+warn [FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: point write failed

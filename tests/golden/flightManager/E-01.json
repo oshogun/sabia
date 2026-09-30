@@ -1,0 +1,47 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.426201,
+      -119.841507
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertFlight",
+    "args": [
+      "Cessna 172",
+      34.426201,
+      -119.841507,
+      "2026-09-09T12:00:00.000Z",
+      "KSBA",
+      "Santa Barbara Muni"
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.426201,
+      -119.841507
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertFlight",
+    "args": [
+      "Cessna 172",
+      34.426201,
+      -119.841507,
+      "2026-09-09T12:00:01.000Z",
+      "KSBA",
+      "Santa Barbara Muni"
+    ]
+  }
+]

@@ -1,0 +1,5 @@
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #1 not linked — NO_ACTIVE_TRIP
+log [FlightManager] Flight #1 position reports every 10.0 min
+log [FlightManager] Flight #1 started — Cessna 172
+log [FlightManager] Arrival airport: KMRY (Monterey Rgnl)

@@ -1,0 +1,7 @@
+[
+  {
+    "t": "call",
+    "fn": "groundSessions.getOpenGroundSession",
+    "args": []
+  }
+]

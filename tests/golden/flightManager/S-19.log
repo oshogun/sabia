@@ -1,0 +1,5 @@
+warn [FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: track read failed
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #1 not linked — NO_ACTIVE_TRIP
+log [FlightManager] Flight #1 position reports every 10.0 min
+log [FlightManager] Flight #1 started — Cessna 172

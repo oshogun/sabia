@@ -1,0 +1,152 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightTrackPoints",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightPlannedLegId",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegById",
+    "args": [
+      11
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getTripName",
+    "args": [
+      1
+    ]
+  },
+  {
+    "t": "notify",
+    "flightState": "FLYING",
+    "currentFlightId": 77,
+    "plannedLegId": 11
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #77 resumed after restart — 0 points, 0.0 nm, 0s counted before the interruption"
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:01.000Z",
+      34.50947817574098,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildPositionReportMessage",
+    "args": [
+      {
+        "flightId": 77,
+        "windowIndex": 2,
+        "at": "2026-09-09T12:00:01.000Z",
+        "lat": 34.50947817574098,
+        "lon": -119.841507,
+        "altitudeFt": 1500,
+        "groundSpeedKnots": 105,
+        "headingDeg": 270,
+        "nextWaypointIdent": "KMRY",
+        "destinationIdent": "KMRY",
+        "remainingDistanceNm": 158.5,
+        "plannedLegId": 11
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 77,
+        "direction": "downlink",
+        "category": "position-report",
+        "label": "POS REPORT",
+        "body": "POSITION REPORT\nN3430.6 W11950.5 1200Z\n1500FT GS 105 HDG 270\nNEXT KMRY DEST KMRY 158.5 NM\nETE 0130 ETA 1330Z",
+        "payload_json": "{\"v\":1,\"at\":\"2026-09-09T12:00:01.000Z\",\"window\":2,\"lat\":34.50947817574098,\"lon\":-119.841507,\"altitude_ft\":1500,\"groundspeed_kts\":105,\"heading_deg\":270,\"next_waypoint\":\"KMRY\",\"destination\":\"KMRY\",\"remaining_nm\":158.5,\"ete_sec\":5434,\"eta\":\"2026-09-09T13:30:35.000Z\",\"planned_leg_id\":11}",
+        "dedup_key": "position-report:flight:77:2",
+        "sent_at": "2026-09-09T12:00:01.000Z"
+      },
+      "Flight #77 position report"
+    ]
+  },
+  {
+    "t": "notify",
+    "flightState": "FLYING",
+    "currentFlightId": 77,
+    "plannedLegId": 11
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:06.000Z",
+      34.52613361088918,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:11.000Z",
+      34.52613361088918,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:16.000Z",
+      34.52613361088918,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  }
+]

@@ -4,21 +4,17 @@ import type {
 } from './types';
 import type { FlightStatePayload } from './eventHub';
 import type { OpenFlightRow, FlightTrackPoint } from './db';
-import {
-  insertFlight, insertPoint, closeFlight, getOpenFlight, getFlightTrackPoints,
-} from './db';
+import { getOpenFlight } from './db';
 import { findNearestAirport } from './airports';
 import { buildOooiMessage, buildPositionReportMessage, parsePositionReportIntervalMs } from './acars';
 import { fileAcarsMessageOnce } from './acarsEvents';
-import { haversineNm } from './geo';
-import { MAX_COUNTED_GAP_MS } from './flight/constants';
-import { summarizeTrack } from './flight/summarizeTrack';
 import { PlannedLegLink } from './flight/plannedLegLink';
 import { GroundTracker } from './flight/groundTracker';
+import { FlightRecorder } from './flight/flightRecorder';
+import type { RecordedPoint } from './flight/flightRecorder';
 
 export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
-const RECORD_INTERVAL_MS = 5000;
 const AIRBORNE_DEBOUNCE_FRAMES = 3;
 const LANDED_DEBOUNCE_FRAMES = 10;
 
@@ -27,6 +23,7 @@ export class FlightManager {
   private currentFlightId: number | null = null;
   private readonly link = new PlannedLegLink();
   private readonly ground = new GroundTracker();
+  private readonly recorder = new FlightRecorder();
   private airborneStreak = 0;
   private landedStreak = 0;
   // Set once ON has been filed for the current flight, from either the
@@ -38,29 +35,13 @@ export class FlightManager {
   private positionReportIntervalMs = 0;
   private lastPositionReportWindow = 0;
   private isPaused = false;
-  private lastPointTime = 0;
   // Notified after every flight/leg scope change (see the call sites below);
   // null while nothing has attached one, which is the case for every existing
   // caller of this class that doesn't care.
   private scopeChangeListener: (() => void) | null = null;
-  // Set whenever recording is skipped, so the following gap is known to be an
-  // interruption regardless of how short it was.
-  private interrupted = false;
   // The open-flight lookup is attempted exactly once per process, on the first
   // frame this instance evaluates — not once per takeoff. See checkAirborneDebounce().
   private openFlightCheckedAtBoot = false;
-
-  // Accumulated stats for the current flight
-  private distanceNm = 0;
-  private maxAltitudeFt = 0;
-  private maxAirspeedKts = 0;
-  private pointCount = 0;
-  private lastPointLat = 0;
-  private lastPointLon = 0;
-  private flightStartMs = 0;
-  // Flight time accumulated from the gaps between recorded points, so that any
-  // interruption which stops recording is excluded automatically.
-  private activeMs = 0;
 
   readonly appState: AppState = {
     flightState: 'IDLE',
@@ -81,7 +62,7 @@ export class FlightManager {
   setPaused(paused: boolean, flags = paused ? 1 : 0): void {
     // Mark here as well as in onFrame: a paused sim may stop sending frames
     // altogether, in which case onFrame never runs to flag the interruption.
-    if (paused) this.interrupted = true;
+    if (paused) this.recorder.markInterrupted();
     this.isPaused = paused;
     this.appState.paused = paused;
     this.appState.pauseFlags = paused ? flags : 0;
@@ -156,7 +137,7 @@ export class FlightManager {
 
       case 'FLYING':
         if (inSlew || this.isPaused) {
-          this.interrupted = true;
+          this.recorder.markInterrupted();
           break;
         }
 
@@ -335,7 +316,7 @@ export class FlightManager {
   private startFlight(frame: SimFrame): void {
     const startTime = new Date().toISOString();
     const dep = findNearestAirport(frame.lat, frame.lon);
-    const id = insertFlight(frame.aircraft, frame.lat, frame.lon, startTime, dep?.icao ?? null, dep?.name ?? null);
+    const id = this.recorder.begin(frame, dep, startTime);
     if (dep) console.log(`[FlightManager] Departure airport: ${dep.icao} (${dep.name})`);
 
     // Unconditional, whatever this.state was: OUT reports the stand, airport
@@ -350,16 +331,7 @@ export class FlightManager {
     this.state = 'FLYING';
     this.airborneStreak = 0;
     this.landedStreak = 0;
-    this.distanceNm = 0;
-    this.maxAltitudeFt = frame.altitudeFt;
-    this.maxAirspeedKts = frame.airspeedKnots;
-    this.pointCount = 0;
-    this.lastPointLat = frame.lat;
-    this.lastPointLon = frame.lon;
-    this.lastPointTime = Date.now();
-    this.flightStartMs = Date.now();
-    this.activeMs = 0;
-    this.interrupted = false;
+    this.recorder.startClock();
 
     this.appState.flightState = 'FLYING';
     this.appState.currentFlightId = id;
@@ -410,8 +382,8 @@ export class FlightManager {
    * server was restarted (or crashed) while this flight was in progress, and
    * the row it inserted at takeoff is still open. Everything the live
    * accumulators would have held is rebuilt from the points already recorded
-   * for that flight; the downtime itself is disowned by `interrupted`, exactly
-   * as a pause disowns the gap that spans it.
+   * for that flight; the downtime itself is disowned by the recorder's
+   * interruption mark, exactly as a pause disowns the gap that spans it.
    *
    * Deliberately NOT a branch inside startFlight(): a resume must not insert a
    * row, must not close a ground session, must not file OUT/OFF, and must not
@@ -419,11 +391,7 @@ export class FlightManager {
    * before the restart.
    */
   private resumeFlight(row: OpenFlightRow, frame: SimFrame): void {
-    const summary = summarizeTrack(getFlightTrackPoints(row.id), row, frame);
-
-    // An unparseable start_time (a hand-edited row) falls back to now rather
-    // than poison the arithmetic below with NaN.
-    const flightStartMs = summary.startMs ?? Date.now();
+    const seed = this.recorder.adopt(row, frame);
 
     this.currentFlightId = row.id;
     this.state = 'FLYING';
@@ -431,22 +399,10 @@ export class FlightManager {
     this.appState.currentFlightId = row.id;
     this.airborneStreak = 0;
     this.landedStreak = 0;
-    this.distanceNm = summary.distanceNm;
-    this.maxAltitudeFt = summary.maxAltitudeFt;
-    this.maxAirspeedKts = summary.maxAirspeedKts;
-    this.pointCount = summary.pointCount;
-    this.lastPointLat = summary.lastPointLat;
-    this.lastPointLon = summary.lastPointLon;
-    // Overwritten by the writePoint() call below; the only thing this value
-    // does first is feed that call's own gap computation, and Date.now() makes
-    // that gap ~0 rather than the whole outage.
-    this.lastPointTime = Date.now();
-    this.flightStartMs = flightStartMs;
-    this.activeMs = summary.activeMs;
     // The outage is an interruption exactly like a pause or a slew: its time
     // must not be counted, even though its distance (added by the writePoint()
     // call below) should be.
-    this.interrupted = true;
+    this.recorder.markInterrupted();
     this.onEventFiled = false;
     this.positionReportIntervalMs = parsePositionReportIntervalMs(process.env.POSITION_REPORT_INTERVAL_MIN);
     this.lastPositionReportWindow = 0;
@@ -461,52 +417,28 @@ export class FlightManager {
     }
 
     console.log(
-      `[FlightManager] Flight #${row.id} resumed after restart — ${summary.pointCount} points, ` +
-      `${summary.distanceNm.toFixed(1)} nm, ${Math.round(summary.activeMs / 1000)}s counted before the interruption`
+      `[FlightManager] Flight #${row.id} resumed after restart — ${seed.pointCount} points, ` +
+      `${seed.distanceNm.toFixed(1)} nm, ${Math.round(seed.activeMs / 1000)}s counted before the interruption`
     );
 
     // Same call startFlight() ends with: it adds the outage's distance,
-    // drops its (already-excluded) gap because interrupted is true, and
-    // clears interrupted so the next gap counts normally.
+    // drops its (already-excluded) gap because the recorder is marked
+    // interrupted, and clears the mark so the next gap counts normally.
     this.writePoint(frame);
     this.notifyScopeChange();
   }
 
   private endFlight(frame: SimFrame): void {
     if (this.currentFlightId === null) return;
+    const id = this.currentFlightId;
 
-    const endTime = new Date().toISOString();
-    // Include the final partial interval between the last point and touchdown
-    const tailMs = Date.now() - this.lastPointTime;
-    if (!this.interrupted && tailMs <= MAX_COUNTED_GAP_MS) this.activeMs += tailMs;
-
-    const durationSec = Math.round(this.activeMs / 1000);
-    const excludedSec = Math.max(0,
-      Math.round((Date.now() - this.flightStartMs) / 1000) - durationSec);
+    const tally = this.recorder.stopClock();
 
     const arr = findNearestAirport(frame.lat, frame.lon);
     if (arr) console.log(`[FlightManager] Arrival airport: ${arr.icao} (${arr.name})`);
-    closeFlight(
-      this.currentFlightId,
-      endTime,
-      frame.lat,
-      frame.lon,
-      durationSec,
-      Math.round(this.distanceNm * 10) / 10,
-      Math.round(this.maxAltitudeFt),
-      Math.round(this.maxAirspeedKts),
-      this.pointCount,
-      arr?.icao ?? null,
-      arr?.name ?? null
-    );
+    this.recorder.finish(id, frame, arr, tally);
 
-    console.log(
-      `[FlightManager] Flight #${this.currentFlightId} ended — ` +
-      `${this.pointCount} points, ${this.distanceNm.toFixed(1)} nm, ${durationSec}s` +
-      (excludedSec > 0 ? ` (${excludedSec}s interrupted, excluded)` : '')
-    );
-
-    this.link.recordArrival(this.currentFlightId, frame);
+    this.link.recordArrival(id, frame);
 
     // ON and IN both carry the link's refs, so they are read before the link
     // is cleared below.
@@ -514,32 +446,32 @@ export class FlightManager {
 
     // ON's fallback: only when no touchdown frame was ever seen (crash, sim
     // exit or agent loss while airborne) — the touchdown path (fileTouchdownOn)
-    // already filed it. Either way IN follows immediately, sharing endTime.
+    // already filed it. Either way IN follows immediately, sharing the end instant.
     if (!this.onEventFiled) {
       fileAcarsMessageOnce(buildOooiMessage({
-        flightId: this.currentFlightId,
+        flightId: id,
         event: 'ON',
-        at: endTime,
+        at: tally.endTime,
         airportIcao: arr?.icao ?? null,
         stand: null,
         aircraft: frame.aircraft,
         destinationIdent: refs.destinationIdent,
         plannedLegId: refs.plannedLegId,
         estimated: true,
-      }), `Flight #${this.currentFlightId} ON`);
+      }), `Flight #${id} ON`);
       this.onEventFiled = true;
     }
     fileAcarsMessageOnce(buildOooiMessage({
-      flightId: this.currentFlightId,
+      flightId: id,
       event: 'IN',
-      at: endTime,
+      at: tally.endTime,
       airportIcao: arr?.icao ?? null,
       stand: null,
       aircraft: frame.aircraft,
       destinationIdent: refs.destinationIdent,
       plannedLegId: refs.plannedLegId,
       estimated: false,
-    }), `Flight #${this.currentFlightId} IN`);
+    }), `Flight #${id} IN`);
 
     this.currentFlightId = null;
     this.link.clear();
@@ -578,50 +510,22 @@ export class FlightManager {
   }
 
   private recordPoint(frame: SimFrame): void {
-    if (Date.now() - this.lastPointTime < RECORD_INTERVAL_MS) return;
-    this.writePoint(frame);
+    const point = this.recorder.maybeRecord(this.currentFlightId, frame);
+    if (point) this.reportPosition(frame, point);
   }
 
   private writePoint(frame: SimFrame): void {
-    if (this.currentFlightId === null) return;
+    const point = this.recorder.writePoint(this.currentFlightId, frame);
+    if (point) this.reportPosition(frame, point);
+  }
 
-    const now = Date.now();
-    const ts = new Date(now).toISOString();
-
-    if (this.pointCount > 0) {
-      this.distanceNm += haversineNm(this.lastPointLat, this.lastPointLon, frame.lat, frame.lon);
-
-      // Flight time is built from the gaps between points rather than the wall
-      // clock. A gap far longer than the recording interval means recording had
-      // stopped — a pause, slew, a frozen sim, a crashed agent — and that time
-      // was not flown, so it is not counted.
-      const gap = now - this.lastPointTime;
-      if (!this.interrupted && gap <= MAX_COUNTED_GAP_MS) this.activeMs += gap;
-    }
-
-    if (frame.altitudeFt > this.maxAltitudeFt) this.maxAltitudeFt = frame.altitudeFt;
-    if (frame.airspeedKnots > this.maxAirspeedKts) this.maxAirspeedKts = frame.airspeedKnots;
-
-    insertPoint(
-      this.currentFlightId,
-      ts,
-      frame.lat,
-      frame.lon,
-      frame.altitudeFt,
-      frame.airspeedKnots,
-      frame.groundSpeedKnots,
-      frame.headingDeg,
-      frame.verticalSpeedFpm,
-      frame.onGround
-    );
-
-    this.lastPointLat = frame.lat;
-    this.lastPointLon = frame.lon;
-    this.lastPointTime = now;
-    this.pointCount++;
-    this.interrupted = false;
-
-    this.maybeFilePositionReport(frame, now, ts);
+  /**
+   * The position-report check for a point the recorder just wrote, run with
+   * that write's own clock read and timestamp so the report window and the
+   * report's `at` agree with the stored point.
+   */
+  private reportPosition(frame: SimFrame, point: RecordedPoint): void {
+    this.maybeFilePositionReport(frame, point.nowMs, point.ts);
   }
 
   /**
@@ -637,7 +541,7 @@ export class FlightManager {
       if (this.positionReportIntervalMs <= 0) return;
       if (this.link.currentLegId() === null) return;
 
-      const windowIndex = Math.floor((nowMs - this.flightStartMs) / this.positionReportIntervalMs);
+      const windowIndex = Math.floor(this.recorder.elapsedMs(nowMs) / this.positionReportIntervalMs);
       if (windowIndex < 1 || windowIndex <= this.lastPositionReportWindow) return;
       this.lastPositionReportWindow = windowIndex;
 

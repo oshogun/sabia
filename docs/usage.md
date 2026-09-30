@@ -60,12 +60,15 @@ Destructive actions (delete, remove, skip) ask for confirmation in a dialog.
 - **Prefiles** — every planned leg (trip-linked or loose), filterable by
   status/trip/search, with import actions (into a chosen trip or loose) and
   a per-leg **Move to trip** action.
-- **Flight detail** — map (with a **Track** and a **Replay** tab, see
-  [replay](#replaying-a-flight)), altitude profile under the map, stats,
-  notes, attached flight-plan PDF, planned-leg link, PDF/KML export, and
-  edit (in a dialog) / delete.
-- **Trip detail** — combined map ("Atlas" view), paginated leg table,
-  imports, active-trip toggle, flight↔leg linking, PDF/KML export.
+- **Flight detail** — stats, notes, planned-leg link, attached flight-plan
+  PDF, map (with a **Track** and a **Replay** tab, see
+  [replay](#replaying-a-flight)), altitude profile under the map, PDF/KML
+  export, **Edit flight details** (aircraft name and notes, in a dialog) and
+  delete.
+- **Trip detail** — an **Overview** (stats, notes, combined route map,
+  imports, paginated leg table with flight↔leg linking) and an **Atlas**
+  view; active-trip toggle, PDF/KML export, **Edit trip details** (name and
+  notes, in a dialog) and delete.
 - **Settings** — the SimBrief pilot ID and the optional SayIntentions API
   key; **Ingest tokens (MCDU)** and **MCP tokens**: create a labelled token
   (its secret is shown once, in a dialog with a copy button — copy it then),
@@ -75,6 +78,12 @@ Destructive actions (delete, remove, skip) ask for confirmation in a dialog.
   ([rules](configuration.md#tokens-created-on-the-settings-page)); and
   **Operator password**: change it with your current password (other
   sessions are logged out).
+
+The **Notes** tile on flight and trip detail (on the trip's Overview) is
+always shown, right under the stats. With no notes it says so and offers
+**Add notes**; otherwise the pencil button under the notes, or a
+double-click on the text, edits them in place. **Save** stores the change,
+and **Cancel** or Escape discards it. Saving an empty box clears the notes.
 
 ## Navdata on the maps
 

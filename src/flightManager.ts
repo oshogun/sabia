@@ -20,59 +20,15 @@ import { nextParkedStreak, hasParkedDebounce, hasLeftAnchor } from './groundStat
 import { buildOooiMessage, buildPositionReportMessage, parsePositionReportIntervalMs } from './acars';
 import { fileAcarsMessageOnce } from './acarsEvents';
 import { haversineNm } from './geo';
+import { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
+import { buildRemainingFromNm, progressAlongLeg } from './flight/legProgress';
+import { summarizeTrack } from './flight/summarizeTrack';
+
+export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
 const RECORD_INTERVAL_MS = 5000;
-// A gap between points larger than this means recording had stopped, so the
-// time is treated as an interruption rather than flight time. Generously above
-// RECORD_INTERVAL_MS so ordinary jitter is never mistaken for an interruption.
-export const MAX_COUNTED_GAP_MS = 60_000;
 const AIRBORNE_DEBOUNCE_FRAMES = 3;
 const LANDED_DEBOUNCE_FRAMES = 10;
-// Above GROUND_SPEED_MAX_KTS (a stand roll or a wind-pushed reading should not
-// read as a pushback) and below any real pushback or taxi speed. The first
-// frame at or above this while GROUND is the off-blocks memo used to
-// timestamp OUT — see the GROUND branch of onFrame().
-export const TAXI_OUT_SPEED_KTS = 3;
-
-/**
- * Signed east-positive longitude difference `to - from`, wrapped into
- * (-180, 180]. Raw longitude subtraction is forbidden everywhere in this tree
- * (src/geo.ts, legMatcher.ts step 3) for the same reason it is forbidden here:
- * across the antimeridian 179°E → 179°W subtracts to -358° rather than the
- * 2° it is, which would make a Pacific route segment read as ~360° wide and
- * hand getPlannedLegStatus() the wrong segment — and so the wrong next
- * waypoint and remaining distance — on /api/status.
- */
-function lonDeltaDeg(from: number, to: number): number {
-  return ((((to - from) % 360) + 540) % 360) - 180;
-}
-
-/**
- * Approximate cross-track distance (nm) from (lat, lon) to the segment
- * a->b, clamped to the segment itself rather than the infinite line through
- * it. Flat-plane (equirectangular) projection, not great-circle — adequate
- * here because it is used only to rank which leg of the route the aircraft is
- * nearest to, never reported as a distance itself (that's haversineNm, on the
- * chosen waypoint). Longitudes go through lonDeltaDeg, so the projection is
- * flat but still antimeridian-safe.
- *
- * Why not simply pick whichever waypoint minimises dist(pos, waypoint) +
- * dist(waypoint, destination)? Triangle inequality means that sum is
- * smallest for the LAST waypoint unless the aircraft is off to the side of
- * the direct line — and a real planned route is nearly straight (the
- * KSFO->KLAX skeleton is 293.48 nm against a 293.23 nm direct great circle).
- * That approach would report the destination as "next waypoint" from the
- * moment of takeoff on almost every real leg, which is exactly backwards.
- */
-function crossTrackNm(lat: number, lon: number, aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const cosLat = Math.cos(((aLat + bLat) / 2 * Math.PI) / 180);
-  const bx = lonDeltaDeg(aLon, bLon) * cosLat, by = bLat - aLat;
-  const px = lonDeltaDeg(aLon, lon) * cosLat, py = lat - aLat;
-  const abLenSq = bx * bx + by * by;
-  const t = abLenSq === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / abLenSq));
-  const dx = px - t * bx, dy = py - t * by;
-  return Math.sqrt(dx * dx + dy * dy) * 60; // ~60 nm per degree
-}
 
 /** `result.distanceNm` is unrounded and null before the radius is applied. */
 function formatNm(distanceNm: number | null): string {
@@ -124,11 +80,7 @@ interface PlannedLegCache {
 
 function buildPlannedLegCache(flightId: number, leg: PlannedLegWithChildren): PlannedLegCache {
   const waypoints = leg.waypoints.map(w => ({ ident: w.ident, lat: w.lat, lon: w.lon }));
-  const remainingFromNm = new Array<number>(waypoints.length).fill(0);
-  for (let i = waypoints.length - 2; i >= 0; i--) {
-    remainingFromNm[i] =
-      remainingFromNm[i + 1] + haversineNm(waypoints[i].lat, waypoints[i].lon, waypoints[i + 1].lat, waypoints[i + 1].lon);
-  }
+  const remainingFromNm = buildRemainingFromNm(waypoints);
   return {
     flightId,
     plannedLegId: leg.id,
@@ -752,59 +704,11 @@ export class FlightManager {
    * before the restart.
    */
   private resumeFlight(row: OpenFlightRow, frame: SimFrame): void {
-    const points = getFlightTrackPoints(row.id);
-    const n = points.length;
+    const summary = summarizeTrack(getFlightTrackPoints(row.id), row, frame);
 
-    let pointCount: number;
-    let maxAltitudeFt: number;
-    let maxAirspeedKts: number;
-    let lastPointLat: number;
-    let lastPointLon: number;
-    let distanceNm = 0;
-    let activeMs = 0;
-
-    if (n === 0) {
-      // No point ever made it to disk (a crash between insertFlight() and its
-      // first writePoint(), or a hand-edited row): there is no evidence to
-      // reconstruct maxima from, so they are seeded from the current frame —
-      // the same thing startFlight() does at takeoff. lastPointLat/Lon fall
-      // back to the flight's own departure coordinates, taken together, so
-      // the first post-resume leg measures from where the flight actually
-      // began rather than from Null Island.
-      pointCount = 0;
-      maxAltitudeFt = frame.altitudeFt;
-      maxAirspeedKts = frame.airspeedKnots;
-      const hasDeparture = row.departure_lat !== null && row.departure_lon !== null;
-      lastPointLat = hasDeparture ? (row.departure_lat as number) : frame.lat;
-      lastPointLon = hasDeparture ? (row.departure_lon as number) : frame.lon;
-    } else {
-      pointCount = n;
-      maxAltitudeFt = points[0].altitude_ft;
-      maxAirspeedKts = points[0].airspeed_kts;
-      for (let i = 1; i < n; i++) {
-        if (points[i].altitude_ft > maxAltitudeFt) maxAltitudeFt = points[i].altitude_ft;
-        if (points[i].airspeed_kts > maxAirspeedKts) maxAirspeedKts = points[i].airspeed_kts;
-      }
-      lastPointLat = points[n - 1].lat;
-      lastPointLon = points[n - 1].lon;
-
-      // The same counted/uncounted gap rule writePoint() applies live —
-      // a gap this long means recording had stopped — applied
-      // retroactively across the seeded track, with two additions the live
-      // path never needs: a non-positive or unparseable gap (out-of-order or
-      // hand-edited timestamps) is skipped rather than let corrupt every
-      // later number.
-      for (let i = 1; i < n; i++) {
-        distanceNm += haversineNm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
-        const gap = Date.parse(points[i].ts) - Date.parse(points[i - 1].ts);
-        if (Number.isFinite(gap) && gap > 0 && gap <= MAX_COUNTED_GAP_MS) activeMs += gap;
-      }
-    }
-
-    // start_time is always written by startFlight() as new Date().toISOString(),
-    // but a hand-edited row must not poison the arithmetic below with NaN.
-    const parsedStartMs = Date.parse(row.start_time);
-    const flightStartMs = Number.isNaN(parsedStartMs) ? Date.now() : parsedStartMs;
+    // An unparseable start_time (a hand-edited row) falls back to now rather
+    // than poison the arithmetic below with NaN.
+    const flightStartMs = summary.startMs ?? Date.now();
 
     this.currentFlightId = row.id;
     this.state = 'FLYING';
@@ -813,18 +717,18 @@ export class FlightManager {
     this.airborneStreak = 0;
     this.landedStreak = 0;
     this.groundStreak = 0;
-    this.distanceNm = distanceNm;
-    this.maxAltitudeFt = maxAltitudeFt;
-    this.maxAirspeedKts = maxAirspeedKts;
-    this.pointCount = pointCount;
-    this.lastPointLat = lastPointLat;
-    this.lastPointLon = lastPointLon;
+    this.distanceNm = summary.distanceNm;
+    this.maxAltitudeFt = summary.maxAltitudeFt;
+    this.maxAirspeedKts = summary.maxAirspeedKts;
+    this.pointCount = summary.pointCount;
+    this.lastPointLat = summary.lastPointLat;
+    this.lastPointLon = summary.lastPointLon;
     // Overwritten by the writePoint() call below; the only thing this value
     // does first is feed that call's own gap computation, and Date.now() makes
     // that gap ~0 rather than the whole outage.
     this.lastPointTime = Date.now();
     this.flightStartMs = flightStartMs;
-    this.activeMs = activeMs;
+    this.activeMs = summary.activeMs;
     // The outage is an interruption exactly like a pause or a slew: its time
     // must not be counted, even though its distance (added by the writePoint()
     // call below) should be.
@@ -843,8 +747,8 @@ export class FlightManager {
     }
 
     console.log(
-      `[FlightManager] Flight #${row.id} resumed after restart — ${pointCount} points, ` +
-      `${distanceNm.toFixed(1)} nm, ${Math.round(activeMs / 1000)}s counted before the interruption`
+      `[FlightManager] Flight #${row.id} resumed after restart — ${summary.pointCount} points, ` +
+      `${summary.distanceNm.toFixed(1)} nm, ${Math.round(summary.activeMs / 1000)}s counted before the interruption`
     );
 
     // Same call startFlight() ends with: it adds the outage's distance,
@@ -937,8 +841,9 @@ export class FlightManager {
    * server already holds it and passing it keeps this method pure.
    *
    * "Next waypoint" is the far end of whichever route segment the current
-   * position is nearest to by cross-track distance (see crossTrackNm above),
-   * which is what actually tracks progress along a nearly-straight route.
+   * position is nearest to by cross-track distance (see crossTrackNm in
+   * src/flight/legProgress.ts), which is what actually tracks progress along a
+   * nearly-straight route.
    * `remainingDistanceNm` is then the direct distance to that waypoint plus
    * the rest of the chain from there to the destination — never a fraction
    * of raw distance flown, and always via the file's own waypoint chain.
@@ -947,22 +852,14 @@ export class FlightManager {
     const cache = this.plannedLegCache;
     if (!cache) return null;
 
-    const { waypoints, remainingFromNm } = cache;
-    let bestSegment = 0;
-    let bestCrossTrackNm = Infinity;
-    for (let i = 0; i < waypoints.length - 1; i++) {
-      const d = crossTrackNm(lat, lon, waypoints[i].lat, waypoints[i].lon, waypoints[i + 1].lat, waypoints[i + 1].lon);
-      if (d < bestCrossTrackNm) { bestCrossTrackNm = d; bestSegment = i; }
-    }
-    const nextIdx = bestSegment + 1;
-    const remainingDistanceNm = haversineNm(lat, lon, waypoints[nextIdx].lat, waypoints[nextIdx].lon) + remainingFromNm[nextIdx];
+    const { nextWaypointIdent, remainingDistanceNm } = progressAlongLeg(cache.waypoints, cache.remainingFromNm, lat, lon);
 
     return {
       plannedLegId: cache.plannedLegId,
       tripId: cache.tripId,
       tripName: cache.tripName,
       destinationIdent: cache.destinationIdent,
-      nextWaypointIdent: waypoints[nextIdx].ident,
+      nextWaypointIdent,
       remainingDistanceNm: Math.round(remainingDistanceNm * 10) / 10,
       distanceIsApproximate: true,
     };

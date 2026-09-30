@@ -60,6 +60,7 @@ if (!existsSync(manifestPath)) {
 
   if (!entryKey) {
     report('print entry chunk found in manifest', false, 'no src/print/entry.tsx entry in manifest');
+    report('shared-chunk CSS is leaflet-only', false, 'no print entry chunk to walk the import graph from');
   } else {
     report('print entry chunk found in manifest', true, entryKey);
     const entryChunk = manifest[entryKey];
@@ -86,24 +87,47 @@ if (!existsSync(manifestPath)) {
     // never statically or dynamically pull in the appEntry chunk.
     const reachesAppEntry = (entryChunk.imports ?? []).some((k) => manifest[k]?.src === 'src/appEntry.tsx');
     report('print entry chunk does not import the appEntry chunk', !reachesAppEntry);
-  }
 
-  // Shared (non-entry, non-dynamic-entry) chunks - the only one expected is
-  // leaflet, shared between the print entry and the app entry. Any other
-  // shared chunk carrying CSS means something else got pulled into a chunk
-  // that both islands load.
-  const sharedChunksWithCss = Object.entries(manifest).filter(
-    ([key, v]) => !v.isEntry && !v.isDynamicEntry && (v.css?.length || key.endsWith('.css')),
-  );
-  const nonLeaflet = sharedChunksWithCss.filter(([key, v]) => {
-    const name = v.file ?? key;
-    return !name.toLowerCase().includes('leaflet');
-  });
-  report(
-    'shared-chunk CSS is leaflet-only',
-    nonLeaflet.length === 0,
-    nonLeaflet.length ? nonLeaflet.map(([k]) => k).join(', ') : `${sharedChunksWithCss.length} shared CSS chunk(s), all leaflet`,
-  );
+    // Chunks reachable from the print entry, walked transitively through the
+    // manifest's `imports` and `dynamicImports` - the only ones the print
+    // island can actually load at runtime. Route-level code splitting
+    // (React.lazy) means the manifest also holds chunks shared between app
+    // *routes* (e.g. a chunk several pages import) that carry their own CSS;
+    // those are never reachable from the print entry and must not be flagged
+    // just for existing. Only a chunk both the print entry and the app can
+    // reach - leaflet is the only one expected - may carry CSS here.
+    const reachable = new Set();
+    const queue = [entryKey];
+    while (queue.length) {
+      const key = queue.shift();
+      if (reachable.has(key) || !manifest[key]) continue;
+      reachable.add(key);
+      for (const next of [...(manifest[key].imports ?? []), ...(manifest[key].dynamicImports ?? [])]) {
+        if (!reachable.has(next)) queue.push(next);
+      }
+    }
+
+    const reachableCssFiles = new Set();
+    for (const key of reachable) {
+      if (key === entryKey) continue; // the entry's own CSS is checked above, not here
+      const v = manifest[key];
+      if (key.endsWith('.css')) {
+        reachableCssFiles.add(v.file); // a CSS-only manifest key reached directly
+        continue;
+      }
+      if (v.isEntry || v.isDynamicEntry) continue; // only shared, non-entry chunks count here
+      for (const f of v.css ?? []) reachableCssFiles.add(f);
+    }
+
+    const nonLeaflet = [...reachableCssFiles].filter((f) => !f.toLowerCase().includes('leaflet'));
+    report(
+      'shared-chunk CSS is leaflet-only',
+      nonLeaflet.length === 0,
+      nonLeaflet.length
+        ? nonLeaflet.join(', ')
+        : `${reachableCssFiles.size} shared CSS file(s) reachable from the print entry, all leaflet`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

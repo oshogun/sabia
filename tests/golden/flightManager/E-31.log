@@ -1,0 +1,4 @@
+log [FlightManager] Flight #77 resumed after restart — 4 points, 3.0 nm, 15s counted before the interruption
+warn [FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: point write failed
+log [FlightManager] Arrival airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #77 ended — 5 points, 8.0 nm, 15s (51s interrupted, excluded)

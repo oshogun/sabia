@@ -8,7 +8,7 @@
 // manager and its pure collaborators run for real.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { makeFrame, makePlannedLegWithChildren, northOfNm, KSBA, useFakeClock, useRealClock } from './helpers';
+import { makeFrame, makeCandidate, makePlannedLegWithChildren, northOfNm, KSBA, useFakeClock, useRealClock } from './helpers';
 
 vi.mock('../src/db', async () => (await import('./helpers/callOrder')).dbStub);
 vi.mock('../src/db/groundSessions', async () => (await import('./helpers/callOrder')).groundSessionsStub);
@@ -58,6 +58,7 @@ describe('call order', () => {
     expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 2 });
     expect(warns(log)).toEqual([]);
     expect(callsTo(log, 'airports.findNearestAirport')).toHaveLength(2);
+    expect(fm.getGroundSessionStatus()).toBeNull();
   });
 
   it('S-02 takeoff from IDLE, unlinked, no ground session', () => {
@@ -488,6 +489,127 @@ describe('call order', () => {
     expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
     expect(callsTo(log, 'db.closeFlight')).toHaveLength(1);
   });
+
+  it('S-32 a second flight in the same process: OUT is estimated, and its own touchdown files ON', () => {
+    const fm = newFm();
+    park(fm); feed(fm, 2, TAXI); takeoff(fm); cruise(fm, 1); land(fm);
+    takeoff(fm); cruise(fm, 1); land(fm);
+    const log = takeLog();
+    const g = golden('S-32', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 5 });
+    expect(warns(log)).toEqual([]);
+    const events = callsTo(log, 'acars.buildOooiMessage').map(c => c.args[0] as { flightId: number; event: string; estimated: boolean });
+    expect(events.map(e => [e.flightId, e.event, e.estimated])).toEqual([
+      [1, 'OUT', false], [1, 'OFF', false], [1, 'ON', false], [1, 'IN', false],
+      [2, 'OUT', true], [2, 'OFF', false], [2, 'ON', false], [2, 'IN', false],
+    ]);
+  });
+
+  it('S-33 a touchdown frame that is also due a point writes the point before it files ON', () => {
+    const fm = newFm();
+    takeoff(fm); cruise(fm, 1); feed(fm, 1, LANDED, 5000); land(fm);
+    const log = takeLog();
+    const g = golden('S-33', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual([]);
+    const on = callsTo(log, 'acars.buildOooiMessage').find(c => (c.args[0] as { event: string }).event === 'ON')!;
+    const touchdownPoint = log.findIndex(e => e.t === 'call' && e.fn === 'db.insertPoint' && e.args[1] === (on.args[0] as { at: string }).at);
+    expect(touchdownPoint).toBeGreaterThan(-1);
+    expect(touchdownPoint).toBeLessThan(log.indexOf(on));
+  });
+
+  it('S-34 the off-blocks memo starts at exactly 3 kt on the ground, not below it', () => {
+    const fm = newFm();
+    park(fm);
+    feed(fm, 1, { onGround: true, groundSpeedKnots: 2.9, airspeedKnots: 0 });
+    feed(fm, 1, { onGround: true, groundSpeedKnots: 3, airspeedKnots: 0 });
+    vi.advanceTimersByTime(4000);
+    takeoff(fm); cruise(fm, 1);
+    const log = takeLog();
+    const g = golden('S-34', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 2 });
+    expect(warns(log)).toEqual([]);
+    expect(callsTo(log, 'acars.buildOooiMessage')[0].args[0]).toMatchObject({ event: 'OUT', at: iso(7000), estimated: false });
+  });
+
+  it('S-35 a slew exit after taxiing forgets the off-blocks memo: a later takeoff from IDLE files OUT estimated', () => {
+    const fm = newFm();
+    park(fm); feed(fm, 2, TAXI); feed(fm, 1, { ...PARKED, simRunning: 3 });
+    takeoff(fm); cruise(fm, 1);
+    const log = takeLog();
+    const g = golden('S-35', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 3 });
+    expect(warns(log)).toEqual([]);
+    expect(callsTo(log, 'acars.buildOooiMessage')[0].args[0]).toMatchObject({ event: 'OUT', at: iso(8000), estimated: true });
+  });
+
+  it('S-36 position reports disabled: a linked takeoff logs the disabled line and files no position report', () => {
+    process.env.POSITION_REPORT_INTERVAL_MIN = '0';
+    arrangeLeg();
+    const fm = newFm();
+    takeoff(fm); cruise(fm, 3);
+    const log = takeLog();
+    const g = golden('S-36', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 1 });
+    expect(warns(log)).toEqual([]);
+    expect(consoleText(log)).toContain('log [FlightManager] Flight #1 position reports disabled (POSITION_REPORT_INTERVAL_MIN=0)\n');
+    expect(callsTo(log, 'acars.buildPositionReportMessage')).toEqual([]);
+  });
+
+  it('S-37 a ground entry with no airport in range logs the no-airport line and records no airport', () => {
+    const fm = newFm();
+    const far = northOfNm(KSBA, 50);
+    park(fm, 5, far); park(fm, 3, far);
+    const log = takeLog();
+    const g = golden('S-37', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'GROUND', currentFlightId: null, notifies: 1 });
+    expect(warns(log)).toEqual([]);
+    expect(consoleText(log)).toContain('log [FlightManager] Ground session #100 — no airport within 10 nm\n');
+    expect(fm.getGroundSessionStatus()).toMatchObject({ airportIcao: null, airportName: null });
+  });
+
+  it('S-38 a flight that takes off and lands out of range of any airport logs no airport lines and stores none', () => {
+    const fm = newFm();
+    const far = northOfNm(KSBA, 50);
+    takeoff(fm, far); cruise(fm, 1, far); feed(fm, 10, { ...LANDED, ...far });
+    const log = takeLog();
+    const g = golden('S-38', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual([]);
+    expect(consoleText(log)).not.toContain('Departure airport');
+    expect(consoleText(log)).not.toContain('Arrival airport');
+    expect(callsTo(log, 'db.insertFlight')[0].args.slice(4)).toEqual([null, null]);
+    expect(callsTo(log, 'db.closeFlight')[0].args.slice(9)).toEqual([null, null]);
+  });
+
+  it('S-39 a single nearby leg that is refused names it in the refusal line, on the ground and at takeoff', () => {
+    behave.db.getActiveTripId = () => 1;
+    behave.db.getPlannedLegCandidatesForActiveTrip = () => [makeCandidate({ status: 'flown' })];
+    const fm = newFm();
+    park(fm); takeoff(fm); cruise(fm, 1);
+    const log = takeLog();
+    const g = golden('S-39', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 2 });
+    expect(warns(log)).toEqual([]);
+    expect(consoleText(log)).toContain('log [FlightManager] Ground session not linked to a planned leg — LEG_ALREADY_FLOWN (leg 11 within 10 nm, nearest 0.0 nm)\n');
+    expect(consoleText(log)).toContain('log [FlightManager] Flight #1 not linked — LEG_ALREADY_FLOWN (leg 11 within 10 nm, nearest 0.0 nm)\n');
+  });
 });
 
 describe('error policy', () => {
@@ -816,5 +938,279 @@ describe('error policy', () => {
     expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
     expect(warns(log)).toEqual([]);
     expect(callsTo(log, 'acars.buildOooiMessage').map(c => (c.args[0] as { event: string }).event)).toEqual(['OUT', 'OFF', 'IN']);
+  });
+
+  it('E-23 the auto-link candidates read throws: warned, and the flight is recorded unlinked', () => {
+    behave.db.getActiveTripId = () => 1;
+    behave.db.getPlannedLegCandidatesForActiveTrip = boom('candidates failed');
+    const fm = newFm();
+    const threw = thrown(() => { takeoff(fm); cruise(fm, 1); });
+    const log = takeLog();
+    const g = golden('E-23', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #1 auto-link failed, flight recorded unlinked: Error: candidates failed']);
+    expect(callsTo(log, 'db.linkFlightToPlannedLeg')).toEqual([]);
+  });
+
+  it('E-24 the auto-link leg read throws: warned, no link is written, and the flight is recorded unlinked', () => {
+    arrangeLeg();
+    behave.db.getPlannedLegById = boom('leg read failed');
+    const fm = newFm();
+    const threw = thrown(() => { takeoff(fm); cruise(fm, 1); });
+    const log = takeLog();
+    const g = golden('E-24', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #1 auto-link failed, flight recorded unlinked: Error: leg read failed']);
+    expect(callsTo(log, 'db.linkFlightToPlannedLeg')).toEqual([]);
+    expect(fm.getPlannedLegStatus(KSBA.lat, KSBA.lon)).toBeNull();
+  });
+
+  it('E-25 the auto-link write throws: warned, no leg status is kept, and the flight is recorded unlinked', () => {
+    arrangeLeg();
+    behave.db.linkFlightToPlannedLeg = boom('link write failed');
+    const fm = newFm();
+    const threw = thrown(() => { takeoff(fm); cruise(fm, 1); });
+    const log = takeLog();
+    const g = golden('E-25', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #1 auto-link failed, flight recorded unlinked: Error: link write failed']);
+    expect(callsTo(log, 'db.getTripName')).toEqual([]);
+    expect(fm.getPlannedLegStatus(KSBA.lat, KSBA.lon)).toBeNull();
+  });
+
+  it('E-26 the auto-link trip-name read throws after the link was written: warned, no linked line, no leg status', () => {
+    arrangeLeg();
+    behave.db.getTripName = boom('trip name failed');
+    const fm = newFm();
+    const threw = thrown(() => { takeoff(fm); cruise(fm, 1); });
+    const log = takeLog();
+    const g = golden('E-26', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 1, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #1 auto-link failed, flight recorded unlinked: Error: trip name failed']);
+    expect(callsTo(log, 'db.linkFlightToPlannedLeg')).toHaveLength(1);
+    expect(consoleText(log)).not.toContain('linked to planned leg');
+    expect(fm.getPlannedLegStatus(KSBA.lat, KSBA.lon)).toBeNull();
+  });
+
+  it('E-27 the arrival leg-id read throws: warned, and IN is still filed', () => {
+    const fm = newFm();
+    takeoff(fm); cruise(fm, 1);
+    behave.db.getFlightPlannedLegId = boom('leg id read failed');
+    const threw = thrown(() => land(fm));
+    const log = takeLog();
+    const g = golden('E-27', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #1 arrival not recorded on its planned leg: Error: leg id read failed']);
+    expect(callsTo(log, 'db.recordPlannedLegArrival')).toEqual([]);
+    expect(callsTo(log, 'acars.buildOooiMessage').map(c => (c.args[0] as { event: string }).event)).toEqual(['OUT', 'OFF', 'ON', 'IN']);
+  });
+
+  it('E-28 the arrival leg read throws: warned, no arrival is written, and IN is still filed', () => {
+    arrangeLeg();
+    behave.db.getFlightPlannedLegId = () => 11;
+    const fm = newFm();
+    takeoff(fm); cruise(fm, 1);
+    behave.db.getPlannedLegById = boom('leg read failed');
+    const threw = thrown(() => land(fm));
+    const log = takeLog();
+    const g = golden('E-28', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #1 arrival not recorded on its planned leg: Error: leg read failed']);
+    expect(callsTo(log, 'db.recordPlannedLegArrival')).toEqual([]);
+    expect(callsTo(log, 'acars.buildOooiMessage').map(c => (c.args[0] as { event: string }).event)).toEqual(['OUT', 'OFF', 'ON', 'IN']);
+  });
+
+  it('E-29 the resume leg read throws: warned, and the resume completes without a leg status', () => {
+    behave.db.getOpenFlight = () => openRow();
+    behave.db.getFlightPlannedLegId = () => 11;
+    behave.db.getPlannedLegById = boom('leg read failed');
+    const fm = newFm();
+    const threw = thrown(() => { feed(fm, 1, northOfNm(KSBA, 5)); cruise(fm, 3, northOfNm(KSBA, 6)); });
+    const log = takeLog();
+    const g = golden('E-29', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 77, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #77 planned-leg cache not restored: Error: leg read failed']);
+    expect(fm.getPlannedLegStatus(KSBA.lat, KSBA.lon)).toBeNull();
+  });
+
+  it('E-30 the resume trip-name read throws: warned, and the resume completes without a leg status', () => {
+    arrangeLeg();
+    behave.db.getOpenFlight = () => openRow();
+    behave.db.getFlightPlannedLegId = () => 11;
+    behave.db.getTripName = boom('trip name failed');
+    const fm = newFm();
+    const threw = thrown(() => { feed(fm, 1, northOfNm(KSBA, 5)); cruise(fm, 3, northOfNm(KSBA, 6)); });
+    const log = takeLog();
+    const g = golden('E-30', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'FLYING', currentFlightId: 77, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Flight #77 planned-leg cache not restored: Error: trip name failed']);
+    expect(fm.getPlannedLegStatus(KSBA.lat, KSBA.lon)).toBeNull();
+  });
+
+  it('E-31 a resume whose first point write fails stays interrupted, so the next gap is not counted', () => {
+    behave.db.getOpenFlight = () => openRow();
+    behave.db.getFlightTrackPoints = () => TRACK;
+    let failing = true;
+    behave.db.insertPoint = () => { if (failing) { failing = false; throw new Error('point write failed'); } };
+    const fm = newFm();
+    const threw = thrown(() => { feed(fm, 1, northOfNm(KSBA, 5)); cruise(fm, 1, northOfNm(KSBA, 6)); fm.onSimDisconnect(); });
+    const log = takeLog();
+    const g = golden('E-31', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual([BOOT_CHECK + 'point write failed']);
+    const close = callsTo(log, 'db.closeFlight');
+    expect(close).toHaveLength(1);
+    expect(close[0].args[4]).toBe(15);
+  });
+
+  it('E-32 the ground-entry active-trip read throws: warned, and the session is still inserted', () => {
+    behave.db.getActiveTripId = boom('active trip failed');
+    const fm = newFm();
+    const threw = thrown(() => { park(fm); park(fm, 3); });
+    const log = takeLog();
+    const g = golden('E-32', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'GROUND', currentFlightId: null, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session leg match failed: Error: active trip failed']);
+    expect(callsTo(log, 'groundSessions.insertGroundSession')[0].args[0]).toMatchObject({ planned_leg_id: null, parking_position: null });
+  });
+
+  it('E-33 the ground-entry matched-leg read throws: warned, and the session is still inserted without a leg', () => {
+    arrangeLeg();
+    behave.db.getPlannedLegById = boom('leg read failed');
+    const fm = newFm();
+    const threw = thrown(() => { park(fm); park(fm, 3); });
+    const log = takeLog();
+    const g = golden('E-33', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'GROUND', currentFlightId: null, notifies: 1 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session leg match failed: Error: leg read failed']);
+    expect(callsTo(log, 'groundSessions.insertGroundSession')[0].args[0]).toMatchObject({ planned_leg_id: null, parking_position: null });
+    expect(fm.getGroundSessionStatus()?.plannedLegId).toBeNull();
+  });
+
+  it('E-34 the ground-entry airport lookup throws: nothing after it runs, and the state stays IDLE', () => {
+    behave.airports.findNearestAirport = boom('airport lookup failed');
+    const fm = newFm();
+    const threw = thrown(() => { park(fm); park(fm, 3); });
+    const log = takeLog();
+    const g = golden('E-34', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 0 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session entry failed, staying IDLE: Error: airport lookup failed']);
+    expect(callsTo(log, 'groundSessions.insertGroundSession')).toEqual([]);
+    expect(callsTo(log, 'db.getActiveTripId')).toEqual([]);
+  });
+
+  it('E-35 the ground-entry cache leg read throws on an adopted session: the whole entry is abandoned', () => {
+    ground.open = makeSessionRow({ source: 'manual', airport_icao: 'KSBA', planned_leg_id: 11 });
+    behave.db.getPlannedLegById = boom('leg read failed');
+    const fm = newFm();
+    const threw = thrown(() => park(fm));
+    const log = takeLog();
+    const g = golden('E-35', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 0 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session entry failed, staying IDLE: Error: leg read failed']);
+    expect(fm.getGroundSessionStatus()).toBeNull();
+  });
+
+  it('E-36 the ground-entry cache trip-name read throws on an adopted session: the whole entry is abandoned', () => {
+    arrangeLeg();
+    ground.open = makeSessionRow({ source: 'manual', airport_icao: 'KSBA', planned_leg_id: 11 });
+    behave.db.getTripName = boom('trip name failed');
+    const fm = newFm();
+    const threw = thrown(() => park(fm));
+    const log = takeLog();
+    const g = golden('E-36', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 0 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session entry failed, staying IDLE: Error: trip name failed']);
+    expect(fm.getGroundSessionStatus()).toBeNull();
+  });
+
+  it('E-37 the adopting fill throws: the whole entry is abandoned and the state stays IDLE', () => {
+    ground.open = makeSessionRow({ source: 'manual' });
+    behave.groundSessions.fillOpenGroundSessionGaps = boom('fill failed');
+    const fm = newFm();
+    const threw = thrown(() => park(fm));
+    const log = takeLog();
+    const g = golden('E-37', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 0 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session entry failed, staying IDLE: Error: fill failed']);
+    expect(consoleText(log)).not.toContain('adopted');
+    expect(fm.getGroundSessionStatus()).toBeNull();
+  });
+
+  it('E-38 the crash close of an auto session throws: warned, and the state still returns to IDLE', () => {
+    const fm = newFm();
+    park(fm);
+    behave.groundSessions.closeOpenGroundSession = boom('close failed');
+    const threw = thrown(() => fm.onCrash());
+    park(fm, 3);
+    const log = takeLog();
+    const g = golden('E-38', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session close (crash) failed: Error: close failed']);
+    expect(callsTo(log, 'groundSessions.closeOpenGroundSession').map(c => c.args)).toEqual([['crash']]);
+  });
+
+  it('E-39 the disconnect close of an auto session throws: warned, and the state still returns to IDLE', () => {
+    const fm = newFm();
+    park(fm);
+    behave.groundSessions.closeOpenGroundSession = boom('close failed');
+    const threw = thrown(() => fm.onSimDisconnect());
+    park(fm, 3);
+    const log = takeLog();
+    const g = golden('E-39', log);
+    expect(log).toEqual(g.log);
+    expect(consoleText(log)).toBe(g.consoleText);
+    expect(threw).toBeNull();
+    expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
+    expect(warns(log)).toEqual(['[FlightManager] Ground session close (sim-exit) failed: Error: close failed']);
+    expect(callsTo(log, 'groundSessions.closeOpenGroundSession').map(c => c.args)).toEqual([['sim-exit']]);
   });
 });

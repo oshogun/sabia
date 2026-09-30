@@ -1,0 +1,355 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.426201,
+      -119.841507
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertFlight",
+    "args": [
+      "Cessna 172",
+      34.426201,
+      -119.841507,
+      "2026-09-09T12:00:00.000Z",
+      "KSBA",
+      "Santa Barbara Muni"
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Departure airport: KSBA (Santa Barbara Muni)"
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.closeOpenGroundSession",
+    "args": [
+      "flight-started",
+      1
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getActiveTripId",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegCandidatesForActiveTrip",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegById",
+    "args": [
+      11
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.linkFlightToPlannedLeg",
+    "args": [
+      1,
+      11,
+      "auto"
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getTripName",
+    "args": [
+      1
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #1 linked to planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)"
+  },
+  {
+    "t": "notify",
+    "flightState": "FLYING",
+    "currentFlightId": 1,
+    "plannedLegId": 11
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #1 position reports every 10.0 min"
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildOooiMessage",
+    "args": [
+      {
+        "flightId": 1,
+        "event": "OUT",
+        "at": "2026-09-09T12:00:00.000Z",
+        "airportIcao": null,
+        "stand": null,
+        "aircraft": "Cessna 172",
+        "destinationIdent": "KMRY",
+        "plannedLegId": 11,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 1,
+        "direction": "downlink",
+        "category": "oooi",
+        "label": "OUT",
+        "body": "OUT ---- 1200Z\nACFT Cessna 172 DEST KMRY\nOUT TIME ESTIMATED - NO GROUND SESSION, TIME TAKEN AT TAKEOFF",
+        "payload_json": "{\"v\":1,\"event\":\"OUT\",\"at\":\"2026-09-09T12:00:00.000Z\",\"airport_icao\":null,\"stand\":null,\"estimated\":true,\"planned_leg_id\":11}",
+        "dedup_key": "oooi:flight:1:OUT",
+        "sent_at": "2026-09-09T12:00:00.000Z"
+      },
+      "Flight #1 OUT"
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildOooiMessage",
+    "args": [
+      {
+        "flightId": 1,
+        "event": "OFF",
+        "at": "2026-09-09T12:00:00.000Z",
+        "airportIcao": "KSBA",
+        "stand": null,
+        "aircraft": "Cessna 172",
+        "destinationIdent": "KMRY",
+        "plannedLegId": 11,
+        "estimated": false
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 1,
+        "direction": "downlink",
+        "category": "oooi",
+        "label": "OFF",
+        "body": "OFF KSBA 1200Z\nACFT Cessna 172 DEST KMRY",
+        "payload_json": "{\"v\":1,\"event\":\"OFF\",\"at\":\"2026-09-09T12:00:00.000Z\",\"airport_icao\":\"KSBA\",\"stand\":null,\"estimated\":false,\"planned_leg_id\":11}",
+        "dedup_key": "oooi:flight:1:OFF",
+        "sent_at": "2026-09-09T12:00:00.000Z"
+      },
+      "Flight #1 OFF"
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #1 started — Cessna 172"
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      1,
+      "2026-09-09T12:00:00.000Z",
+      34.426201,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      1,
+      "2026-09-09T12:00:05.000Z",
+      34.426201,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      36.586952,
+      -121.843079
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildOooiMessage",
+    "args": [
+      {
+        "flightId": 1,
+        "event": "ON",
+        "at": "2026-09-09T12:00:06.000Z",
+        "airportIcao": "KMRY",
+        "stand": null,
+        "aircraft": "Cessna 172",
+        "destinationIdent": "KMRY",
+        "plannedLegId": 11,
+        "estimated": false
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 1,
+        "direction": "downlink",
+        "category": "oooi",
+        "label": "ON",
+        "body": "ON KMRY 1200Z\nACFT Cessna 172 DEST KMRY",
+        "payload_json": "{\"v\":1,\"event\":\"ON\",\"at\":\"2026-09-09T12:00:06.000Z\",\"airport_icao\":\"KMRY\",\"stand\":null,\"estimated\":false,\"planned_leg_id\":11}",
+        "dedup_key": "oooi:flight:1:ON",
+        "sent_at": "2026-09-09T12:00:06.000Z"
+      },
+      "Flight #1 ON"
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      1,
+      "2026-09-09T12:00:10.000Z",
+      36.586952,
+      -121.843079,
+      1500,
+      0,
+      2,
+      270,
+      500,
+      true
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      1,
+      "2026-09-09T12:00:15.000Z",
+      36.586952,
+      -121.843079,
+      1500,
+      0,
+      2,
+      270,
+      500,
+      true
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      36.586952,
+      -121.843079
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Arrival airport: KMRY (Monterey Rgnl)"
+  },
+  {
+    "t": "call",
+    "fn": "db.closeFlight",
+    "args": [
+      1,
+      "2026-09-09T12:00:15.000Z",
+      36.586952,
+      -121.843079,
+      15,
+      162.5,
+      1500,
+      110,
+      4,
+      "KMRY",
+      "Monterey Rgnl"
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #1 ended — 4 points, 162.5 nm, 15s"
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightPlannedLegId",
+    "args": [
+      1
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegById",
+    "args": [
+      11
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Flight #1 arrival not recorded on its planned leg: Error: leg read failed"
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildOooiMessage",
+    "args": [
+      {
+        "flightId": 1,
+        "event": "IN",
+        "at": "2026-09-09T12:00:15.000Z",
+        "airportIcao": "KMRY",
+        "stand": null,
+        "aircraft": "Cessna 172",
+        "destinationIdent": "KMRY",
+        "plannedLegId": 11,
+        "estimated": false
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 1,
+        "direction": "downlink",
+        "category": "oooi",
+        "label": "IN",
+        "body": "IN KMRY 1200Z\nACFT Cessna 172 DEST KMRY",
+        "payload_json": "{\"v\":1,\"event\":\"IN\",\"at\":\"2026-09-09T12:00:15.000Z\",\"airport_icao\":\"KMRY\",\"stand\":null,\"estimated\":false,\"planned_leg_id\":11}",
+        "dedup_key": "oooi:flight:1:IN",
+        "sent_at": "2026-09-09T12:00:15.000Z"
+      },
+      "Flight #1 IN"
+    ]
+  },
+  {
+    "t": "notify",
+    "flightState": "IDLE",
+    "currentFlightId": null,
+    "plannedLegId": null
+  }
+]

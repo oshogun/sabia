@@ -1,0 +1,24 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.getOpenGroundSession",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.426201,
+      -119.841507
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Ground session entry failed, staying IDLE: Error: airport lookup failed"
+  }
+]

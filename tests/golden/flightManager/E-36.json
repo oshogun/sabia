@@ -1,0 +1,80 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.getOpenGroundSession",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.426201,
+      -119.841507
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getActiveTripId",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegCandidatesForActiveTrip",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegById",
+    "args": [
+      11
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Ground session matched planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)"
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.fillOpenGroundSessionGaps",
+    "args": [
+      {
+        "airport_icao": "KSBA",
+        "airport_name": "Santa Barbara Muni",
+        "lat": 34.426201,
+        "lon": -119.841507,
+        "parking_position": "GATE 3",
+        "parking_position_source": "auto",
+        "planned_leg_id": 11,
+        "planned_leg_link_source": "auto",
+        "aircraft": "Cessna 172"
+      }
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Ground session #100 adopted (manual)"
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegById",
+    "args": [
+      11
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getTripName",
+    "args": [
+      1
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Ground session entry failed, staying IDLE: Error: trip name failed"
+  }
+]

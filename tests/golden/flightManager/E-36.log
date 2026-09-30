@@ -1,0 +1,3 @@
+log [FlightManager] Ground session matched planned leg #11 (KSBA→KMRY, 0.0 nm, MATCHED)
+log [FlightManager] Ground session #100 adopted (manual)
+warn [FlightManager] Ground session entry failed, staying IDLE: Error: trip name failed

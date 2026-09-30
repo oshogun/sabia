@@ -167,7 +167,7 @@ describe('uncovered branches', () => {
     expect(fm.getGroundSessionStatus()).toMatchObject({ plannedLegId: 11, tripId: null, tripName: null, departureIdent: null });
   });
 
-  it('G-10 a resumed track skips unparseable, equal and over-long gaps for time but counts all of the distance', () => {
+  it('G-10 a resumed track skips unparseable, equal, out-of-order and over-long gaps for time, counts a gap of exactly the limit, and counts all of the distance', () => {
     const pt = (nm: number, ts: string) => {
       const p = northOfNm(KSBA, nm);
       return { lat: p.lat, lon: p.lon, altitude_ft: 3000, airspeed_kts: 120, ts };
@@ -180,12 +180,14 @@ describe('uncovered branches', () => {
       pt(3, iso(-590_000)),
       pt(4, iso(-470_000)),
       pt(5, iso(-465_000)),
+      pt(6, iso(-470_000)),
+      pt(7, iso(-410_000)),
     ];
     const fm = newFm();
     feed(fm, 1, northOfNm(KSBA, 6));
     const log = takeLog();
     expect(logLines(log)).toContain(
-      '[FlightManager] Flight #77 resumed after restart — 6 points, 5.0 nm, 5s counted before the interruption',
+      '[FlightManager] Flight #77 resumed after restart — 8 points, 7.0 nm, 65s counted before the interruption',
     );
     expect(endState(fm, log)).toMatchObject({ flightState: 'FLYING', currentFlightId: 77 });
   });

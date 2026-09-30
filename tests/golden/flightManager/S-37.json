@@ -1,0 +1,63 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.getOpenGroundSession",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      35.25897275740985,
+      -119.841507
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getActiveTripId",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getPlannedLegCandidatesForActiveTrip",
+    "args": []
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Ground session not linked to a planned leg — NO_ACTIVE_TRIP"
+  },
+  {
+    "t": "call",
+    "fn": "groundSessions.insertGroundSession",
+    "args": [
+      {
+        "source": "auto",
+        "airport_icao": null,
+        "airport_name": null,
+        "lat": 35.25897275740985,
+        "lon": -119.841507,
+        "parking_position": null,
+        "parking_position_source": null,
+        "planned_leg_id": null,
+        "planned_leg_link_source": null,
+        "aircraft": "Cessna 172",
+        "started_at": "2026-09-09T12:00:05.000Z"
+      }
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Ground session #100 — no airport within 10 nm"
+  },
+  {
+    "t": "notify",
+    "flightState": "GROUND",
+    "currentFlightId": null,
+    "plannedLegId": null
+  }
+]

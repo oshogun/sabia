@@ -110,6 +110,9 @@ export function attachListener(fm: Listenable): void {
 
 type Impl = (...args: any[]) => any;
 
+// Call args are compared after a JSON round-trip, so production code must keep
+// each call's exact argument list: an explicit trailing `undefined` is recorded
+// as `null` and fails the golden.
 function logged(fn: string, impl: () => Impl) {
   return vi.fn((...args: unknown[]) => {
     if (quiet === 0) push({ t: 'call', fn, args });

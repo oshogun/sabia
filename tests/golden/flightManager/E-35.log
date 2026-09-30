@@ -1,0 +1,3 @@
+log [FlightManager] Ground session not linked to a planned leg — NO_ACTIVE_TRIP
+log [FlightManager] Ground session #100 adopted (manual)
+warn [FlightManager] Ground session entry failed, staying IDLE: Error: leg read failed

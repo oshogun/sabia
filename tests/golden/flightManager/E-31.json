@@ -1,0 +1,181 @@
+[
+  {
+    "t": "call",
+    "fn": "db.getOpenFlight",
+    "args": []
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightTrackPoints",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightPlannedLegId",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "notify",
+    "flightState": "FLYING",
+    "currentFlightId": 77,
+    "plannedLegId": null
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #77 resumed after restart — 4 points, 3.0 nm, 15s counted before the interruption"
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:01.000Z",
+      34.50947817574098,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "warn",
+    "text": "[FlightManager] Open-flight check failed; starting fresh if a takeoff follows: Error: point write failed"
+  },
+  {
+    "t": "call",
+    "fn": "db.insertPoint",
+    "args": [
+      77,
+      "2026-09-09T12:00:06.000Z",
+      34.52613361088918,
+      -119.841507,
+      1500,
+      110,
+      105,
+      270,
+      500,
+      false
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "airports.findNearestAirport",
+    "args": [
+      34.52613361088918,
+      -119.841507
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Arrival airport: KSBA (Santa Barbara Muni)"
+  },
+  {
+    "t": "call",
+    "fn": "db.closeFlight",
+    "args": [
+      77,
+      "2026-09-09T12:00:06.000Z",
+      34.52613361088918,
+      -119.841507,
+      15,
+      8,
+      4500,
+      123,
+      5,
+      "KSBA",
+      "Santa Barbara Muni"
+    ]
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #77 ended — 5 points, 8.0 nm, 15s (51s interrupted, excluded)"
+  },
+  {
+    "t": "call",
+    "fn": "db.getFlightPlannedLegId",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildOooiMessage",
+    "args": [
+      {
+        "flightId": 77,
+        "event": "ON",
+        "at": "2026-09-09T12:00:06.000Z",
+        "airportIcao": "KSBA",
+        "stand": null,
+        "aircraft": "Cessna 172",
+        "destinationIdent": null,
+        "plannedLegId": null,
+        "estimated": true
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 77,
+        "direction": "downlink",
+        "category": "oooi",
+        "label": "ON",
+        "body": "ON KSBA 1200Z\nACFT Cessna 172\nON TIME ESTIMATED - NO TOUCHDOWN DETECTED, TIME TAKEN AT FLIGHT END",
+        "payload_json": "{\"v\":1,\"event\":\"ON\",\"at\":\"2026-09-09T12:00:06.000Z\",\"airport_icao\":\"KSBA\",\"stand\":null,\"estimated\":true,\"planned_leg_id\":null}",
+        "dedup_key": "oooi:flight:77:ON",
+        "sent_at": "2026-09-09T12:00:06.000Z"
+      },
+      "Flight #77 ON"
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acars.buildOooiMessage",
+    "args": [
+      {
+        "flightId": 77,
+        "event": "IN",
+        "at": "2026-09-09T12:00:06.000Z",
+        "airportIcao": "KSBA",
+        "stand": null,
+        "aircraft": "Cessna 172",
+        "destinationIdent": null,
+        "plannedLegId": null,
+        "estimated": false
+      }
+    ]
+  },
+  {
+    "t": "call",
+    "fn": "acarsEvents.fileAcarsMessageOnce",
+    "args": [
+      {
+        "flight_id": 77,
+        "direction": "downlink",
+        "category": "oooi",
+        "label": "IN",
+        "body": "IN KSBA 1200Z\nACFT Cessna 172",
+        "payload_json": "{\"v\":1,\"event\":\"IN\",\"at\":\"2026-09-09T12:00:06.000Z\",\"airport_icao\":\"KSBA\",\"stand\":null,\"estimated\":false,\"planned_leg_id\":null}",
+        "dedup_key": "oooi:flight:77:IN",
+        "sent_at": "2026-09-09T12:00:06.000Z"
+      },
+      "Flight #77 IN"
+    ]
+  },
+  {
+    "t": "notify",
+    "flightState": "IDLE",
+    "currentFlightId": null,
+    "plannedLegId": null
+  }
+]

@@ -1,0 +1,4 @@
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+warn [FlightManager] Flight #1 auto-link failed, flight recorded unlinked: Error: trip name failed
+log [FlightManager] Flight #1 position reports every 10.0 min
+log [FlightManager] Flight #1 started — Cessna 172

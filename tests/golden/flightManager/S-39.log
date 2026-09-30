@@ -1,0 +1,6 @@
+log [FlightManager] Ground session not linked to a planned leg — LEG_ALREADY_FLOWN (leg 11 within 10 nm, nearest 0.0 nm)
+log [FlightManager] Ground session #100 — KSBA (Santa Barbara Muni)
+log [FlightManager] Departure airport: KSBA (Santa Barbara Muni)
+log [FlightManager] Flight #1 not linked — LEG_ALREADY_FLOWN (leg 11 within 10 nm, nearest 0.0 nm)
+log [FlightManager] Flight #1 position reports every 10.0 min
+log [FlightManager] Flight #1 started — Cessna 172

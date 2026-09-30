@@ -1,0 +1,2 @@
+log [FlightManager] Ground session not linked to a planned leg — NO_ACTIVE_TRIP
+warn [FlightManager] Ground session entry failed, staying IDLE: Error: fill failed

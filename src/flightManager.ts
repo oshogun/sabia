@@ -19,6 +19,7 @@ import type { LegMatchResult } from './legMatcher';
 import { nextParkedStreak, hasParkedDebounce, hasLeftAnchor } from './groundState';
 import { buildOooiMessage, buildPositionReportMessage, parsePositionReportIntervalMs } from './acars';
 import { fileAcarsMessageOnce } from './acarsEvents';
+import { haversineNm } from './geo';
 
 const RECORD_INTERVAL_MS = 5000;
 // A gap between points larger than this means recording had stopped, so the
@@ -32,16 +33,6 @@ const LANDED_DEBOUNCE_FRAMES = 10;
 // frame at or above this while GROUND is the off-blocks memo used to
 // timestamp OUT — see the GROUND branch of onFrame().
 export const TAXI_OUT_SPEED_KTS = 3;
-
-function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3440.065; // nautical miles
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 /**
  * Signed east-positive longitude difference `to - from`, wrapped into

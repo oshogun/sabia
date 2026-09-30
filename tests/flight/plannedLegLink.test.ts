@@ -9,12 +9,14 @@
 //
 // Every log and warn text is asserted whole. Operators grep these lines.
 //
-// The last block drives a real FlightManager (with './airports' and
-// './acarsEvents' replaced too) to pin what only the coordinator does with the
-// link: it clears it, and it tells the scope listener after every refresh.
+// The last block drives a real FlightManager (with './airports',
+// './acarsEvents' and './db/groundSessions' replaced too) to pin what only the
+// coordinator does with the link: it clears it, it tells the scope listener
+// after every refresh, and a flight in progress reports the link's leg and
+// never a ground session's.
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
-import type { PlannedWaypoint, SimFrame } from '../../src/types';
+import type { GroundSession, PlannedWaypoint, SimFrame } from '../../src/types';
 import {
   dbMock, resetMocks, makeFrame, makeCandidate, makePlannedLegWithChildren,
   makeLoosePlannedLegWithChildren, northOfNm, KSBA, KMRY, useFakeClock, useRealClock,
@@ -23,15 +25,25 @@ import {
 vi.mock('../../src/db', async () => (await import('../helpers')).dbMock);
 vi.mock('../../src/airports', async () => (await import('../helpers')).airportsMock);
 vi.mock('../../src/acarsEvents', async () => (await import('../helpers')).acarsEventsMock);
+vi.mock('../../src/db/groundSessions', () => ({
+  insertGroundSession: vi.fn(),
+  getOpenGroundSession: vi.fn(),
+  closeOpenGroundSession: vi.fn(),
+  fillOpenGroundSessionGaps: vi.fn(),
+}));
 vi.mock('../../src/geo', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/geo')>();
   return { ...actual, haversineNm: vi.fn(actual.haversineNm) };
 });
 
 import { haversineNm } from '../../src/geo';
+import * as groundSessionsModule from '../../src/db/groundSessions';
 import { ARRIVAL_RADIUS_NM } from '../../src/legMatcher';
 import { PlannedLegLink } from '../../src/flight/plannedLegLink';
 import { FlightManager } from '../../src/flightManager';
+
+const getOpenGroundSession = vi.mocked(groundSessionsModule.getOpenGroundSession);
+const closeOpenGroundSession = vi.mocked(groundSessionsModule.closeOpenGroundSession);
 
 const FLIGHT = 1;
 const TRIP = 7;
@@ -702,7 +714,11 @@ describe('PlannedLegLink.status, refs, currentLegId and clear', () => {
 describe('FlightManager with the link', () => {
   const LANDED: Partial<SimFrame> = { onGround: true, groundSpeedKnots: 2, airspeedKnots: 0 };
 
-  beforeEach(() => useFakeClock());
+  beforeEach(() => {
+    useFakeClock();
+    getOpenGroundSession.mockReset().mockReturnValue(null);
+    closeOpenGroundSession.mockReset().mockReturnValue(null);
+  });
   afterEach(() => useRealClock());
 
   function takeoff(fm: FlightManager): void {
@@ -736,6 +752,26 @@ describe('FlightManager with the link', () => {
 
     expect(fm.getFlightStatePayload()).toEqual({ flightState: 'FLYING', currentFlightId: 1, plannedLegId: 11 });
     expect(fm.getPlannedLegStatus(34.7, -119.79)).toMatchObject({ plannedLegId: 11, nextWaypointIdent: 'WPT1' });
+  });
+
+  it('reports no leg for an unlinked flight and never reads the ground session, even with one still open', () => {
+    const openSession: GroundSession = {
+      id: 5, source: 'manual', airport_icao: null, airport_name: null, lat: null, lon: null,
+      parking_position: null, parking_position_source: null,
+      planned_leg_id: 11, planned_leg_link_source: 'manual', aircraft: null,
+      started_at: START, ended_at: null, ended_reason: null, flight_id: null,
+      created_at: START, updated_at: START,
+    };
+    getOpenGroundSession.mockReturnValue(openSession);
+    closeOpenGroundSession.mockImplementation(() => { throw new Error('disk I/O error'); });
+    const fm = new FlightManager();
+
+    takeoff(fm);
+    getOpenGroundSession.mockClear();
+
+    expect(closeOpenGroundSession).toHaveBeenCalledWith('flight-started', 1);
+    expect(fm.getFlightStatePayload()).toEqual({ flightState: 'FLYING', currentFlightId: 1, plannedLegId: null });
+    expect(getOpenGroundSession).not.toHaveBeenCalled();
   });
 
   it('tells the scope listener after a refresh for the current flight', () => {

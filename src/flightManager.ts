@@ -794,7 +794,7 @@ export class FlightManager {
    * only for a flight linked to a planned leg — an unlinked flight gets
    * clean OOOI-only reporting, never a thrown error and never a log line.
    * Wrapped in its own try/catch so nothing here, including a degenerate
-   * route from getPlannedLegStatus(), can interrupt point recording.
+   * route from link.status(), can interrupt point recording.
    */
   private maybeFilePositionReport(frame: SimFrame, nowMs: number, ts: string): void {
     try {
@@ -806,7 +806,7 @@ export class FlightManager {
       if (windowIndex < 1 || windowIndex <= this.lastPositionReportWindow) return;
       this.lastPositionReportWindow = windowIndex;
 
-      const status = this.getPlannedLegStatus(frame.lat, frame.lon);
+      const status = this.link.status(frame.lat, frame.lon);
       if (status === null) return;
 
       fileAcarsMessageOnce(buildPositionReportMessage({

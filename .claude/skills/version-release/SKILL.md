@@ -170,11 +170,15 @@ gh run list --workflow CI --commit "$(git rev-parse HEAD)" --limit 5 \
   --json databaseId,headBranch,status,conclusion \
   --jq ".[] | select(.headBranch==\"v$V\")"
 gh run watch <databaseId> --exit-status   # run_in_background: it takes several minutes (e2e + docker)
-gh release view "v$V" --json name,url,isLatest
+gh release view "v$V" --json name,url,isDraft,isPrerelease,assets \
+  --jq '{name,url,isDraft,isPrerelease,assets:[.assets[].name]}'
+gh api repos/oshogun/sabia/releases/latest --jq .tag_name   # must print v$V
 ```
 
-Report the Release URL. v1.x Releases published this way should show
-`isLatest: true`.
+Report the Release URL. The installed `gh` has no `isLatest` field for
+`release view` (it errors), so "latest" is checked through the API instead.
+v1.x Releases published this way should be the latest, not drafts or
+prereleases, and carry the installers and server bundle as assets.
 
 ## 8. When it goes wrong
 

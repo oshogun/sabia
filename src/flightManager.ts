@@ -1,24 +1,20 @@
 import type {
   SimFrame, FlightState, AppState, PlannedLegLiveStatus,
-  GroundSession, GroundSessionLiveStatus, GroundSessionEndReason,
+  GroundSessionLiveStatus, GroundSessionEndReason,
 } from './types';
 import type { FlightStatePayload } from './eventHub';
 import type { OpenFlightRow, FlightTrackPoint } from './db';
 import {
-  insertFlight, insertPoint, closeFlight, getPlannedLegById, getTripName,
-  getOpenFlight, getFlightTrackPoints,
+  insertFlight, insertPoint, closeFlight, getOpenFlight, getFlightTrackPoints,
 } from './db';
-import {
-  insertGroundSession, getOpenGroundSession, closeOpenGroundSession, fillOpenGroundSessionGaps,
-} from './db/groundSessions';
 import { findNearestAirport } from './airports';
-import { nextParkedStreak, hasParkedDebounce, hasLeftAnchor } from './groundState';
 import { buildOooiMessage, buildPositionReportMessage, parsePositionReportIntervalMs } from './acars';
 import { fileAcarsMessageOnce } from './acarsEvents';
 import { haversineNm } from './geo';
-import { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
+import { MAX_COUNTED_GAP_MS } from './flight/constants';
 import { summarizeTrack } from './flight/summarizeTrack';
 import { PlannedLegLink } from './flight/plannedLegLink';
+import { GroundTracker } from './flight/groundTracker';
 
 export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
@@ -26,61 +22,13 @@ const RECORD_INTERVAL_MS = 5000;
 const AIRBORNE_DEBOUNCE_FRAMES = 3;
 const LANDED_DEBOUNCE_FRAMES = 10;
 
-/**
- * GroundSessionLiveStatus doubles as the in-memory cache: its fields are
- * exactly what /api/status needs and nothing this class computes per poll.
- * Built once at ground-session entry (or adoption) and never re-read from
- * the database per frame — same reasoning as the planned-leg link's cache.
- */
-function buildGroundSessionCache(session: GroundSession): GroundSessionLiveStatus {
-  let tripId: number | null = null;
-  let tripName: string | null = null;
-  let departureIdent: string | null = null;
-  let destinationIdent: string | null = null;
-
-  if (session.planned_leg_id !== null) {
-    const leg = getPlannedLegById(session.planned_leg_id);
-    if (leg) {
-      tripId = leg.trip_id;
-      tripName = leg.trip_id !== null ? getTripName(leg.trip_id) ?? null : null;
-      departureIdent = leg.departure_ident;
-      destinationIdent = leg.destination_ident;
-    }
-  }
-
-  return {
-    groundSessionId: session.id,
-    source: session.source,
-    airportIcao: session.airport_icao,
-    airportName: session.airport_name,
-    parkingPosition: session.parking_position,
-    parkingPositionSource: session.parking_position_source,
-    plannedLegId: session.planned_leg_id,
-    plannedLegLinkSource: session.planned_leg_link_source,
-    tripId,
-    tripName,
-    departureIdent,
-    destinationIdent,
-    startedAt: session.started_at,
-  };
-}
-
 export class FlightManager {
   private state: FlightState = 'IDLE';
   private currentFlightId: number | null = null;
   private readonly link = new PlannedLegLink();
+  private readonly ground = new GroundTracker();
   private airborneStreak = 0;
   private landedStreak = 0;
-  // Consecutive parked-qualifying frames while IDLE or GROUND; see groundState.ts.
-  private groundStreak = 0;
-  // The position recorded at ground-session entry/adoption, held only in
-  // memory — used to detect a teleport away from it (hasLeftAnchor).
-  private groundAnchor: { lat: number; lon: number } | null = null;
-  private groundSessionCache: GroundSessionLiveStatus | null = null;
-  // The instant the aircraft first moved under power while GROUND — the
-  // off-blocks memo used to timestamp OUT. Null until a taxi-speed frame is
-  // seen; reset whenever GROUND is (re-)entered or left.
-  private outBlocksAt: string | null = null;
   // Set once ON has been filed for the current flight, from either the
   // touchdown frame or the end-of-flight fallback — keeps whichever fires
   // second from filing ON twice.
@@ -155,7 +103,7 @@ export class FlightManager {
     const currentFlightId = this.appState.currentFlightId;
     const plannedLegId = currentFlightId !== null
       ? this.link.currentLegId()
-      : getOpenGroundSession()?.planned_leg_id ?? null;
+      : this.ground.openSessionLegId();
     return { flightState: this.appState.flightState, currentFlightId, plannedLegId };
   }
 
@@ -176,7 +124,7 @@ export class FlightManager {
       // The sim itself reporting not-running is positive telemetry evidence,
       // not mere silence — unlike onCrash()/onSimDisconnect() below, this
       // closes a manual session too.
-      else if (this.state === 'GROUND') this.closeGroundSessionAndReturnToIdle('sim-exit');
+      else if (this.state === 'GROUND') this.leaveGround('sim-exit');
       return;
     }
 
@@ -187,23 +135,19 @@ export class FlightManager {
         this.checkAirborneDebounce(frame, inSlew);
         if (this.state !== 'IDLE') break; // startFlight() already ran
 
-        this.groundStreak = nextParkedStreak(this.groundStreak, frame);
-        if (hasParkedDebounce(this.groundStreak)) {
+        if (this.ground.observeIdle(frame) === 'debounce-met') {
           this.enterGround(frame);
         }
         break;
 
       case 'GROUND':
         if (inSlew) {
-          this.closeGroundSessionAndReturnToIdle('slew');
+          this.leaveGround('slew');
           break;
         }
-        if (this.groundAnchor && hasLeftAnchor(this.groundAnchor.lat, this.groundAnchor.lon, frame.lat, frame.lon)) {
-          this.closeGroundSessionAndReturnToIdle('superseded');
+        if (this.ground.observeGround(frame) === 'left-anchor') {
+          this.leaveGround('superseded');
           break;
-        }
-        if (this.outBlocksAt === null && frame.onGround && frame.groundSpeedKnots >= TAXI_OUT_SPEED_KTS) {
-          this.outBlocksAt = new Date().toISOString();
         }
         // Taxiing does not leave this state — only rotation (below) or one of
         // the two checks above does. The same airborne test as from IDLE.
@@ -236,7 +180,7 @@ export class FlightManager {
     if (this.state === 'FLYING' && this.appState.lastFrame) {
       this.endFlight(this.appState.lastFrame);
     } else if (this.state === 'GROUND') {
-      this.closeAutoGroundSessionAndReturnToIdle('crash');
+      this.leaveGroundAutoOnly('crash');
     }
   }
 
@@ -244,7 +188,7 @@ export class FlightManager {
     if (this.state === 'FLYING' && this.appState.lastFrame) {
       this.endFlight(this.appState.lastFrame);
     } else if (this.state === 'GROUND') {
-      this.closeAutoGroundSessionAndReturnToIdle('sim-exit');
+      this.leaveGroundAutoOnly('sim-exit');
     }
   }
 
@@ -288,7 +232,7 @@ export class FlightManager {
    * getPlannedLegStatus().
    */
   getGroundSessionStatus(): GroundSessionLiveStatus | null {
-    return this.groundSessionCache;
+    return this.ground.status();
   }
 
   /**
@@ -308,144 +252,54 @@ export class FlightManager {
    * IDLE, exactly as a slew or a re-anchor would.
    */
   refreshGroundSession(): void {
-    const open = getOpenGroundSession();
-    if (!open) {
-      if (this.state === 'GROUND') {
-        // resetGroundTracking() already notifies at its own end.
-        this.resetGroundTracking();
-      } else {
-        this.groundSessionCache = null;
-        this.notifyScopeChange();
-      }
+    if (this.ground.refresh() === 'updated') {
+      this.notifyScopeChange();
       return;
     }
-    this.groundSessionCache = buildGroundSessionCache(open);
-    this.notifyScopeChange();
+    if (this.state === 'GROUND') {
+      // resetGroundTracking() already notifies at its own end.
+      this.resetGroundTracking();
+    } else {
+      this.ground.clearCache();
+      this.notifyScopeChange();
+    }
   }
 
   /**
    * Reached when GROUND_DEBOUNCE_FRAMES consecutive frames have qualified as
-   * parked. Resolves the airport and a planned leg exactly once, the same
-   * work startFlight() does for a takeoff — never per frame.
+   * parked. The ground tracker resolves the airport and a planned leg exactly
+   * once, the same work startFlight() does for a takeoff — never per frame.
+   * Only a successful entry changes state.
    */
   private enterGround(frame: SimFrame): void {
-    try {
-      const startedAt = new Date().toISOString();
-      const open = getOpenGroundSession();
-      const ap = findNearestAirport(frame.lat, frame.lon);
-      const match = this.link.matchForGround(frame, startedAt);
-
-      let session: GroundSession;
-      if (open) {
-        // Adopted, not inserted: an operator may have entered a session by
-        // hand before the debounce ever tripped. Only the columns still blank
-        // get filled in — anything the operator (or an earlier session)
-        // already recorded is left exactly as it is, and `source` is never
-        // rewritten.
-        //
-        // airport_name travels with airport_icao, not independently: if the
-        // resolved airport disagrees with an airport_icao the row already
-        // has, the operator's code wins outright and no name is attached to
-        // it at all — filling in the resolved name here would leave a row
-        // whose code and name name two different airports.
-        const knownIcao = open.airport_icao;
-        const airportAgrees = knownIcao === null || ap === null || knownIcao === ap.icao;
-        if (!airportAgrees) {
-          console.log(
-            `[FlightManager] Ground session #${open.id} — detected airport ${ap!.icao} disagrees with recorded ${knownIcao}; keeping ${knownIcao}`
-          );
-        }
-
-        const filled = fillOpenGroundSessionGaps({
-          airport_icao: airportAgrees ? (ap?.icao ?? null) : null,
-          airport_name: airportAgrees ? (ap?.name ?? null) : null,
-          lat: frame.lat,
-          lon: frame.lon,
-          parking_position: match.parkingPosition,
-          parking_position_source: match.parkingPosition !== null ? 'auto' : null,
-          planned_leg_id: match.plannedLegId,
-          planned_leg_link_source: match.plannedLegId !== null ? 'auto' : null,
-          aircraft: frame.aircraft,
-        });
-        session = filled ?? open;
-        console.log(`[FlightManager] Ground session #${session.id} adopted (${session.source})`);
-      } else {
-        session = insertGroundSession({
-          source: 'auto',
-          airport_icao: ap?.icao ?? null,
-          airport_name: ap?.name ?? null,
-          lat: frame.lat,
-          lon: frame.lon,
-          parking_position: match.parkingPosition,
-          parking_position_source: match.parkingPosition !== null ? 'auto' : null,
-          planned_leg_id: match.plannedLegId,
-          planned_leg_link_source: match.plannedLegId !== null ? 'auto' : null,
-          aircraft: frame.aircraft,
-          started_at: startedAt,
-        });
-        console.log(
-          `[FlightManager] Ground session #${session.id} — ${ap ? `${ap.icao} (${ap.name})` : 'no airport within 10 nm'}`
-        );
-      }
-
-      this.groundAnchor = { lat: frame.lat, lon: frame.lon };
-      this.groundSessionCache = buildGroundSessionCache(session);
-      this.groundStreak = 0;
-      this.outBlocksAt = null;
-      this.state = 'GROUND';
-      this.appState.flightState = 'GROUND';
-      this.notifyScopeChange();
-    } catch (err) {
-      console.warn('[FlightManager] Ground session entry failed, staying IDLE:', err);
-      this.groundStreak = 0;
-    }
+    if (this.ground.enter(frame, (f, startedAt) => this.link.matchForGround(f, startedAt)) === 'failed') return;
+    this.state = 'GROUND';
+    this.appState.flightState = 'GROUND';
+    this.notifyScopeChange();
   }
 
   /**
    * Closes whatever ground session is open, whatever its source, and returns
-   * to IDLE. Used for the exits that are themselves positive evidence the
-   * aircraft is no longer where the session says it is: a slew, or a jump
-   * far enough away that the place recorded at entry is no longer credible.
+   * to IDLE: the exits that are themselves positive evidence the aircraft is
+   * no longer where the session says it is.
    */
-  private closeGroundSessionAndReturnToIdle(reason: GroundSessionEndReason): void {
-    try {
-      closeOpenGroundSession(reason);
-    } catch (err) {
-      console.warn(`[FlightManager] Ground session close (${reason}) failed:`, err);
-    }
+  private leaveGround(reason: GroundSessionEndReason): void {
+    this.ground.closeAny(reason);
     this.resetGroundTracking();
   }
 
   /**
    * Closes the open ground session and returns to IDLE, but only when the
-   * session was detected automatically. A vanished agent or a crash is an
-   * absence of evidence, not evidence against something the operator typed
-   * by hand — a manual session is left open for them to close explicitly.
-   *
-   * The gate reads the row that is actually open right now
-   * (getOpenGroundSession()), never the in-memory cache: a manual correction
-   * over an open session can turn an auto session into a fresh manual one
-   * without this machine ever leaving GROUND, and the cache built at the
-   * earlier entry would still say 'auto' long after the row it described
-   * was closed.
+   * session was detected automatically: a vanished agent or a crash is not
+   * evidence against a manual session.
    */
-  private closeAutoGroundSessionAndReturnToIdle(reason: GroundSessionEndReason): void {
-    try {
-      const open = getOpenGroundSession();
-      if (open?.source === 'auto') {
-        closeOpenGroundSession(reason);
-      }
-    } catch (err) {
-      console.warn(`[FlightManager] Ground session close (${reason}) failed:`, err);
-    }
+  private leaveGroundAutoOnly(reason: GroundSessionEndReason): void {
+    this.ground.closeAutoOnly(reason);
     this.resetGroundTracking();
   }
 
   private resetGroundTracking(): void {
-    this.groundAnchor = null;
-    this.groundSessionCache = null;
-    this.groundStreak = 0;
-    this.outBlocksAt = null;
+    this.ground.reset();
     this.state = 'IDLE';
     this.appState.flightState = 'IDLE';
     this.notifyScopeChange();
@@ -484,26 +338,10 @@ export class FlightManager {
     const id = insertFlight(frame.aircraft, frame.lat, frame.lon, startTime, dep?.icao ?? null, dep?.name ?? null);
     if (dep) console.log(`[FlightManager] Departure airport: ${dep.icao} (${dep.name})`);
 
-    // Captured before the ground session is closed and its cache nulled
-    // below, so OUT can still report the stand and airport the aircraft was
-    // parked at — the off-blocks memo itself (outAt) was set earlier still,
-    // on the GROUND branch of onFrame().
-    const outAirportIcao = this.groundSessionCache?.airportIcao ?? null;
-    const outStand = this.groundSessionCache?.parkingPosition ?? null;
-    const outAt = this.outBlocksAt;
-
-    // Unconditional, whatever this.state was: a manual ground session may
-    // exist with no agent ever having connected, so it is never known only
-    // from in-memory ground-tracking. Wrapped and swallowed for the same
-    // reason link.autoLink() is below — nothing about a ground session
-    // may stand between a sim session and the flight row that records it.
-    try {
-      closeOpenGroundSession('flight-started', id);
-    } catch (err) {
-      console.warn(`[FlightManager] Flight #${id} ground session close failed:`, err);
-    }
-    this.groundAnchor = null;
-    this.groundSessionCache = null;
+    // Unconditional, whatever this.state was: OUT reports the stand, airport
+    // and off-blocks instant of a ground session that may have been adopted
+    // while IDLE, and the session is closed and forgotten here.
+    const out = this.ground.handOffToFlight(id);
 
     this.link.clear();
     this.link.autoLink(id, frame, startTime);
@@ -512,7 +350,6 @@ export class FlightManager {
     this.state = 'FLYING';
     this.airborneStreak = 0;
     this.landedStreak = 0;
-    this.groundStreak = 0;
     this.distanceNm = 0;
     this.maxAltitudeFt = frame.altitudeFt;
     this.maxAirspeedKts = frame.airspeedKnots;
@@ -537,14 +374,14 @@ export class FlightManager {
       console.log(`[FlightManager] Flight #${id} position reports disabled (POSITION_REPORT_INTERVAL_MIN=0)`);
     }
 
-    const outEstimated = outAt === null;
+    const outEstimated = out.outAt === null;
     const refs = this.link.refs();
     fileAcarsMessageOnce(buildOooiMessage({
       flightId: id,
       event: 'OUT',
-      at: outAt ?? startTime,
-      airportIcao: outAirportIcao,
-      stand: outStand,
+      at: out.outAt ?? startTime,
+      airportIcao: out.airportIcao,
+      stand: out.stand,
       aircraft: frame.aircraft,
       destinationIdent: refs.destinationIdent,
       plannedLegId: refs.plannedLegId,
@@ -561,7 +398,6 @@ export class FlightManager {
       plannedLegId: refs.plannedLegId,
       estimated: false,
     }), `Flight #${id} OFF`);
-    this.outBlocksAt = null;
 
     console.log(`[FlightManager] Flight #${id} started — ${frame.aircraft}`);
 
@@ -595,7 +431,6 @@ export class FlightManager {
     this.appState.currentFlightId = row.id;
     this.airborneStreak = 0;
     this.landedStreak = 0;
-    this.groundStreak = 0;
     this.distanceNm = summary.distanceNm;
     this.maxAltitudeFt = summary.maxAltitudeFt;
     this.maxAirspeedKts = summary.maxAirspeedKts;

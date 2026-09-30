@@ -59,8 +59,8 @@ function download(url: string): Promise<string> {
 export function parseCSV(csv: string): Airport[] {
   const lines = csv.split('\n');
   const result: Airport[] = [];
-  // CSV columns: id,ident,type,name,latitude_deg,longitude_deg,...,gps_code,...
-  //              0   1    2    3    4             5                  12
+  // CSV columns: id,ident,type,name,latitude_deg,longitude_deg,...,icao_code,iata_code,gps_code,...
+  //              0   1    2    3    4             5                  12       13        14
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
@@ -69,7 +69,7 @@ export function parseCSV(csv: string): Airport[] {
     const lat = parseFloat(f[4]);
     const lon = parseFloat(f[5]);
     if (isNaN(lat) || isNaN(lon)) continue;
-    const icao = (f[12] || f[1] || '').trim().toUpperCase();
+    const icao = (f[12] || f[14] || f[1] || '').trim().toUpperCase();
     if (icao.length !== 4 || !/^[A-Z0-9]{4}$/.test(icao)) continue;
     result.push({ icao, name: f[3] || icao, lat, lon });
   }

@@ -32,13 +32,13 @@ describe('parseCSVLine', () => {
 describe('parseCSV', () => {
   // 19 OurAirports columns:
   // id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,
-  // iso_country,iso_region,municipality,scheduled_service,gps_code,icao_code,
-  // iata_code,local_code,home_link,wikipedia_link,keywords
+  // iso_country,iso_region,municipality,scheduled_service,icao_code,iata_code,
+  // gps_code,local_code,home_link,wikipedia_link,keywords
   const HEADER =
-    'id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,iso_country,iso_region,municipality,scheduled_service,gps_code,icao_code,iata_code,local_code,home_link,wikipedia_link,keywords';
+    'id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,iso_country,iso_region,municipality,scheduled_service,icao_code,iata_code,gps_code,local_code,home_link,wikipedia_link,keywords';
 
   function row(over: Partial<{
-    id: string; ident: string; type: string; name: string; lat: string; lon: string; gps_code: string;
+    id: string; ident: string; type: string; name: string; lat: string; lon: string; icao_code: string; gps_code: string;
   }> = {}): string {
     const f = {
       id: '1',
@@ -47,10 +47,11 @@ describe('parseCSV', () => {
       name: over.name ?? 'Santa Barbara Muni',
       lat: over.lat ?? '34.426201',
       lon: over.lon ?? '-119.841507',
-      gps_code: over.gps_code ?? 'KSBA',
+      icao_code: over.icao_code ?? 'KSBA',
+      gps_code: over.gps_code ?? '',
     };
-    // columns: 0 id, 1 ident, 2 type, 3 name, 4 lat, 5 lon, 6..11 filler, 12 gps_code, 13..18 filler
-    return [f.id, f.ident, f.type, f.name, f.lat, f.lon, '', '', '', '', '', '', f.gps_code, '', '', '', '', '', ''].join(',');
+    // columns: 0 id, 1 ident, 2 type, 3 name, 4 lat, 5 lon, 6..11 filler, 12 icao_code, 13 iata_code, 14 gps_code, 15..18 filler
+    return [f.id, f.ident, f.type, f.name, f.lat, f.lon, '', '', '', '', '', '', f.icao_code, '', f.gps_code, '', '', '', ''].join(',');
   }
 
   it('accepts large_airport, medium_airport and small_airport', () => {
@@ -74,42 +75,60 @@ describe('parseCSV', () => {
   });
 
   it('rejects an ICAO of length 3', () => {
-    const csv = [HEADER, row({ gps_code: '', ident: 'KSB' })].join('\n');
+    const csv = [HEADER, row({ icao_code: '', ident: 'KSB' })].join('\n');
     expect(parseCSV(csv)).toEqual([]);
   });
 
   it('rejects an ICAO of length 5', () => {
-    const csv = [HEADER, row({ gps_code: '', ident: 'KSBAX' })].join('\n');
+    const csv = [HEADER, row({ icao_code: '', ident: 'KSBAX' })].join('\n');
     expect(parseCSV(csv)).toEqual([]);
   });
 
   it('rejects an ICAO containing a non-alphanumeric character', () => {
-    const csv = [HEADER, row({ gps_code: '', ident: 'K-BA' })].join('\n');
+    const csv = [HEADER, row({ icao_code: '', ident: 'K-BA' })].join('\n');
     expect(parseCSV(csv)).toEqual([]);
   });
 
-  it('prefers gps_code (col 12) over ident (col 1) when both are present and valid', () => {
-    const csv = [HEADER, row({ ident: 'ZZZZ', gps_code: 'ksba' })].join('\n');
+  it('prefers icao_code (col 12) over ident (col 1) when both are present and valid', () => {
+    const csv = [HEADER, row({ ident: 'ZZZZ', icao_code: 'ksba' })].join('\n');
     expect(parseCSV(csv)).toEqual([{ icao: 'KSBA', name: 'Santa Barbara Muni', lat: 34.426201, lon: -119.841507 }]);
   });
 
-  it('falls back to ident (col 1) when gps_code (col 12) is empty', () => {
-    const csv = [HEADER, row({ ident: 'ksba', gps_code: '' })].join('\n');
+  it('prefers icao_code (col 12) over gps_code (col 14) when they differ', () => {
+    const csv = [HEADER, row({ icao_code: 'KSBA', gps_code: 'ZZZZ' })].join('\n');
+    expect(parseCSV(csv)[0].icao).toBe('KSBA');
+  });
+
+  it('falls back to gps_code (col 14) when icao_code (col 12) is empty', () => {
+    const csv = [HEADER, row({ icao_code: '', gps_code: 'UAAM' })].join('\n');
+    expect(parseCSV(csv)[0].icao).toBe('UAAM');
+  });
+
+  it('parses a UAAM-shaped row (empty icao_code, gps_code UAAM, no matching ident)', () => {
+    const csv = [HEADER, row({
+      icao_code: '', gps_code: 'UAAM', ident: 'KZ-0073', name: 'Chundzha Airfield',
+      type: 'small_airport', lat: '43.598202', lon: '79.427366',
+    })].join('\n');
+    expect(parseCSV(csv)).toEqual([{ icao: 'UAAM', name: 'Chundzha Airfield', lat: 43.598202, lon: 79.427366 }]);
+  });
+
+  it('falls back to ident (col 1) when both icao_code and gps_code are empty', () => {
+    const csv = [HEADER, row({ icao_code: '', gps_code: '', ident: 'ksba' })].join('\n');
     expect(parseCSV(csv)[0].icao).toBe('KSBA');
   });
 
   it('uppercases and trims the resulting icao', () => {
-    const csv = [HEADER, row({ gps_code: '  ksba  ' })].join('\n');
+    const csv = [HEADER, row({ icao_code: '  ksba  ' })].join('\n');
     expect(parseCSV(csv)[0].icao).toBe('KSBA');
   });
 
   it('falls back to the icao for name when col 3 (name) is empty', () => {
-    const csv = [HEADER, row({ name: '', gps_code: 'KSBA' })].join('\n');
+    const csv = [HEADER, row({ name: '', icao_code: 'KSBA' })].join('\n');
     expect(parseCSV(csv)[0].name).toBe('KSBA');
   });
 
   it('skips the header row and blank lines, including a trailing newline at end of input', () => {
-    const csv = [HEADER, '', row({ ident: 'KSBA', gps_code: 'KSBA' }), '', row({ ident: 'KMRY', gps_code: 'KMRY', lat: '36.586952', lon: '-121.843079' }), ''].join('\n') + '\n';
+    const csv = [HEADER, '', row({ ident: 'KSBA', icao_code: 'KSBA' }), '', row({ ident: 'KMRY', icao_code: 'KMRY', lat: '36.586952', lon: '-121.843079' }), ''].join('\n') + '\n';
     const result = parseCSV(csv);
     expect(result).toHaveLength(2);
     expect(result.map(a => a.icao)).toEqual(['KSBA', 'KMRY']);

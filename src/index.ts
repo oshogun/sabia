@@ -6,7 +6,8 @@ import { loadConfig, ConfigError } from './config';
 import { initDb, closeDb, getAuthUser, sessionSweep, countActiveIngestTokens, countActiveMcpTokens } from './db';
 import { ingestAuthMode } from './auth/ingestAuth';
 import { mcpAuthMode } from './auth/mcpAuth';
-import { openNavdata, closeNavDb } from './navdata/connection';
+import { openNavdata, closeNavDb, getLnmNavDb, setSelectedNavdataSource } from './navdata/connection';
+import { readNavdataSourceSetting } from './navdata/source';
 import { loadAirportTiers } from './navdata/airportTiers';
 import { initAirports } from './airports';
 import { ensureFlightPlansDir } from './flightPlans';
@@ -43,6 +44,14 @@ try {
   openNavdata();
 } catch (err) {
   console.warn(`[Navdata] Could not open the replica: ${(err as Error).message}`);
+}
+// The stored choice is read, never rewritten here: an unavailable Little Navmap
+// file falls back to simulator data at read time, and a later import makes the
+// choice effective again.
+const navdataSource = readNavdataSourceSetting();
+setSelectedNavdataSource(navdataSource);
+if (navdataSource === 'lnm' && getLnmNavDb() === null) {
+  console.warn('[Navdata] Little Navmap data is selected but unavailable; showing simulator data');
 }
 loadAirportTiers();
 

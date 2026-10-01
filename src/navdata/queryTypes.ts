@@ -1,6 +1,7 @@
 // Response shapes of the navdata query routes. camelCase, lon in [-180,180].
 // Hand-mirrored into client/src/types.ts.
 
+import type { NavdataDataset, NavdataSource } from './dataset';
 import type { SidecarState, SnapshotId, Rev, DetailState, TransitionRole } from './wire';
 
 export interface NavdataStatusResponse {
@@ -18,6 +19,14 @@ export interface NavdataStatusResponse {
     airwayLegs: number; runways: number; procedures: number; coverageCells: number; absent: number;
   } | null;
   sidecar: { state: SidecarState; reason: string | null } | null;
+  /** The source that answered: the selected one, unless it is unavailable. */
+  source: NavdataSource;
+  /** The stored choice from Settings. */
+  selectedSource: NavdataSource;
+  /** Set iff selectedSource is 'lnm' and the simulator replica answered instead. */
+  sourceFallback: null | 'lnm-unavailable';
+  /** What the answering replica is: label, cycle and validity. null iff present is false. */
+  dataset: NavdataDataset | null;
 }
 
 /** Surface class of an airport's longest runway. Never inferred when unknown. */

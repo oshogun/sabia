@@ -1,10 +1,11 @@
 import express, { type Response } from 'express';
-import { getNavDb, isNavdataBusy, NavdataBusyError } from '../navdata/connection';
+import { effectiveNavdataSource, getActiveNavDb, isNavdataBusy, NavdataBusyError } from '../navdata/connection';
 import {
   FEATURE_KINDS, FEATURES_DEFAULT_LIMIT, FEATURES_MAX_LIMIT, parseBbox, parseRequestBody, queryFeatures,
   readAirportDetail, readStatus, submitRequest, type FeatureKind,
 } from '../navdata/query';
 import type { SidecarStateStore } from '../navdata/sidecarState';
+import { navdataSourceState } from '../navdata/source';
 
 function busy(res: Response, err: NavdataBusyError): void {
   res.set('Retry-After', String(err.retryAfterSeconds));
@@ -68,7 +69,7 @@ export function createNavdataRouter(sidecarState: SidecarStateStore, onDemandCha
       limit = Math.min(l, FEATURES_MAX_LIMIT);
     }
     guarded(res, 'Features query', () => {
-      res.json(queryFeatures(getNavDb(), { bbox, zoom, kinds, limit }));
+      res.json(queryFeatures(getActiveNavDb(), { bbox, zoom, kinds, limit }));
     });
   });
 
@@ -76,21 +77,23 @@ export function createNavdataRouter(sidecarState: SidecarStateStore, onDemandCha
   // show the navdata toggles at all.
   router.get('/navdata/status', (_req, res) => {
     const sidecar = sidecarState.read();
+    const { selected, effective } = navdataSourceState();
+    const src = { source: effective, selectedSource: selected };
     if (isNavdataBusy()) {
-      res.json(readStatus(null, sidecar, null));
+      res.json(readStatus(null, sidecar, null, src));
       return;
     }
     try {
-      res.json(readStatus(getNavDb(), sidecar, sidecarState.lastRowsAt()));
+      res.json(readStatus(getActiveNavDb(), sidecar, sidecarState.lastRowsAt(), src));
     } catch (err) {
       console.error(`navdata: status failed: ${(err as Error).message}`);
-      res.json(readStatus(null, sidecar, null));
+      res.json(readStatus(null, sidecar, null, src));
     }
   });
 
   router.get('/navdata/airports/:ident', (req, res) => {
     guarded(res, 'Airport detail', () => {
-      const detail = readAirportDetail(getNavDb(), req.params.ident);
+      const detail = readAirportDetail(getActiveNavDb(), req.params.ident);
       if (!detail) {
         res.status(404).json({ error: 'Airport not in navdata index' });
         return;
@@ -106,7 +109,7 @@ export function createNavdataRouter(sidecarState: SidecarStateStore, onDemandCha
       return;
     }
     guarded(res, 'Navdata request', () => {
-      const result = submitRequest(getNavDb(), parsed);
+      const result = submitRequest(getActiveNavDb(), parsed, { completeDataset: effectiveNavdataSource() === 'lnm' });
       if (result.state === 'queued') onDemandChanged();
       res.json(result);
     });

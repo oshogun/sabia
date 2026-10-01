@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { mockFetchRoutes } from '../test/mockFetch';
 import type { ResponseTuple } from '../test/mockFetch';
+import { sourceResponse } from '../test/navdataFixtures';
 import { Settings } from './Settings';
 
 const SESSION_ROUTE: ResponseTuple = [200, { authenticated: true, user: { username: 'e2e' } }];
@@ -12,6 +13,7 @@ const NO_SAYINTENTIONS: ResponseTuple = [200, { sayintentions_api_key_set: false
 const SET_SAYINTENTIONS: ResponseTuple = [200, { sayintentions_api_key_set: true, sayintentions_api_key_masked: '••••cdef' }];
 const CLOSED_INGEST: ResponseTuple = [200, { tokens: [], mode: 'closed', env_token_set: false, unauthenticated_opt_out_set: false }];
 const DISABLED_MCP: ResponseTuple = [200, { tokens: [], mode: 'disabled', env_token_set: false }];
+const NAVDATA_SOURCE: ResponseTuple = [200, sourceResponse()];
 
 /**
  * Every ConfirmModal/TokenCreatedModal on the page is always in the DOM
@@ -32,6 +34,7 @@ describe('Settings', () => {
       '/api/settings/simbrief': [200, { simbrief_user_id: 'e2e-simbrief-id' }],
       '/api/settings/sayintentions': SET_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
     });
 
@@ -55,6 +58,7 @@ describe('Settings', () => {
       },
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
     });
 
@@ -84,6 +88,7 @@ describe('Settings', () => {
         },
       },
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
     });
 
@@ -114,6 +119,7 @@ describe('Settings', () => {
       },
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
     });
 
@@ -132,6 +138,7 @@ describe('Settings', () => {
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
     });
 
@@ -153,6 +160,7 @@ describe('Settings', () => {
         env_token_set: true,
         unauthenticated_opt_out_set: false,
       }],
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
     });
 
@@ -172,6 +180,7 @@ describe('Settings', () => {
       '/api/auth/session': SESSION_ROUTE,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
       '/api/settings/ingest-tokens': {
         GET: CLOSED_INGEST,
@@ -217,6 +226,7 @@ describe('Settings', () => {
       '/api/auth/session': SESSION_ROUTE,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
       '/api/settings/ingest-tokens': {
         GET: [200, {
@@ -253,6 +263,7 @@ describe('Settings', () => {
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': {
         GET: () => [200, { tokens: mcpTokens, mode: 'ui_tokens', env_token_set: true }],
         POST: init => {
@@ -296,6 +307,7 @@ describe('Settings', () => {
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
       '/api/settings/password': () => { passwordCalls++; return [200, { ok: true, other_sessions_revoked: 0 }]; },
     });
@@ -319,6 +331,7 @@ describe('Settings', () => {
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
       '/api/settings/password': [403, { error: 'Current password is incorrect', code: 'WRONG_CURRENT_PASSWORD' }],
     });
@@ -342,6 +355,7 @@ describe('Settings', () => {
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
       '/api/settings/mcp-tokens': DISABLED_MCP,
       '/api/settings/password': [200, { ok: true, other_sessions_revoked: 2 }],
     });
@@ -361,5 +375,34 @@ describe('Settings', () => {
     expect(currentInput).toHaveValue('');
     expect(newInput).toHaveValue('');
     expect(confirmInput).toHaveValue('');
+  });
+  it('shows the Navigation data tile between SayIntentions and the ingest tokens, and switches the source', async () => {
+    const user = userEvent.setup();
+    const puts: unknown[] = [];
+    mockFetchRoutes({
+      '/api/auth/session': SESSION_ROUTE,
+      '/api/settings/simbrief': UNSET_SIMBRIEF,
+      '/api/settings/sayintentions': NO_SAYINTENTIONS,
+      '/api/settings/navdata-source': {
+        GET: NAVDATA_SOURCE,
+        PUT: init => {
+          puts.push(JSON.parse(init!.body as string));
+          return [200, sourceResponse({ selected: 'lnm', effective: 'lnm' })];
+        },
+      },
+      '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/mcp-tokens': DISABLED_MCP,
+    });
+
+    renderWithProviders(<Settings />);
+
+    const lnm = await screen.findByRole('radio', { name: 'Little Navmap import' });
+    const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent);
+    expect(headings.indexOf('Navigation data')).toBe(headings.indexOf('SayIntentions') + 1);
+    expect(headings.indexOf('Navigation data') + 1).toBe(headings.findIndex(h => /ingest/i.test(h ?? '')));
+
+    await user.click(lnm);
+    await waitFor(() => expect(lnm).toBeChecked());
+    expect(puts).toEqual([{ source: 'lnm' }]);
   });
 });

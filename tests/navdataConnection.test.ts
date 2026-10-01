@@ -7,6 +7,10 @@ import {
   openNavdata, getNavDb, swapInReplica, closeNavDb, resolveNavdataPath, incomingNavdataPath,
 } from '../src/navdata/connection';
 import { scratchDbRoot } from './helpers/scratchRoot';
+import {
+  effectiveNavdataSource, getActiveNavDb, getLnmNavDb, getSelectedNavdataSource, lnmUploadSpoolPath,
+  isNavdataBusy, navdataImportDir, resolveLnmNavdataPath, setSelectedNavdataSource, swapInLnmReplica,
+} from '../src/navdata/connection';
 
 const dirs: string[] = [];
 const savedEnv = process.env.NAVDATA_DB_PATH;
@@ -138,5 +142,229 @@ describe('navdata connection', () => {
     db.close();
     openNavdata();
     expect(getNavDb()).toBeNull();
+  });
+});
+
+describe('two replicas', () => {
+  const lnmFile = () => resolveLnmNavdataPath();
+  const snapshotOfDb = (db: Database.Database | null) =>
+    (db!.prepare('SELECT snapshot_id AS s FROM nav_meta').get() as { s: string }).s;
+  const logged = (spy: unknown): string =>
+    (spy as { mock: { calls: unknown[][] } }).mock.calls.map(c => c.join(' ')).join('\n');
+
+  afterEach(() => {
+    setSelectedNavdataSource('mcdu');
+  });
+
+  it('derives the Little Navmap paths from the simulator replica path', () => {
+    const d = scratch();
+    expect(lnmFile()).toBe(`${resolveNavdataPath()}.lnm`);
+    expect(navdataImportDir()).toBe(d);
+    const spool = lnmUploadSpoolPath();
+    expect(path.dirname(spool)).toBe(d);
+    expect(path.basename(spool)).toMatch(/^navdata\.db\.lnm\.upload-\d+-\d+$/);
+    expect(incomingNavdataPath(lnmFile())).toMatch(/navdata\.db\.lnm\.incoming-\d+-\d+$/);
+  });
+
+  it('opens both files as separate handles, getNavDb staying the simulator replica', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-1');
+    expect(snapshotOfDb(getLnmNavDb())).toBe('lnm-1');
+    // Selecting the other source never changes what getNavDb() means.
+    setSelectedNavdataSource('lnm');
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-1');
+    expect(snapshotOfDb(getActiveNavDb())).toBe('lnm-1');
+  });
+
+  it('serves the selected source, and the simulator replica when the selected one is absent', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    openNavdata();
+    expect(getLnmNavDb()).toBeNull();
+    expect(getSelectedNavdataSource()).toBe('mcdu');
+    setSelectedNavdataSource('lnm');
+    expect(getSelectedNavdataSource()).toBe('lnm');
+    expect(effectiveNavdataSource()).toBe('mcdu');
+    expect(getActiveNavDb()).toBe(getNavDb());
+
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    expect(effectiveNavdataSource()).toBe('lnm');
+    expect(getActiveNavDb()).toBe(getLnmNavDb());
+    setSelectedNavdataSource('mcdu');
+    expect(effectiveNavdataSource()).toBe('mcdu');
+    expect(getActiveNavDb()).toBe(getNavDb());
+  });
+
+  it('treats an unusable Little Navmap file as absent while the simulator replica still opens', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-1');
+    const db = new Database(lnmFile());
+    db.exec('UPDATE nav_meta SET schema_version = 1');
+    db.close();
+    openNavdata();
+    expect(getLnmNavDb()).toBeNull();
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-1');
+    setSelectedNavdataSource('lnm');
+    expect(effectiveNavdataSource()).toBe('mcdu');
+  });
+
+  it('clears stale incoming and upload files of both replicas and nothing else', () => {
+    const d = scratch();
+    const stale = [
+      'navdata.db.incoming-1-2', 'navdata.db.incoming-1-2-wal',
+      'navdata.db.lnm.incoming-1-2', 'navdata.db.lnm.incoming-1-2-journal',
+      'navdata.db.lnm.incoming-1-2-wal', 'navdata.db.lnm.incoming-1-2-shm',
+      'navdata.db.lnm.upload-1-2',
+    ];
+    const kept = ['little_navmap_msfs.sqlite', 'flights.db', 'navdata.db.lnm.upload', 'notes.txt'];
+    for (const name of [...stale, ...kept]) fs.writeFileSync(path.join(d, name), 'x');
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    expect(fs.readdirSync(d).sort()).toEqual(
+      [...kept, 'navdata.db', 'navdata.db.lnm', 'navdata.db.lnm-shm', 'navdata.db.lnm-wal', 'navdata.db-shm', 'navdata.db-wal'].sort(),
+    );
+  });
+
+  it('closeNavDb closes both handles', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    const mcdu = getNavDb()!;
+    const lnm = getLnmNavDb()!;
+    closeNavDb();
+    expect(mcdu.open).toBe(false);
+    expect(lnm.open).toBe(false);
+    expect(getNavDb()).toBeNull();
+    expect(getLnmNavDb()).toBeNull();
+  });
+
+  it('swapInLnmReplica replaces only the Little Navmap file', () => {
+    const d = scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    const mcdu = getNavDb()!;
+    const incoming = incomingNavdataPath(lnmFile());
+    build(incoming, 'lnm-2');
+    let verified = '';
+    swapInLnmReplica(incoming, (check) => { verified = snapshotOfDb(check); });
+    expect(verified).toBe('lnm-2');
+    expect(snapshotOfDb(getLnmNavDb())).toBe('lnm-2');
+    expect(getNavDb()).toBe(mcdu);
+    expect(mcdu.open).toBe(true);
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-1');
+    expect(fs.readdirSync(d).filter(n => n.includes('.incoming-'))).toEqual([]);
+  });
+
+  it('swapInReplica replaces only the simulator file', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    const lnm = getLnmNavDb()!;
+    const incoming = incomingNavdataPath();
+    build(incoming, 'mcdu-2');
+    swapInReplica(incoming);
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-2');
+    expect(getLnmNavDb()).toBe(lnm);
+    expect(snapshotOfDb(lnm)).toBe('lnm-1');
+  });
+
+  it('swapInLnmReplica creates the file when there was none, and a failed verify keeps the old one', () => {
+    scratch();
+    openNavdata();
+    expect(getLnmNavDb()).toBeNull();
+    const first = incomingNavdataPath(lnmFile());
+    build(first, 'lnm-1');
+    swapInLnmReplica(first);
+    expect(snapshotOfDb(getLnmNavDb())).toBe('lnm-1');
+
+    const second = incomingNavdataPath(lnmFile());
+    build(second, 'lnm-2');
+    expect(() => swapInLnmReplica(second, () => { throw new Error('bad footer'); })).toThrow('bad footer');
+    expect(snapshotOfDb(getLnmNavDb())).toBe('lnm-1');
+    expect(fs.existsSync(second)).toBe(false);
+  });
+
+  const failRename = (incoming: string) =>
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw Object.assign(new Error(`EPERM: operation not permitted, rename '${incoming}'`), { code: 'EPERM' });
+    });
+
+  it('a rename that fails during an LNM swap keeps serving the old file', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-1');
+    build(lnmFile(), 'lnm-old');
+    openNavdata();
+    const mcdu = getNavDb()!;
+    const incoming = incomingNavdataPath(lnmFile());
+    build(incoming, 'lnm-new');
+    failRename(incoming);
+    expect(() => swapInLnmReplica(incoming)).toThrow(/EPERM/);
+    expect(snapshotOfDb(getLnmNavDb())).toBe('lnm-old');
+    expect(getNavDb()).toBe(mcdu);
+    expect(fs.existsSync(incoming)).toBe(false);
+    expect(isNavdataBusy()).toBe(false);
+    // The file on disk is still the old one, so a later open sees it too.
+    openNavdata();
+    expect(snapshotOfDb(getLnmNavDb())).toBe('lnm-old');
+  });
+
+  it('a rename that fails during a simulator swap keeps serving the old file', () => {
+    scratch();
+    build(resolveNavdataPath(), 'mcdu-old');
+    build(lnmFile(), 'lnm-1');
+    openNavdata();
+    const lnm = getLnmNavDb()!;
+    const incoming = incomingNavdataPath();
+    build(incoming, 'mcdu-new');
+    failRename(incoming);
+    expect(() => swapInReplica(incoming)).toThrow(/EPERM/);
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-old');
+    expect(getLnmNavDb()).toBe(lnm);
+    expect(fs.existsSync(incoming)).toBe(false);
+    openNavdata();
+    expect(snapshotOfDb(getNavDb())).toBe('mcdu-old');
+  });
+
+  it('a rename that fails when there was no file leaves the slot empty', () => {
+    scratch();
+    openNavdata();
+    const incoming = incomingNavdataPath(lnmFile());
+    build(incoming, 'lnm-new');
+    failRename(incoming);
+    expect(() => swapInLnmReplica(incoming)).toThrow(/EPERM/);
+    expect(getLnmNavDb()).toBeNull();
+    expect(fs.existsSync(incoming)).toBe(false);
+  });
+
+  it('log lines name the file by its base name, never an absolute path', () => {
+    const d = scratch();
+    // A wrong schema version, a file that is not a database, and a failed swap.
+    build(resolveNavdataPath(), 'mcdu-1');
+    const db = new Database(resolveNavdataPath());
+    db.exec('UPDATE nav_meta SET schema_version = 1');
+    db.close();
+    fs.writeFileSync(lnmFile(), 'this is not a database');
+    fs.writeFileSync(path.join(d, 'navdata.db.lnm.upload-1-2'), 'x');
+    openNavdata();
+    const incoming = incomingNavdataPath(lnmFile());
+    build(incoming, 'lnm-new');
+    failRename(incoming);
+    expect(() => swapInLnmReplica(incoming)).toThrow();
+
+    const lines = logged(console.warn) + '\n' + logged(console.error);
+    expect(lines).toContain('navdata.db has schema_version 1');
+    expect(lines).toContain('cannot open navdata.db.lnm:');
+    expect(lines).toContain('navdata.db.lnm was not replaced');
+    expect(lines).not.toContain(d);
+    expect(lines).not.toContain(path.dirname(d));
   });
 });

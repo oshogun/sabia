@@ -1,20 +1,30 @@
-// ── Navdata replica handle ────────────────────────────────────────────────────
+// ── Navdata replica handles ───────────────────────────────────────────────────
 //
-// Owns the one process-wide handle on navdata.db. The file is absent until the
-// sidecar delivers a snapshot; every caller must cope with getNavDb() === null.
-// The swap is synchronous end to end, so a handler that queries without
-// awaiting between getNavDb() and its last query can never see a half-swapped
-// file.
+// Owns the process-wide handles on the two replica files: the simulator replica
+// (navdata.db, built by the MCDU sidecar) and the Little Navmap replica
+// (navdata.db.lnm, built by an import). Either file may be absent until it is
+// first delivered; every caller must cope with a null handle.
+//
+// getNavDb() is the simulator replica, always: every sidecar code path calls it
+// and must never be retargeted by the Settings choice. Browser routes read
+// getActiveNavDb(), the handle of the selected source. Each swap is synchronous
+// end to end, so a handler that queries without awaiting between getting a
+// handle and its last query can never see a half-swapped file.
 
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import type { NavdataSource } from './dataset';
 import { NAVDATA_SCHEMA_VERSION } from './wire';
 
-const DEFAULT_NAVDATA_FILENAME = 'navdata.db';
-const INCOMING_INFIX = '.incoming-';
+export type { NavdataSource } from './dataset';
 
-/** Thrown by getNavDb() while a swap is in progress. */
+const DEFAULT_NAVDATA_FILENAME = 'navdata.db';
+const LNM_SUFFIX = '.lnm';
+const INCOMING_INFIX = '.incoming-';
+const UPLOAD_INFIX = '.upload-';
+
+/** Thrown by getNavDb() and getActiveNavDb() while a swap is in progress. */
 export class NavdataBusyError extends Error {
   readonly retryAfterSeconds = 2;
   constructor() {
@@ -28,8 +38,45 @@ export function resolveNavdataPath(): string {
   return process.env.NAVDATA_DB_PATH || path.join(process.cwd(), DEFAULT_NAVDATA_FILENAME);
 }
 
-let navDb: Database.Database | null = null;
+/** The Little Navmap replica: beside the simulator replica, so rename(2) stays atomic and it lives on the navdata volume. */
+export function resolveLnmNavdataPath(): string {
+  return resolveNavdataPath() + LNM_SUFFIX;
+}
+
+/** The only directory a server-side Little Navmap import may read from. */
+export function navdataImportDir(): string {
+  return path.dirname(resolveNavdataPath());
+}
+
+type Slot = 'mcdu' | 'lnm';
+
+let mcduDb: Database.Database | null = null;
+let lnmDb: Database.Database | null = null;
+let selectedSource: NavdataSource = 'mcdu';
 let busy = false;
+
+const handleOf = (slot: Slot): Database.Database | null => {
+  const db = slot === 'mcdu' ? mcduDb : lnmDb;
+  return db && db.open ? db : null;
+};
+
+function setHandle(slot: Slot, db: Database.Database | null): void {
+  if (slot === 'mcdu') mcduDb = db;
+  else lnmDb = db;
+}
+
+function closeSlot(slot: Slot): void {
+  const db = slot === 'mcdu' ? mcduDb : lnmDb;
+  if (db && db.open) checkpointAndClose(db);
+  setHandle(slot, null);
+}
+
+/** Plain close, no checkpoint: for a handle that may point at a file that was replaced or deleted under it. */
+function releaseSlot(slot: Slot): void {
+  const db = slot === 'mcdu' ? mcduDb : lnmDb;
+  if (db && db.open) db.close();
+  setHandle(slot, null);
+}
 
 function unlinkQuiet(file: string): void {
   try {
@@ -48,8 +95,15 @@ function checkpointAndClose(db: Database.Database): void {
   db.close();
 }
 
+/** An fs error's message embeds absolute paths; its code does not. */
+const errorLabel = (err: unknown): string => {
+  const e = err as { code?: unknown; name?: unknown };
+  return String(e.code ?? e.name ?? 'Error');
+};
+
 /** Opens the file and confirms its schema version; null (handle closed) when unusable. */
 function openAndCheck(file: string): Database.Database | null {
+  const name = path.basename(file);
   let db: Database.Database | null = null;
   try {
     db = new Database(file);
@@ -60,19 +114,18 @@ function openAndCheck(file: string): Database.Database | null {
       | undefined;
     if (meta && meta.schema_version === NAVDATA_SCHEMA_VERSION) return db;
     console.warn(
-      `navdata: ${file} has schema_version ${meta ? meta.schema_version : 'none'}, ` +
+      `navdata: ${name} has schema_version ${meta ? meta.schema_version : 'none'}, ` +
         `expected ${NAVDATA_SCHEMA_VERSION}; treating the replica as absent`,
     );
   } catch (err) {
-    console.warn(`navdata: cannot open ${file}: ${(err as Error).message}; treating the replica as absent`);
+    console.warn(`navdata: cannot open ${name}: ${errorLabel(err)}; treating the replica as absent`);
   }
   if (db && db.open) db.close();
   return null;
 }
 
-function unlinkStaleIncoming(target: string): void {
-  const dir = path.dirname(target);
-  const prefix = path.basename(target) + INCOMING_INFIX;
+/** Unlinks every file in the target's directory whose name starts with prefix. */
+function unlinkByPrefix(dir: string, prefix: string): void {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
@@ -84,9 +137,13 @@ function unlinkStaleIncoming(target: string): void {
     try {
       unlinkQuiet(path.join(dir, name));
     } catch (err) {
-      console.warn(`navdata: could not remove stale ${name}: ${(err as Error).message}`);
+      console.warn(`navdata: could not remove stale ${name}: ${errorLabel(err)}`);
     }
   }
+}
+
+function unlinkStaleIncoming(target: string): void {
+  unlinkByPrefix(path.dirname(target), path.basename(target) + INCOMING_INFIX);
 }
 
 /** Path for an incoming snapshot: same directory as the target so rename(2) stays atomic. */
@@ -94,30 +151,75 @@ export function incomingNavdataPath(target: string = resolveNavdataPath()): stri
   return `${target}${INCOMING_INFIX}${process.pid}-${Date.now()}`;
 }
 
-/** Startup: clears leftover incoming files, opens the replica if it exists. */
-export function openNavdata(): void {
-  const target = resolveNavdataPath();
-  unlinkStaleIncoming(target);
-  if (navDb && navDb.open) navDb.close();
-  navDb = fs.existsSync(target) ? openAndCheck(target) : null;
+/** Path for an uploaded Little Navmap database in flight: the navdata volume, never the OS temp directory. */
+export function lnmUploadSpoolPath(): string {
+  return `${resolveLnmNavdataPath()}${UPLOAD_INFIX}${process.pid}-${Date.now()}`;
 }
 
 /**
- * The replica handle, or null when absent. Throws NavdataBusyError mid-swap.
- * Never await between this call and the last query on the returned handle.
+ * Startup: clears leftover incoming and upload files of both replicas and opens
+ * each replica that exists. Nothing else in the directory is touched (the
+ * operator's own .sqlite files live there).
+ */
+export function openNavdata(): void {
+  const mcdu = resolveNavdataPath();
+  const lnm = resolveLnmNavdataPath();
+  unlinkStaleIncoming(mcdu);
+  unlinkStaleIncoming(lnm);
+  unlinkByPrefix(path.dirname(lnm), path.basename(lnm) + UPLOAD_INFIX);
+  releaseSlot('mcdu');
+  releaseSlot('lnm');
+  mcduDb = fs.existsSync(mcdu) ? openAndCheck(mcdu) : null;
+  lnmDb = fs.existsSync(lnm) ? openAndCheck(lnm) : null;
+}
+
+/**
+ * The simulator replica handle, or null when absent. Throws NavdataBusyError
+ * mid-swap. Never await between this call and the last query on the returned
+ * handle. This is not the browser's handle: that is getActiveNavDb().
  */
 export function getNavDb(): Database.Database | null {
   if (busy) throw new NavdataBusyError();
-  return navDb && navDb.open ? navDb : null;
+  return handleOf('mcdu');
+}
+
+/** The Little Navmap replica handle, or null when absent or unusable. Never throws. */
+export function getLnmNavDb(): Database.Database | null {
+  return handleOf('lnm');
+}
+
+/** In-memory only: the caller persists the choice. */
+export function setSelectedNavdataSource(source: NavdataSource): void {
+  selectedSource = source;
+}
+
+export function getSelectedNavdataSource(): NavdataSource {
+  return selectedSource;
+}
+
+/** 'lnm' only when it is selected and its replica is usable; otherwise the simulator replica answers. */
+export function effectiveNavdataSource(): NavdataSource {
+  return selectedSource === 'lnm' && getLnmNavDb() !== null ? 'lnm' : 'mcdu';
+}
+
+/**
+ * The handle of the effective source: what every browser-facing read uses. Null
+ * when that replica is absent. Throws NavdataBusyError mid-swap. Never await
+ * between this call and the last query on the returned handle.
+ */
+export function getActiveNavDb(): Database.Database | null {
+  if (busy) throw new NavdataBusyError();
+  return handleOf(effectiveNavdataSource());
 }
 
 export function isNavdataBusy(): boolean {
   return busy;
 }
 
+/** Checkpoints and closes both replica handles. */
 export function closeNavDb(): void {
-  if (navDb && navDb.open) checkpointAndClose(navDb);
-  navDb = null;
+  closeSlot('mcdu');
+  closeSlot('lnm');
 }
 
 function discardIncoming(incomingPath: string): void {
@@ -131,14 +233,22 @@ function discardIncoming(incomingPath: string): void {
 }
 
 /**
- * Replaces the live replica with a fully built incoming file. `verify` runs on
- * a read-only handle of the checkpointed incoming file and throws to abort;
- * the live file is untouched on an abort. Synchronous: no request runs between
+ * Replaces one replica with a fully built incoming file. `verify` runs on a
+ * read-only handle of the checkpointed incoming file and throws to abort; the
+ * live file is untouched on an abort. Synchronous: no request runs between
  * marking busy and reopening.
+ *
+ * If the rename itself fails the target was not replaced, so the old file is
+ * reopened and keeps being served (no retry: waiting here would block the event
+ * loop while busy). Only a failure after a successful rename leaves the slot
+ * empty.
  */
-export function swapInReplica(incomingPath: string, verify?: (incoming: Database.Database) => void): void {
-  const target = resolveNavdataPath();
-
+function swapInto(
+  target: string,
+  slot: Slot,
+  incomingPath: string,
+  verify?: (incoming: Database.Database) => void,
+): void {
   try {
     const built = new Database(incomingPath);
     checkpointAndClose(built);
@@ -164,20 +274,44 @@ export function swapInReplica(incomingPath: string, verify?: (incoming: Database
     throw err;
   }
 
+  let renameFailure: { err: unknown } | null = null;
   busy = true;
   try {
-    closeNavDb();
+    closeSlot(slot);
     unlinkQuiet(`${target}-wal`);
     unlinkQuiet(`${target}-shm`);
-    fs.renameSync(incomingPath, target);
-    navDb = openAndCheck(target);
+    try {
+      fs.renameSync(incomingPath, target);
+    } catch (err) {
+      renameFailure = { err };
+    }
+    if (renameFailure) {
+      setHandle(slot, fs.existsSync(target) ? openAndCheck(target) : null);
+      console.error(`navdata: swap failed, ${path.basename(target)} was not replaced: ${errorLabel(renameFailure.err)}`);
+      discardIncoming(incomingPath);
+    } else {
+      setHandle(slot, openAndCheck(target));
+    }
   } catch (err) {
-    console.error(`navdata: swap failed, replica is absent: ${(err as Error).message}`);
-    if (navDb && navDb.open) navDb.close();
-    navDb = null;
+    console.error(`navdata: swap failed, ${path.basename(target)} is absent: ${errorLabel(err)}`);
+    releaseSlot(slot);
     discardIncoming(incomingPath);
     throw err;
   } finally {
     busy = false;
   }
+  if (renameFailure) throw renameFailure.err;
+}
+
+/**
+ * Replaces the simulator replica with an incoming file built beside it. The
+ * only function that may write navdata.db, and only the sidecar import calls it.
+ */
+export function swapInReplica(incomingPath: string, verify?: (incoming: Database.Database) => void): void {
+  swapInto(resolveNavdataPath(), 'mcdu', incomingPath, verify);
+}
+
+/** Replaces the Little Navmap replica; the same algorithm, closing and reopening only its own handle. */
+export function swapInLnmReplica(incomingPath: string, verify?: (incoming: Database.Database) => void): void {
+  swapInto(resolveLnmNavdataPath(), 'lnm', incomingPath, verify);
 }

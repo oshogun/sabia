@@ -5,9 +5,11 @@ import { Button, Checkbox, InlineLoading, Layer, Tile } from '@carbon/react';
 import { NavdataLayers, NavdataPanes, type NavdataVisibility } from './NavdataLayers';
 import { useNavdataStatus } from '../../hooks/useNavdataStatus';
 import { useNavdataFeatures, type NavdataFeaturesState } from '../../hooks/useNavdataFeatures';
-import { requestNavdata, type NavdataKind } from '../../utils/navdataApi';
+import { requestNavdata, validityText, type NavdataKind } from '../../utils/navdataApi';
 import './navdata/navdata.scss';
-import type { FeaturesResponse, NavdataRequestResponse, NavdataStatusResponse } from '../../types';
+import type {
+  FeaturesResponse, NavdataDataset, NavdataRequestResponse, NavdataSource, NavdataStatusResponse,
+} from '../../types';
 
 const KINDS: { kind: NavdataKind; label: string }[] = [
   { kind: 'airports', label: 'Airports' },
@@ -111,6 +113,10 @@ export function NavdataControls({ status, visible, onToggle, features, anchor }:
       <Layer>
         <Tile className="navdata-panel__tile">
           <div className="navdata-panel__title">Navdata</div>
+          {status.dataset && <div className="navdata-panel__muted">{datasetLine(status.source, status.dataset)}</div>}
+          {status.dataset?.expired === true && (
+            <div className="navdata-panel__error" role="alert">Expired AIRAC — not for navigation</div>
+          )}
           {KINDS.map(({ kind, label }) => {
             const gated = data?.gated.includes(kind) === true;
             return (
@@ -165,6 +171,11 @@ export function NavdataControls({ status, visible, onToggle, features, anchor }:
       </Layer>
     </div>
   );
+}
+
+function datasetLine(source: NavdataSource, d: NavdataDataset): string {
+  const text = `${d.label}${validityText(d)}`;
+  return source === 'lnm' ? `Little Navmap · ${text}` : text;
 }
 
 function dist(a: { lat: number; lon: number }, anchor?: [number, number] | null): number {

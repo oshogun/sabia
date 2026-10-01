@@ -17,6 +17,15 @@ import { closeNavDb, getNavDb, openNavdata, resolveNavdataPath } from '../src/na
 import { upsertNavdataRequest } from '../src/db/navdataRequests';
 import { createScratchDb, destroyScratchDb, type ScratchDb } from './helpers/db';
 import { scratchDbRoot } from './helpers/scratchRoot';
+import { createSettingsRouter } from '../src/routes/settings';
+import { getLnmNavDb, resolveLnmNavdataPath, setSelectedNavdataSource } from '../src/navdata/connection';
+import { LNM_DATASET_DDL } from '../src/navdata/dataset';
+import { applyNavdataSchema } from '../src/navdata/schema';
+import { getSetting } from '../src/db/settings';
+import { listNavdataRequests } from '../src/db/navdataRequests';
+import { createHash } from 'crypto';
+import { createRouteGeometryRouter } from '../src/routes/navdataRouteGeometry';
+import { seedPlannedLeg } from './helpers/db';
 
 const TOKEN = 'test-ingest-token';
 const savedEnv = process.env.NAVDATA_DB_PATH;
@@ -479,5 +488,212 @@ describe('onDemandChanged — POST /navdata/request', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ state: 'already-present' });
     expect(onDemandChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('browser reads follow the selected source', () => {
+  let appServer: Server;
+  let appBase: string;
+  let onDemandChanged: ReturnType<typeof vi.fn<() => void>>;
+  let onSourceChanged: ReturnType<typeof vi.fn<() => void>>;
+
+  /** A replica holding the named airports, each already marked as fully fetched. */
+  function buildFile(file: string, snapshotId: string, idents: string[], lnm = false): void {
+    for (const suffix of ['', '-wal', '-shm']) fs.rmSync(file + suffix, { force: true });
+    const db = new Database(file);
+    db.pragma('journal_mode = WAL');
+    applyNavdataSchema(db);
+    db.prepare(
+      "INSERT INTO nav_meta (id, schema_version, snapshot_id, sim_id, created_at, updated_at) VALUES (1, 2, ?, '2024', 1, 1)",
+    ).run(snapshotId);
+    idents.forEach((ident, i) => {
+      db.prepare(
+        "INSERT INTO nav_airport (ident, lat, lon, name, detail_state, rev) VALUES (?, ?, ?, ?, 'detail', 1)",
+      ).run(ident, 10 + i, 20 + i, `Field ${ident}`);
+    });
+    if (lnm) {
+      db.exec(LNM_DATASET_DDL);
+      db.prepare(
+        `INSERT INTO lnm_dataset (id, snapshot_id, data_source, source_file_name, source_bytes, imported_at, label)
+         VALUES (1, ?, 'MSFS', 'synthetic.sqlite', 1, 1, 'Synthetic dataset')`,
+      ).run(snapshotId);
+    }
+    db.close();
+  }
+
+  const fileSha = (file: string): string => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const getJson = async (p: string): Promise<any> => (await fetch(`${appBase}${p}`)).json();
+  const put = (source: unknown) =>
+    fetch(`${appBase}/api/settings/navdata-source`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source }),
+    });
+  const airportIdents = async (): Promise<string[]> =>
+    ((await getJson('/api/navdata/features?bbox=-180,-90,180,90&zoom=6&kinds=airports')).airports as { ident: string }[])
+      .map(a => a.ident).sort();
+  const demand = () => fetch(`${appBase}/api/navdata/demand`, { headers: { 'x-ingest-token': TOKEN } });
+  const request = (body: unknown) =>
+    fetch(`${appBase}/api/navdata/request`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+  beforeEach(async () => {
+    buildFile(resolveNavdataPath(), 'mcdu-snap', ['ZZAA', 'ZZAB']);
+    buildFile(resolveLnmNavdataPath(), 'lnm-snap', ['LLAA', 'LLAB', 'LLAC'], true);
+    openNavdata();
+    onDemandChanged = vi.fn<() => void>();
+    onSourceChanged = vi.fn<() => void>();
+    const app = express();
+    app.use('/api/navdata/rows', express.json({ limit: '4mb' }));
+    app.use(express.json());
+    app.use('/api/navdata', createNavdataSyncRouter({ token: TOKEN, allowUnauthenticated: false }, state));
+    app.use('/api', createSettingsRouter({ token: null, allowUnauthenticated: false }, { token: null, enabled: false }, onSourceChanged));
+    app.use('/api', createNavdataRouter(state, onDemandChanged));
+    app.use('/api', createRouteGeometryRouter());
+    await new Promise<void>(resolve => { appServer = app.listen(0, '127.0.0.1', resolve); });
+    appBase = `http://127.0.0.1:${(appServer.address() as { port: number }).port}`;
+  });
+
+  afterEach(async () => {
+    setSelectedNavdataSource('mcdu');
+    await new Promise<void>(resolve => appServer.close(() => resolve()));
+  });
+
+  it('swaps the handle read by features and status when the source changes, with no restart', async () => {
+    expect(await airportIdents()).toEqual(['ZZAA', 'ZZAB']);
+    expect((await getJson('/api/navdata/status')).snapshotId).toBe('mcdu-snap');
+
+    expect((await put('lnm')).status).toBe(200);
+    expect(await airportIdents()).toEqual(['LLAA', 'LLAB', 'LLAC']);
+    const status = await getJson('/api/navdata/status');
+    expect(status).toMatchObject({ present: true, snapshotId: 'lnm-snap', counts: { airports: 3 } });
+    expect((await getJson('/api/navdata/airports/LLAB')).ident).toBe('LLAB');
+    expect((await fetch(`${appBase}/api/navdata/airports/ZZAA`)).status).toBe(404);
+
+    expect((await put('mcdu')).status).toBe(200);
+    expect(await airportIdents()).toEqual(['ZZAA', 'ZZAB']);
+    expect((await getJson('/api/navdata/status')).snapshotId).toBe('mcdu-snap');
+    expect((await fetch(`${appBase}/api/navdata/airports/LLAB`)).status).toBe(404);
+    expect(onSourceChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it('a sidecar snapshot while the Little Navmap data is shown replaces only the simulator file', async () => {
+    expect((await put('lnm')).status).toBe(200);
+    const lnmBefore = fileSha(resolveLnmNavdataPath());
+
+    const res = await fetch(`${appBase}/api/navdata/snapshot`, {
+      method: 'POST', headers: { 'x-ingest-token': TOKEN },
+      body: (() => {
+        const form = new FormData();
+        form.append('navdataSnapshot', new Blob([fs.readFileSync(snapshotFile('s-new'))], { type: 'application/gzip' }), 's-new.gz');
+        return form;
+      })(),
+    });
+    expect(res.status).toBe(200);
+
+    const mcdu = new Database(resolveNavdataPath(), { readonly: true });
+    expect((mcdu.prepare('SELECT snapshot_id AS s FROM nav_meta').get() as { s: string }).s).toBe('s-new');
+    mcdu.close();
+    expect(fileSha(resolveLnmNavdataPath())).toBe(lnmBefore);
+    expect(getLnmNavDb()!.prepare('SELECT snapshot_id AS s FROM nav_meta').get()).toEqual({ s: 'lnm-snap' });
+
+    // The shown data and the selection are untouched.
+    expect(await airportIdents()).toEqual(['LLAA', 'LLAB', 'LLAC']);
+    expect(await getJson('/api/settings/navdata-source')).toMatchObject({ selected: 'lnm', effective: 'lnm' });
+    expect(getSetting('navdata_source')).toBe('lnm');
+  });
+
+  it('rejects selecting Little Navmap data that was never imported, and keeps the stored choice', async () => {
+    for (const suffix of ['', '-wal', '-shm']) fs.rmSync(resolveLnmNavdataPath() + suffix, { force: true });
+    openNavdata();
+    const res = await put('lnm');
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'No Little Navmap data has been imported', code: 'LNM_NOT_AVAILABLE' });
+    expect(getSetting('navdata_source')).toBeNull();
+    expect(await getJson('/api/settings/navdata-source')).toMatchObject({
+      selected: 'mcdu', effective: 'mcdu', fallback: null, lnm: { present: false, dataset: null },
+    });
+    expect(onSourceChanged).not.toHaveBeenCalled();
+  });
+
+  it('rejects a source other than mcdu or lnm with 400 INVALID_SOURCE', async () => {
+    for (const body of ['MCDU', '', null, 1, ['lnm'], { source: 'lnm' }, undefined]) {
+      const res = await put(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await res.json()).toEqual({ error: "source must be 'mcdu' or 'lnm'", code: 'INVALID_SOURCE' });
+    }
+    const noBody = await fetch(`${appBase}/api/settings/navdata-source`, { method: 'PUT' });
+    expect(noBody.status).toBe(400);
+    expect(getSetting('navdata_source')).toBeNull();
+    expect(onSourceChanged).not.toHaveBeenCalled();
+  });
+
+  it('answers from the simulator replica when Little Navmap data is selected but missing, without rewriting the choice', async () => {
+    expect((await put('lnm')).status).toBe(200);
+    for (const suffix of ['', '-wal', '-shm']) fs.rmSync(resolveLnmNavdataPath() + suffix, { force: true });
+    openNavdata();
+    expect(await airportIdents()).toEqual(['ZZAA', 'ZZAB']);
+    expect(await getJson('/api/settings/navdata-source')).toMatchObject({
+      selected: 'lnm', effective: 'mcdu', fallback: 'lnm-unavailable', lnm: { present: false },
+    });
+    expect(getSetting('navdata_source')).toBe('lnm');
+  });
+
+  it('reports both datasets from the one reader', async () => {
+    const body = await getJson('/api/settings/navdata-source');
+    expect(body).toMatchObject({
+      selected: 'mcdu', effective: 'mcdu', fallback: null, importDir: dir,
+      mcdu: { present: true, dataset: { source: 'mcdu', label: 'Simulator', importedAt: 1 } },
+      lnm: { present: true, dataset: { source: 'lnm', label: 'Synthetic dataset', provider: 'MSFS' } },
+    });
+  });
+
+  it('stops demand while Little Navmap data is shown, keeps the queued requests, and resumes on switch back', async () => {
+    upsertNavdataRequest('A', 'ZZREQ', null, new Date());
+    expect(((await (await demand()).json()) as any).airports).toEqual(['ZZREQ']);
+
+    expect((await put('lnm')).status).toBe(200);
+    const paused = await demand();
+    expect(paused.status).toBe(200);
+    expect(await paused.json()).toMatchObject({ v: 1, airports: [], waypoints: [], cap: 50, more: false });
+    // The skip list is still validated, and the token is still required.
+    expect((await fetch(`${appBase}/api/navdata/demand?skipAirports=ZZ-AA`, { headers: { 'x-ingest-token': TOKEN } })).status).toBe(400);
+    expect((await fetch(`${appBase}/api/navdata/demand`)).status).toBe(401);
+    expect(listNavdataRequests().map(r => r.ident)).toEqual(['ZZREQ']);
+
+    expect((await put('mcdu')).status).toBe(200);
+    expect(((await (await demand()).json()) as any).airports).toEqual(['ZZREQ']);
+  });
+
+  it('answers a manual request from the complete dataset and queues nothing while Little Navmap data is shown', async () => {
+    expect((await put('lnm')).status).toBe(200);
+    onDemandChanged.mockClear();
+
+    const held = await request({ kind: 'A', ident: 'LLAA' });
+    expect(await held.json()).toMatchObject({ ok: true, state: 'already-present', ident: 'LLAA' });
+    const absent = await request({ kind: 'A', ident: 'ZZNEW', force: true });
+    expect(await absent.json()).toMatchObject({ ok: true, state: 'known-absent', ident: 'ZZNEW' });
+    const heldForced = await request({ kind: 'A', ident: 'LLAB', force: true });
+    expect(await heldForced.json()).toMatchObject({ state: 'already-present' });
+    expect(listNavdataRequests()).toEqual([]);
+    expect(onDemandChanged).not.toHaveBeenCalled();
+
+    expect((await put('mcdu')).status).toBe(200);
+    const queued = await request({ kind: 'A', ident: 'ZZNEW' });
+    expect(await queued.json()).toMatchObject({ state: 'queued' });
+    expect(listNavdataRequests().map(r => r.ident)).toEqual(['ZZNEW']);
+    expect(onDemandChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves a planned leg against the replica that is shown', async () => {
+    const legId = seedPlannedLeg(scratch.db, { trip_id: null, departure_ident: 'ZZAA', departure_lat: 10, departure_lon: 20 });
+    scratch.db.prepare("UPDATE planned_legs SET sid_name = 'ALPHA1' WHERE id = ?").run(legId);
+    const unresolved = async () => (await getJson(`/api/planned-legs/${legId}/route-geometry`)).unresolved;
+
+    // ZZAA is fetched in the simulator replica and absent from the Little Navmap one.
+    expect(await unresolved()).toEqual([{ kind: 'sid', name: 'ALPHA1', reason: 'procedure not in cache' }]);
+    expect((await put('lnm')).status).toBe(200);
+    expect(await unresolved()).toEqual([{ kind: 'sid', name: 'ALPHA1', reason: 'airport detail not fetched' }]);
+    expect((await put('mcdu')).status).toBe(200);
+    expect(await unresolved()).toEqual([{ kind: 'sid', name: 'ALPHA1', reason: 'procedure not in cache' }]);
   });
 });

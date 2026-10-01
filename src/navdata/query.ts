@@ -12,6 +12,8 @@ import {
   AIRPORT_TIER_BY_CODE, AIRPORT_TIER_LAST_CODE, AIRPORT_TIER_ZOOM_MIN,
   airportTierFloor, airportTierMapSize, airportTierOf, chooseAirportTier, ensureAirportTierTable,
 } from './airportTiers';
+import { readNavdataDataset, type NavdataSource } from './dataset';
+import { navdataWriteGeneration } from './store';
 import type {
   AirportDetailResponse, AirportProcedureSummary, AirportSurface, AirportThinning, AirportTier, FeatureAirport,
   FeatureAirwayLeg, FeatureCoverage, FeatureCoverageKind, FeatureNavaid, FeatureRunway, FeatureWaypoint,
@@ -108,14 +110,69 @@ function emptyCoverageKind(): FeatureCoverageKind {
   return { harvestedCells: 0, fraction: 0, oldestHarvestAt: null, newestHarvestAt: null };
 }
 
-function coverageFor(nav: Database.Database | null, bbox: Bbox): FeatureCoverage {
+type CoverageKindCode = 'V' | 'N' | 'W';
+
+// What a complete replica (a Little Navmap import) looks like in nav_coverage_cell:
+// every cell of every kind, all harvested at one instant. The probe is one pass
+// over the table per handle and write generation; an import is never written to
+// after its swap, so it runs once there. A replica that is not uniformly full
+// (the sparse simulator replica) is remembered as null and always takes the
+// bbox query.
+const uniformCoverage = new WeakMap<
+  Database.Database,
+  { generation: number; harvestedAt: Record<CoverageKindCode, number> | null }
+>();
+
+function uniformFullCoverage(nav: Database.Database): Record<CoverageKindCode, number> | null {
+  const generation = navdataWriteGeneration();
+  const hit = uniformCoverage.get(nav);
+  if (hit && hit.generation === generation) return hit.harvestedAt;
+  const rows = nav.prepare(
+    'SELECT kind, COUNT(*) AS cells, MIN(harvested_at) AS oldest, MAX(harvested_at) AS newest FROM nav_coverage_cell GROUP BY kind',
+  ).all() as { kind: string; cells: number; oldest: number; newest: number }[];
+  const found: Partial<Record<CoverageKindCode, number>> = {};
+  for (const r of rows) {
+    if ((r.kind === 'V' || r.kind === 'N' || r.kind === 'W') && r.cells === COVERAGE_MAX_CELLS && r.oldest === r.newest) {
+      found[r.kind] = r.oldest;
+    }
+  }
+  const harvestedAt = found.V !== undefined && found.N !== undefined && found.W !== undefined
+    ? { V: found.V, N: found.N, W: found.W }
+    : null;
+  uniformCoverage.set(nav, { generation, harvestedAt });
+  return harvestedAt;
+}
+
+/** Whether no two of the longitude column ranges share a column (they can when a box crosses the antimeridian within one cell). */
+function columnsDisjoint(cols: LonRange[]): boolean {
+  const sorted = [...cols].sort((a, b) => a[0] - b[0]);
+  return sorted.every((c, i) => i === 0 || c[0] > sorted[i - 1][1]);
+}
+
+/**
+ * Harvest coverage inside a bbox. `fastPath: false` forces the bbox query, which
+ * is what the shortcut must agree with.
+ */
+export function coverageFor(nav: Database.Database | null, bbox: Bbox, fastPath = true): FeatureCoverage {
   const total = totalCells(bbox);
   const byKind: FeatureCoverage['byKind'] = { V: emptyCoverageKind(), N: emptyCoverageKind(), W: emptyCoverageKind() };
   let airportsComplete = false;
   if (nav) {
     const [w, s, e, n] = bbox;
     const cols = lonRanges(w, e).map(([lo, hi]): LonRange => [cellCol(lo), cellCol(hi)]);
-    if (cols.length > 0) {
+    const full = fastPath && cols.length > 0 && columnsDisjoint(cols) ? uniformFullCoverage(nav) : null;
+    if (full) {
+      // Every cell exists and shares one harvest time, so the bbox query would
+      // count exactly the cells of the box and report that time as both ends.
+      for (const kind of ['V', 'N', 'W'] as const) {
+        byKind[kind] = {
+          harvestedCells: total,
+          fraction: total === 0 ? 0 : 1,
+          oldestHarvestAt: full[kind],
+          newestHarvestAt: full[kind],
+        };
+      }
+    } else if (cols.length > 0) {
       const minCell = cellRow(s) * CELL_COLS + Math.min(...cols.map(c => c[0]));
       const maxCell = cellRow(n) * CELL_COLS + Math.max(...cols.map(c => c[1]));
       const colClause = cols.map(() => '(cell_id % 720) BETWEEN ? AND ?').join(' OR ');
@@ -449,16 +506,35 @@ function runwayFeature(r: Record<string, any>): FeatureRunway {
 
 // ── status ────────────────────────────────────────────────────────────────────
 
+export interface StatusSource {
+  /** The source that answered. */
+  source: NavdataSource;
+  /** The stored choice. */
+  selectedSource: NavdataSource;
+}
+
+/**
+ * `sidecar` and `lastRowsAt` always describe the simulator feed, which keeps
+ * syncing while Little Navmap data is shown. `src` names the source behind
+ * `nav`; `now` decides the dataset's expiry.
+ */
 export function readStatus(
   nav: Database.Database | null,
   sidecar: SidecarStateRecord | null,
   lastRowsAt: number | null,
+  src: StatusSource = { source: 'mcdu', selectedSource: 'mcdu' },
+  now: number = Date.now(),
 ): NavdataStatusResponse {
   const sidecarOut = sidecar ? { state: sidecar.state, reason: sidecar.reason } : null;
+  const sourceFields = {
+    source: src.source,
+    selectedSource: src.selectedSource,
+    sourceFallback: src.selectedSource === 'lnm' && src.source === 'mcdu' ? 'lnm-unavailable' as const : null,
+  };
   const absent: NavdataStatusResponse = {
     present: false, schemaVersion: null, snapshotId: null, rev: null, simId: null,
     simAppName: null, simAppVersion: null, snapshotAppliedAt: null, lastRowsAt: null,
-    counts: null, sidecar: sidecarOut,
+    counts: null, sidecar: sidecarOut, ...sourceFields, dataset: null,
   };
   if (!nav) return absent;
   const meta = nav.prepare(
@@ -489,6 +565,8 @@ export function readStatus(
       absent: count('SELECT COUNT(*) AS c FROM nav_absent'),
     },
     sidecar: sidecarOut,
+    ...sourceFields,
+    dataset: readNavdataDataset(nav, src.source, now),
   };
 }
 
@@ -594,12 +672,28 @@ function isHeld(nav: Database.Database, req: ParsedRequest): boolean {
   );
 }
 
+export interface SubmitRequestOptions {
+  /** The replica is a complete dataset (a Little Navmap import): there is nothing
+   *  the sidecar could fetch, so the answer comes from the replica alone and
+   *  nothing is queued. */
+  completeDataset?: boolean;
+}
+
 /**
  * Answers a manual request: a recorded absence wins over a held row (it is the
  * more specific fact), and either short-circuits unless force is set. Only
- * "queued" writes anything, and it writes flights.db, never the replica.
+ * "queued" writes anything, and it writes flights.db, never the replica. On a
+ * complete dataset nothing is ever queued and force is ignored: a held row is
+ * "already-present", anything else is "known-absent".
  */
-export function submitRequest(nav: Database.Database | null, req: ParsedRequest): NavdataRequestResponse {
+export function submitRequest(
+  nav: Database.Database | null,
+  req: ParsedRequest,
+  options: SubmitRequestOptions = {},
+): NavdataRequestResponse {
+  if (options.completeDataset) {
+    return { ok: true, state: nav && isHeld(nav, req) ? 'already-present' : 'known-absent', ident: req.ident };
+  }
   if (nav && !req.force) {
     if (isAbsent(nav, req)) return { ok: true, state: 'known-absent', ident: req.ident };
     if (isHeld(nav, req)) return { ok: true, state: 'already-present', ident: req.ident };

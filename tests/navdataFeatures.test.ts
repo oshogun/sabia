@@ -20,6 +20,9 @@ import { listNavdataRequests } from '../src/db/navdataRequests';
 import { applyNavRows } from '../src/navdata/store';
 import { createScratchDb, destroyScratchDb, type ScratchDb } from './helpers/db';
 import { scratchDbRoot } from './helpers/scratchRoot';
+import { coverageFor, queryFeatures } from '../src/navdata/query';
+import { navdataWriteGeneration, setNavMetaRev } from '../src/navdata/store';
+import { afterAll, beforeAll, vi } from 'vitest';
 
 const savedEnv = process.env.NAVDATA_DB_PATH;
 
@@ -491,5 +494,160 @@ describe('an airport the simulator does not have, sent with no coordinates', () 
     buildReplica(db => { applyNavRows(db, [ABSENT_ROWS[0]] as any); });
     expect(await (await post({ kind: 'A', ident: 'ZZAB' })).json()).toMatchObject({ state: 'known-absent' });
     expect(listNavdataRequests().some(r => r.ident === 'ZZAB')).toBe(false);
+  });
+});
+
+describe('coverage fast path on a uniformly full grid', () => {
+  const KINDS = ['V', 'N', 'W'] as const;
+  const HARVESTED = { V: 1_000, N: 2_000, W: 3_000 };
+  const WORLD: [number, number, number, number] = [-180, -90, 180, 90];
+  type Result = ReturnType<typeof coverageFor>;
+
+  // One 777,600-cell grid for the whole block: building it dominates the cost.
+  // Tests that change a cell put it back and bump the write generation the way
+  // the store does, so the shared handle is whole again for the next test.
+  let grid: Database.Database;
+  let rev = 1;
+
+  beforeAll(() => {
+    grid = new Database(':memory:');
+    applyNavdataSchema(grid);
+    insert(grid, 'nav_meta', { id: 1, schema_version: 2, snapshot_id: 'grid', rev, sim_id: '2024', bulk_completed_at: 5, created_at: 1, updated_at: 2 });
+    for (const kind of KINDS) {
+      grid.prepare(
+        `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 259199)
+         INSERT INTO nav_coverage_cell (kind, cell_id, harvested_at, rev) SELECT ?, i, ?, 1 FROM n`,
+      ).run(kind, HARVESTED[kind]);
+    }
+  });
+
+  afterAll(() => {
+    grid.close();
+  });
+
+  /** Writes to the shared grid, then bumps the generation as a store write would. */
+  function written(change: () => void): void {
+    change();
+    setNavMetaRev(grid, ++rev, rev);
+  }
+
+  /** The SQL prepared on the handle while `body` ran. */
+  function prepares(db: Database.Database, body: () => void): string[] {
+    const spy = vi.spyOn(db, 'prepare');
+    try {
+      body();
+      return spy.mock.calls.map(c => String(c[0]));
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  /** How many bbox queries ran on the handle while `body` ran. */
+  const bboxQueries = (db: Database.Database, body: () => void): number =>
+    prepares(db, body).filter(sql => sql.includes('cell_id BETWEEN')).length;
+
+  const BOXES: Record<string, [number, number, number, number]> = {
+    world: WORLD,
+    antimeridian: [170, -10, -170, 10],
+    ordinary: [-10, -5, 20, 15],
+    'one cell': [10.1, 20.1, 10.4, 20.4],
+    polar: [-180, 80, 180, 90],
+    'southern band': [-180, -90, 180, -80],
+  };
+
+  it('returns exactly what the bbox query returns, byte for byte', () => {
+    for (const [name, bbox] of Object.entries(BOXES)) {
+      const fast = JSON.stringify(coverageFor(grid, bbox));
+      const full = JSON.stringify(coverageFor(grid, bbox, false));
+      expect(fast, name).toBe(full);
+    }
+    const world = coverageFor(grid, WORLD);
+    expect(world.totalCells).toBe(259_200);
+    expect(world.byKind).toEqual({
+      V: { harvestedCells: 259_200, fraction: 1, oldestHarvestAt: 1_000, newestHarvestAt: 1_000 },
+      N: { harvestedCells: 259_200, fraction: 1, oldestHarvestAt: 2_000, newestHarvestAt: 2_000 },
+      W: { harvestedCells: 259_200, fraction: 1, oldestHarvestAt: 3_000, newestHarvestAt: 3_000 },
+    });
+    expect(world.airportsComplete).toBe(true);
+  });
+
+  it('is what queryFeatures reports, with no bbox query at all', () => {
+    for (const [name, bbox] of Object.entries(BOXES)) {
+      let body: ReturnType<typeof queryFeatures> | undefined;
+      const queries = bboxQueries(grid, () => { body = queryFeatures(grid, { bbox, zoom: 2, kinds: ['airways'], limit: 10 }); });
+      expect(queries, name).toBe(0);
+      expect(JSON.stringify(body!.coverage), name).toBe(JSON.stringify(coverageFor(grid, bbox, false)));
+    }
+  });
+
+  it('is not taken when a cell is missing, and the answer reflects it', () => {
+    written(() => grid.prepare("DELETE FROM nav_coverage_cell WHERE kind = 'W' AND cell_id = 100000").run());
+    try {
+      let result: Result | undefined;
+      expect(bboxQueries(grid, () => { result = coverageFor(grid, WORLD); })).toBe(1);
+      expect(result!.byKind.V.harvestedCells).toBe(259_200);
+      expect(result!.byKind.W).toMatchObject({ harvestedCells: 259_199, oldestHarvestAt: 3_000, newestHarvestAt: 3_000 });
+      expect(result!.byKind.W.fraction).toBeCloseTo(259_199 / 259_200, 12);
+    } finally {
+      written(() => grid.prepare(
+        "INSERT INTO nav_coverage_cell (kind, cell_id, harvested_at, rev) VALUES ('W', 100000, 3000, 1)",
+      ).run());
+    }
+    expect(bboxQueries(grid, () => { coverageFor(grid, WORLD); })).toBe(0);
+  });
+
+  it('is not taken when the cells were harvested at different times', () => {
+    written(() => grid.prepare("UPDATE nav_coverage_cell SET harvested_at = 9 WHERE kind = 'N' AND cell_id = 5").run());
+    try {
+      let result: Result | undefined;
+      expect(bboxQueries(grid, () => { result = coverageFor(grid, WORLD); })).toBe(1);
+      expect(result!.byKind.N).toMatchObject({ harvestedCells: 259_200, oldestHarvestAt: 9, newestHarvestAt: 2_000 });
+      // A box that leaves the odd cell out still reads one time; it just costs the query.
+      expect(coverageFor(grid, BOXES.antimeridian).byKind.N).toMatchObject({ oldestHarvestAt: 2_000, newestHarvestAt: 2_000 });
+    } finally {
+      written(() => grid.prepare("UPDATE nav_coverage_cell SET harvested_at = 2000 WHERE kind = 'N' AND cell_id = 5").run());
+    }
+    expect(bboxQueries(grid, () => { coverageFor(grid, WORLD); })).toBe(0);
+  });
+
+  it('is not taken on a sparse or empty replica, and leaves their answers as they were', () => {
+    const sparse = new Database(':memory:');
+    applyNavdataSchema(sparse);
+    insert(sparse, 'nav_coverage_cell', { kind: 'V', cell_id: 1000, harvested_at: 7, rev: 1 });
+    let result: Result | undefined;
+    expect(bboxQueries(sparse, () => { result = coverageFor(sparse, WORLD); })).toBe(1);
+    expect(result!.byKind.V).toMatchObject({ harvestedCells: 1, oldestHarvestAt: 7, newestHarvestAt: 7 });
+    expect(result!.byKind.N).toEqual({ harvestedCells: 0, fraction: 0, oldestHarvestAt: null, newestHarvestAt: null });
+    const empty = new Database(':memory:');
+    applyNavdataSchema(empty);
+    expect(bboxQueries(empty, () => { coverageFor(empty, WORLD); })).toBe(1);
+    // Each handle has its own verdict: the full grid is still shortcut afterwards.
+    expect(bboxQueries(grid, () => { coverageFor(grid, WORLD); })).toBe(0);
+  });
+
+  it('keeps the bbox query for an antimeridian box that overlaps itself within one cell, and for a zero-width box', () => {
+    // 0.2 to 0.1 wraps the antimeridian yet both ends sit in the same half-degree column, so
+    // totalCells counts that column twice and the query once: the shortcut would disagree.
+    const wrapped: [number, number, number, number] = [0.2, 0, 0.1, 10];
+    let wrappedResult: Result | undefined;
+    expect(bboxQueries(grid, () => { wrappedResult = coverageFor(grid, wrapped); })).toBe(1);
+    expect(JSON.stringify(wrappedResult)).toBe(JSON.stringify(coverageFor(grid, wrapped, false)));
+    expect(wrappedResult!.byKind.V.harvestedCells).toBe(21 * 720);
+    expect(wrappedResult!.byKind.V.fraction).toBeLessThan(1);
+
+    const zero: [number, number, number, number] = [10, 0, 10, 5];
+    expect(JSON.stringify(coverageFor(grid, zero))).toBe(JSON.stringify(coverageFor(grid, zero, false)));
+    expect(coverageFor(grid, zero).byKind.V).toEqual({ harvestedCells: 0, fraction: 0, oldestHarvestAt: null, newestHarvestAt: null });
+  });
+
+  it('probes once per write generation, not once per request', () => {
+    const probes = (body: () => void): number =>
+      prepares(grid, body).filter(sql => sql.includes('FROM nav_coverage_cell GROUP BY kind')).length;
+    coverageFor(grid, WORLD);
+    expect(probes(() => { coverageFor(grid, WORLD); coverageFor(grid, BOXES.ordinary); })).toBe(0);
+    const before = navdataWriteGeneration();
+    written(() => {});
+    expect(navdataWriteGeneration()).toBe(before + 1);
+    expect(probes(() => { coverageFor(grid, WORLD); coverageFor(grid, BOXES.ordinary); })).toBe(1);
   });
 });

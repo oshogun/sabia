@@ -6,6 +6,7 @@
 import type Database from 'better-sqlite3';
 import { haversineNm } from '../geo';
 import type { PlannedLegWithChildren, PlannedWaypoint } from '../types';
+import { ARINC_LETTER_TYPE, PLAN_APPROACH_TYPE_NAME } from './approachTypes';
 import { parseRunway, wptKey } from './keys';
 import {
   customApproachOffsetDeg,
@@ -154,8 +155,8 @@ function addUnresolved(acc: Accumulator, kind: UnresolvedKind, name: string, rea
 interface Resolved { key: string; lat: number; lon: number }
 
 /** Candidate nearest `near`; an exact distance tie goes to the smaller key. */
-function pickNearest(cands: Resolved[], near: { lat: number; lon: number }): Resolved | null {
-  let best: Resolved | null = null;
+function pickNearest<T extends Resolved>(cands: T[], near: { lat: number; lon: number }): T | null {
+  let best: T | null = null;
   let bestD = Infinity;
   for (const c of cands) {
     const d = haversineNm(near.lat, near.lon, c.lat, c.lon);
@@ -178,21 +179,64 @@ function prepared(db: Database.Database, sql: string): Database.Statement {
   return stmt;
 }
 
-function lookupCandidates(db: Database.Database, wp: PlannedWaypoint): Resolved[] {
+/** A planned waypoint's possible replica rows; `navaid` marks a nav_navaid row, not a nav_waypoint one. */
+interface Candidate extends Resolved { navaid: boolean }
+
+const TOLERANCE_NM = PLANNED_POSITION_TOLERANCE_M / NM_M;
+
+/**
+ * Every fix and navaid the plan's ident can stand for. When the plan gives a
+ * region, that region's rows of both tables are the candidates, so a VFR/RNAV
+ * waypoint that shares an ident with an airway VOR or NDB cannot hide the
+ * navaid; with no region, or no row in it, every row with the ident is.
+ */
+function lookupCandidates(db: Database.Database, wp: PlannedWaypoint): Candidate[] {
   const region = (wp.region ?? '').trim();
   type WRow = { wpt_key: string; lat: number; lon: number };
+  type NRow = { ident: string; region: string; lat: number; lon: number };
+  const waypoint = (r: WRow): Candidate => ({ key: r.wpt_key, lat: r.lat, lon: r.lon, navaid: false });
+  const navaid = (r: NRow): Candidate => ({ key: wptKey(r.ident, r.region, r.lat, r.lon), lat: r.lat, lon: r.lon, navaid: true });
   if (region) {
-    const exact = prepared(db, 'SELECT wpt_key, lat, lon FROM nav_waypoint WHERE ident = ? AND region = ?')
+    const wpts = prepared(db, 'SELECT wpt_key, lat, lon FROM nav_waypoint WHERE ident = ? AND region = ?')
       .all(wp.ident, region) as WRow[];
-    if (exact.length) return exact.map((r) => ({ key: r.wpt_key, lat: r.lat, lon: r.lon }));
+    const navaids = prepared(
+      db,
+      'SELECT ident, region, lat, lon FROM nav_navaid WHERE region = ? AND ident = ? AND lat IS NOT NULL AND lon IS NOT NULL',
+    ).all(region, wp.ident) as NRow[];
+    if (wpts.length + navaids.length > 0) return [...navaids.map(navaid), ...wpts.map(waypoint)];
   }
   const wpts = prepared(db, 'SELECT wpt_key, lat, lon FROM nav_waypoint WHERE ident = ?').all(wp.ident) as WRow[];
   const navaids = prepared(db, 'SELECT ident, region, lat, lon FROM nav_navaid WHERE ident = ? AND lat IS NOT NULL AND lon IS NOT NULL')
-    .all(wp.ident) as { ident: string; region: string; lat: number; lon: number }[];
-  return [
-    ...wpts.map((r) => ({ key: r.wpt_key, lat: r.lat, lon: r.lon })),
-    ...navaids.map((r) => ({ key: wptKey(r.ident, r.region, r.lat, r.lon), lat: r.lat, lon: r.lon })),
-  ];
+    .all(wp.ident) as NRow[];
+  return [...wpts.map(waypoint), ...navaids.map(navaid)];
+}
+
+/** Whether an airway leg starts or ends at exactly this key. */
+function isAirwayEndpointKey(db: Database.Database, key: string): boolean {
+  return prepared(
+    db,
+    `SELECT 1 FROM nav_airway_leg WHERE from_key = @k
+     UNION ALL
+     SELECT 1 FROM nav_airway_leg WHERE to_key = @k
+     LIMIT 1`,
+  ).get({ k: key }) !== undefined;
+}
+
+/**
+ * The candidate the plan most likely means. Candidates within the position
+ * tolerance of the anchor are ranked: one that is an airway endpoint first, so
+ * the airway through it expands; then a navaid over a fix, since a VFR/RNAV
+ * point beside an airway VOR is not what the airway runs through; then the
+ * nearest. With none inside the tolerance, the nearest overall.
+ */
+function pickPlanned(db: Database.Database, cands: Candidate[], anchor: { lat: number; lon: number }): Candidate | null {
+  const within = cands.filter((c) => haversineNm(anchor.lat, anchor.lon, c.lat, c.lon) <= TOLERANCE_NM);
+  if (within.length === 0) return pickNearest(cands, anchor);
+  const endpoints = within.filter((c) => isAirwayEndpointKey(db, c.key));
+  const pool = endpoints.length > 0
+    ? endpoints
+    : within.some((c) => c.navaid) ? within.filter((c) => c.navaid) : within;
+  return pickNearest(pool, anchor);
 }
 
 /**
@@ -470,20 +514,14 @@ function selectProcedure(
   return [...rows].sort(byKey)[0];
 }
 
-// The simulator writes approach_type as a small integer; these map the plan's ARINC leading letter
-// (or, when that is empty, its approach_type string) onto it. Unknown input means no preference.
-const ARINC_LETTER_TYPE: Record<string, number> = {
-  I: 4, L: 5, B: 11, R: 10, H: 10, P: 1, V: 2, T: 2, D: 8, N: 3, Q: 9, X: 7, S: 6, U: 6,
-};
-const APPROACH_TYPE_NAME: Record<string, number> = {
-  ILS: 4, LOC: 5, LDA: 7, VOR: 2, VORDME: 8, NDB: 3, NDBDME: 9, RNAV: 10, GPS: 1,
-  'LOC-BC': 11, LOCALIZER_BACK_COURSE: 11, SDF: 6,
-};
+// The simulator writes approach_type as a small integer; ARINC_LETTER_TYPE and PLAN_APPROACH_TYPE_NAME
+// map the plan's ARINC leading letter (or, when that is empty, its approach_type string) onto it.
+// Unknown input means no preference.
 
 function preferredApproachType(arinc: string | null | undefined, typeName: string | null | undefined): number | null {
   const letter = norm(arinc).charAt(0);
   if (letter) return ARINC_LETTER_TYPE[letter] ?? null;
-  return APPROACH_TYPE_NAME[norm(typeName)] ?? null;
+  return PLAN_APPROACH_TYPE_NAME[norm(typeName)] ?? null;
 }
 
 // The simulator sends "0" for "no suffix"; any other value, digit or letter, is a real suffix.
@@ -777,6 +815,7 @@ export function airwayAttempted(
  * when it holds one, else an airway endpoint with the same ident (and region)
  * near the planned position. `viaEndpoint` marks the second case. Null for
  * airports and user-defined points, which are not navdata, and when nothing matches.
+ * A candidate beyond the position tolerance yields to an airway endpoint inside it.
  */
 export function resolvePlannedKey(
   db: Database.Database,
@@ -786,15 +825,20 @@ export function resolvePlannedKey(
   if (wp.type === 'AIRPORT' || wp.type === 'USER') return null;
   // The planned position is the best anchor: an ident shared by many fixes must
   // resolve to the one the plan drew, not the one nearest the previous point.
-  const anchor = validCoordinate(wp.lat, wp.lon) ? { lat: wp.lat, lon: wp.lon } : near;
-  const chosen = pickNearest(lookupCandidates(db, wp), anchor);
-  if (chosen) return { ...chosen, viaEndpoint: false };
+  const valid = validCoordinate(wp.lat, wp.lon);
+  const anchor = valid ? { lat: wp.lat, lon: wp.lon } : near;
+  const chosen = pickPlanned(db, lookupCandidates(db, wp), anchor);
+  if (chosen && (!valid || haversineNm(wp.lat, wp.lon, chosen.lat, chosen.lon) <= TOLERANCE_NM)) {
+    return { key: chosen.key, lat: chosen.lat, lon: chosen.lon, viaEndpoint: false };
+  }
   // A facility whose own rows were never fetched can still be an airway
   // endpoint; join by ident, region and proximity to the planned position.
-  const endpoint = validCoordinate(wp.lat, wp.lon) ? airwayEndpointNear(db, wp) : null;
-  if (!endpoint) return null;
-  const p = parseKey(endpoint);
-  return { key: endpoint, lat: p ? p.lat / 1e5 : wp.lat, lon: p ? p.lon / 1e5 : wp.lon, viaEndpoint: true };
+  const endpoint = valid ? airwayEndpointNear(db, wp) : null;
+  if (endpoint) {
+    const p = parseKey(endpoint);
+    return { key: endpoint, lat: p ? p.lat / 1e5 : wp.lat, lon: p ? p.lon / 1e5 : wp.lon, viaEndpoint: true };
+  }
+  return chosen ? { key: chosen.key, lat: chosen.lat, lon: chosen.lon, viaEndpoint: false } : null;
 }
 
 function buildEnroute(

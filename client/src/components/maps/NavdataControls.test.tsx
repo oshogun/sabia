@@ -3,7 +3,10 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NavdataControls, NavdataOverlay, kindNote, type NavdataControlsProps } from './NavdataControls';
 import { FlightMap } from './FlightMap';
 import { mockFetchRoutes } from '../../test/mockFetch';
-import { absentStatus, cov, emptyFeatures, presentStatus } from '../../test/navdataFixtures';
+import {
+  absentStatus, cov, currentLnmDataset, emptyFeatures, expiredLnmDataset, expiredNoCycleDataset, lnmStatus, presentStatus,
+  undatedLnmDataset,
+} from '../../test/navdataFixtures';
 import type { FeaturesResponse } from '../../types';
 import type { FlightPoint } from '../../types';
 
@@ -78,6 +81,55 @@ describe('NavdataControls', () => {
       <NavdataControls status={null} visible={allOff} onToggle={() => {}} features={{ data: null, anchor: null, loading: false, error: null }} />
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('labels the simulator data under the title', () => {
+    renderControls(null);
+    expect(screen.getByText('Simulator')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows no label line when the status carries no dataset', () => {
+    const { container } = renderControls(null, { status: { ...presentStatus, dataset: null } });
+    expect(container.querySelector('.navdata-panel__muted')).toBeNull();
+  });
+
+  it('labels an imported Little Navmap dataset with its validity window', () => {
+    renderControls(null, { status: lnmStatus(currentLnmDataset) });
+    expect(screen.getByText('Little Navmap · Navigraph AIRAC 9901 · valid 2099-01-02 – 2099-01-29')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('labels a Little Navmap dataset without validity by its label alone', () => {
+    renderControls(null, { status: lnmStatus(undatedLnmDataset) });
+    expect(screen.getByText('Little Navmap · MSFS scenery, compiled 2099-01-01')).toBeInTheDocument();
+  });
+
+  it('labels the simulator dataset with its validity when it has one', () => {
+    renderControls(null, { status: { ...presentStatus, dataset: { ...currentLnmDataset, source: 'mcdu', label: 'Simulator' } } });
+    expect(screen.getByText('Simulator · valid 2099-01-02 – 2099-01-29')).toBeInTheDocument();
+  });
+
+  it('flags an expired dataset as not for navigation, alongside its label', () => {
+    renderControls(null, { status: lnmStatus(expiredLnmDataset) });
+    expect(screen.getByText('Little Navmap · Navigraph AIRAC 2001 · valid 2020-01-02 – 2020-01-29')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Expired AIRAC — not for navigation');
+    expect(screen.getByRole('alert')).toHaveClass('navdata-panel__error');
+  });
+
+  it('labels an expired dataset with no AIRAC cycle by its label and valid-through, never "null"', () => {
+    const { container } = renderControls(null, { status: lnmStatus(expiredNoCycleDataset) });
+    expect(screen.getByText('Little Navmap · Navigraph build 2020-01 · valid until 2020-01-29')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Expired AIRAC — not for navigation');
+    expect(container.textContent).not.toContain('null');
+  });
+
+  it('renders no label or alert for a status from a server that sends no dataset', () => {
+    const legacy = { ...presentStatus } as Partial<typeof presentStatus>;
+    delete legacy.dataset;
+    renderControls(null, { status: legacy as typeof presentStatus });
+    expect(screen.getByText('Navdata')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('shows a toggle per kind and reports clicks', () => {

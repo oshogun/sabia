@@ -1,6 +1,6 @@
 import express from 'express';
 import { getPlannedLegById } from '../db/plannedLegs';
-import { getNavDb, NavdataBusyError } from '../navdata/connection';
+import { getActiveNavDb, NavdataBusyError } from '../navdata/connection';
 import { buildRouteGeometry } from '../navdata/routeGeometry';
 
 /**
@@ -23,8 +23,8 @@ export function createRouteGeometryRouter(): express.Router {
       return;
     }
     try {
-      // No await between getNavDb() and the last query on the handle.
-      res.json(buildRouteGeometry(leg, getNavDb()));
+      // No await between getActiveNavDb() and the last query on the handle.
+      res.json(buildRouteGeometry(leg, getActiveNavDb()));
     } catch (err) {
       if (err instanceof NavdataBusyError) {
         res.set('Retry-After', String(err.retryAfterSeconds));

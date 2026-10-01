@@ -9,6 +9,8 @@ import { RUNWAY_HEADING_REFERENCE, dest, runwayTrueBearing } from '../src/navdat
 import { bearingDeg, haversineNm } from '../src/geo';
 import { makePlannedLegWithChildren } from './helpers';
 import type { PlannedLegWithChildren, PlannedWaypoint } from '../src/types';
+import { resolvePlannedKey } from '../src/navdata/routeGeometry';
+import { ARINC_LETTER_TYPE, ATOOLS_APPROACH_TYPE, PLAN_APPROACH_TYPE_NAME, approachTypeOf } from '../src/navdata/approachTypes';
 
 // Synthetic data only: invented idents and coordinates.
 
@@ -878,3 +880,191 @@ describe('speed limit sentinel', () => {
     expect(pts.map((p) => p.speedLimitKt)).toEqual([null, 45, 0, null, null]);
   });
 });
+
+describe('a same-ident VFR waypoint or station beside an airway navaid', () => {
+  // About 300 m north of a point, in degrees of latitude.
+  const NEAR = 0.0027;
+  const FAR = 3; // about 330 km
+
+  function navaid(db: Database.Database, kind: 'V' | 'N', ident: string, region: string, lat: number, lon: number): string {
+    db.prepare('INSERT INTO nav_navaid (kind, ident, region, lat, lon, rev) VALUES (?, ?, ?, ?, ?, 1)').run(kind, ident, region, lat, lon);
+    return wptKey(ident, region, lat, lon);
+  }
+
+  const node = (key: string, ident: string, lat: number, lon: number) => ({ key, ident, lat, lon });
+
+  /** FROMM and MIDDL are fixes; T100 runs FROMM, MIDDL, then `end`. */
+  function airwayTo(db: Database.Database, end: { key: string; ident: string; lat: number; lon: number }): void {
+    const from = node(waypoint(db, 'FROMM', 'ZZ', 10, 20.9), 'FROMM', 10, 20.9);
+    const mid = node(waypoint(db, 'MIDDL', 'ZZ', 10, 21), 'MIDDL', 10, 21);
+    airwayLeg(db, 'T100', from, mid);
+    airwayLeg(db, 'T100', mid, end);
+  }
+
+  function plan(ident: string, lat: number, lon: number, region: string | null = 'ZZ'): PlannedLegWithChildren {
+    return planned({
+      waypoints: [
+        wpt(1, 'TSTA', 10, 20, { type: 'AIRPORT' }),
+        wpt(2, 'FROMM', 10, 20.9, { region: 'ZZ' }),
+        wpt(3, ident, lat, lon, { region, airway: 'T100' }),
+        wpt(4, 'TSTB', 10, 22, { type: 'AIRPORT' }),
+      ],
+    });
+  }
+
+  const expandedThrough = (r: ReturnType<typeof buildRouteGeometry>, ident: string): boolean =>
+    r.unresolved.length === 0 && r.enroute.points.map((p) => p.ident).join() === `TSTA,FROMM,MIDDL,${ident},TSTB`;
+
+  it('resolves to the VOR when the same-region VFR waypoint is hundreds of km away', () => {
+    const db = fresh();
+    waypoint(db, 'SHARE', 'ZZ', 10 + FAR, 21.5);
+    const vor = navaid(db, 'V', 'SHARE', 'ZZ', 10, 21.5);
+    airwayTo(db, node(vor, 'SHARE', 10, 21.5));
+    const r = buildRouteGeometry(plan('SHARE', 10, 21.5), db);
+    expect(expandedThrough(r, 'SHARE')).toBe(true);
+    expect(resolvePlannedKey(db, plan('SHARE', 10, 21.5).waypoints[2], { lat: 10, lon: 21 })).toEqual({
+      key: vor, lat: 10, lon: 21.5, viaEndpoint: false,
+    });
+  });
+
+  it('prefers the VOR when the plan names no region', () => {
+    const db = fresh();
+    waypoint(db, 'SHARE', 'ZZ', 10 + FAR, 21.5);
+    const vor = navaid(db, 'V', 'SHARE', 'ZZ', 10, 21.5);
+    airwayTo(db, node(vor, 'SHARE', 10, 21.5));
+    expect(expandedThrough(buildRouteGeometry(plan('SHARE', 10, 21.5, null), db), 'SHARE')).toBe(true);
+  });
+
+  it('resolves to the VOR when both are inside the tolerance and the VOR is the airway endpoint', () => {
+    const db = fresh();
+    waypoint(db, 'SHARE', 'ZZ', 10 + NEAR, 21.5);
+    const vor = navaid(db, 'V', 'SHARE', 'ZZ', 10, 21.5);
+    airwayTo(db, node(vor, 'SHARE', 10, 21.5));
+    const wp = plan('SHARE', 10, 21.5).waypoints[2];
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })?.key).toBe(vor);
+    expect(expandedThrough(buildRouteGeometry(plan('SHARE', 10, 21.5), db), 'SHARE')).toBe(true);
+  });
+
+  it('takes the navaid over a fix inside the tolerance when neither is an airway endpoint, even when the fix is nearer', () => {
+    const db = fresh();
+    const fix = waypoint(db, 'SHARE', 'ZZ', 10, 21.5);
+    const vor = navaid(db, 'V', 'SHARE', 'ZZ', 10 + NEAR, 21.5);
+    const wp = plan('SHARE', 10, 21.5).waypoints[2];
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })?.key).toBe(vor);
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })?.key).not.toBe(fix);
+  });
+
+  it('keeps a fix that is the airway endpoint over a VOR 300 m away whose key does not join', () => {
+    const db = fresh();
+    const fix = waypoint(db, 'PHRXX', 'ZZ', 10, 21.5);
+    const vor = navaid(db, 'V', 'PHRXX', 'ZZ', 10 + NEAR, 21.5);
+    // The keys are more than ten units apart, so the airway endpoint cannot be read as the VOR.
+    expect(Math.abs(Number(vor.split('|')[2]) - Number(fix.split('|')[2]))).toBeGreaterThan(10);
+    airwayTo(db, node(fix, 'PHRXX', 10, 21.5));
+    const wp = plan('PHRXX', 10, 21.5).waypoints[2];
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })).toEqual({ key: fix, lat: 10, lon: 21.5, viaEndpoint: false });
+    expect(expandedThrough(buildRouteGeometry(plan('PHRXX', 10, 21.5), db), 'PHRXX')).toBe(true);
+  });
+
+  it('keeps an airway endpoint that sits to the far side of the leg: the end key is matched in both directions', () => {
+    const db = fresh();
+    const fix = waypoint(db, 'PHRXX', 'ZZ', 10, 21.5);
+    navaid(db, 'V', 'PHRXX', 'ZZ', 10 + NEAR, 21.5);
+    const mid = node(waypoint(db, 'MIDDL', 'ZZ', 10, 21), 'MIDDL', 10, 21);
+    // The fix is the start of the leg here, not its end.
+    airwayLeg(db, 'T100', node(fix, 'PHRXX', 10, 21.5), mid);
+    expect(resolvePlannedKey(db, plan('PHRXX', 10, 21.5).waypoints[2], { lat: 10, lon: 21 })?.key).toBe(fix);
+  });
+
+  it('yields a far nearest candidate to an airway endpoint inside the tolerance, such as a losing NDB', () => {
+    const db = fresh();
+    // nav_navaid holds one row per key: the other NDB of this ident and region lost, but the airway
+    // still ends at its own key, 50 km from the winner.
+    navaid(db, 'N', 'LOSER', 'ZZ', 10.5, 21.5);
+    const loser = wptKey('LOSER', 'ZZ', 10, 21.5);
+    airwayTo(db, node(loser, 'LOSER', 10, 21.5));
+    const wp = plan('LOSER', 10, 21.5).waypoints[2];
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })).toEqual({ key: loser, lat: 10, lon: 21.5, viaEndpoint: true });
+    expect(expandedThrough(buildRouteGeometry(plan('LOSER', 10, 21.5), db), 'LOSER')).toBe(true);
+  });
+
+  it('still reports a disagreement when the nearest candidate is far and no airway endpoint is near the plan', () => {
+    const db = fresh();
+    navaid(db, 'V', 'SHARE', 'ZZ', 10 + FAR, 21.5);
+    const r = buildRouteGeometry(plan('SHARE', 10, 21.5), db);
+    expect(r.unresolved).toContainEqual({ kind: 'waypoint', name: 'SHARE', reason: 'position disagrees with cache' });
+  });
+
+  it('behaves as before when no navaid shares the ident and the nearest fix is inside the tolerance', () => {
+    const db = fresh();
+    const near = waypoint(db, 'ONLYW', 'ZZ', 10 + NEAR / 2, 21.5);
+    waypoint(db, 'ONLYW', 'QQ', 10, 21.5);
+    const wp = plan('ONLYW', 10, 21.5).waypoints[2];
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })?.key).toBe(near);
+    // Region-less: the nearest of every fix with the ident, as before.
+    const bare = resolvePlannedKey(db, plan('ONLYW', 10, 21.5, null).waypoints[2], { lat: 10, lon: 21 });
+    expect(bare?.lat).toBe(10);
+  });
+
+  it('falls back to every row with the ident when the plan region has none', () => {
+    const db = fresh();
+    const vor = navaid(db, 'V', 'SHARE', 'QQ', 10, 21.5);
+    const wp = plan('SHARE', 10, 21.5, 'ZZ').waypoints[2];
+    expect(resolvePlannedKey(db, wp, { lat: 10, lon: 21 })?.key).toBe(vor);
+  });
+
+  it('ignores a navaid row with no position', () => {
+    const db = fresh();
+    db.prepare("INSERT INTO nav_navaid (kind, ident, region, rev) VALUES ('V', 'SHARE', 'ZZ', 1)").run();
+    expect(resolvePlannedKey(db, plan('SHARE', 10, 21.5).waypoints[2], { lat: 10, lon: 21 })).toBeNull();
+  });
+
+  it('reads the endpoint probe through the key indexes', () => {
+    const db = fresh();
+    const plans: string[] = [];
+    for (const sql of ['SELECT 1 FROM nav_airway_leg WHERE from_key = @k UNION ALL SELECT 1 FROM nav_airway_leg WHERE to_key = @k LIMIT 1']) {
+      plans.push((db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all({ k: 'x' }) as { detail: string }[]).map((r) => r.detail).join('\n'));
+    }
+    expect(plans[0]).toContain('nav_airway_leg_from');
+    expect(plans[0]).toContain('nav_airway_leg_to');
+    expect(plans[0]).not.toMatch(/SCAN nav_airway_leg/);
+  });
+});
+
+describe('approach type tables', () => {
+  it('keeps the plan-side tables exactly as the lookup has always held them', () => {
+    expect(ARINC_LETTER_TYPE).toEqual({ I: 4, L: 5, B: 11, R: 10, H: 10, P: 1, V: 2, T: 2, D: 8, N: 3, Q: 9, X: 7, S: 6, U: 6 });
+    expect(PLAN_APPROACH_TYPE_NAME).toEqual({
+      ILS: 4, LOC: 5, LDA: 7, VOR: 2, VORDME: 8, NDB: 3, NDBDME: 9, RNAV: 10, GPS: 1,
+      'LOC-BC': 11, LOCALIZER_BACK_COURSE: 11, SDF: 6,
+    });
+  });
+
+  it('types an imported approach by its ARINC letter first, upper-cased', () => {
+    expect(approachTypeOf('I18L', 'GPS', '18L')).toBe(4);
+    expect(approachTypeOf('r18', 'ILS', '18')).toBe(10);
+    expect(approachTypeOf('S24', 'VORDME', '24')).toBe(6);
+    expect(approachTypeOf('U24', null, '24')).toBe(6);
+    expect(approachTypeOf('D24', 'VOR', '24')).toBe(8);
+  });
+
+  it('treats a circling VOR/DME with no runway as a VOR approach, and otherwise reads the atools type', () => {
+    expect(approachTypeOf('CVDM', 'VORDME', null)).toBe(2);
+    expect(approachTypeOf(null, 'VORDME', null)).toBe(2);
+    expect(approachTypeOf(null, 'VORDME', '24')).toBe(8);
+    expect(approachTypeOf('', 'TCN', '24')).toBe(2);
+    expect(approachTypeOf('Z24', 'LOCB', '24')).toBe(11);
+    expect(approachTypeOf(null, 'GNSS', '24')).toBe(0);
+    expect(ATOOLS_APPROACH_TYPE.IGS).toBe(4);
+  });
+
+  it('answers 0 for anything unknown, including names that exist on every object', () => {
+    expect(approachTypeOf(null, null, null)).toBe(0);
+    expect(approachTypeOf('', '', '')).toBe(0);
+    expect(approachTypeOf('?', 'WHAT', '24')).toBe(0);
+    expect(approachTypeOf(null, 'toString', '24')).toBe(0);
+    expect(approachTypeOf(null, 'constructor', '24')).toBe(0);
+    expect(approachTypeOf('__proto__', null, null)).toBe(0);
+  });
+});
+

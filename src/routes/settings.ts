@@ -15,6 +15,11 @@ import { hashPassword, verifyPassword, DUMMY_PASSWORD_HASH, PASSWORD_MIN_LENGTH,
 import { LoginThrottle } from '../auth/middleware';
 import { SIMBRIEF_USER_ID_SETTING, validateSimbriefUserId } from '../simbrief';
 import { SAYINTENTIONS_API_KEY_SETTING, validateSayIntentionsApiKey, maskApiKey } from '../sayIntentions';
+import {
+  getLnmNavDb, getNavDb, NavdataBusyError, navdataImportDir, setSelectedNavdataSource,
+} from '../navdata/connection';
+import { readNavdataDataset, type NavdataSourceResponse } from '../navdata/dataset';
+import { navdataSourceState, writeNavdataSourceSetting } from '../navdata/source';
 import type {
   IngestTokenListResponse, IngestTokenCreateResponse,
   McpTokenListResponse, McpTokenCreateResponse,
@@ -22,6 +27,19 @@ import type {
 } from '../types';
 
 const ID_PATTERN = /^[1-9][0-9]{0,15}$/;
+
+function navdataSourceBody(): NavdataSourceResponse {
+  const { selected, effective, fallback } = navdataSourceState();
+  const mcdu = getNavDb();
+  const lnm = getLnmNavDb();
+  const now = Date.now();
+  return {
+    selected, effective, fallback,
+    mcdu: { present: mcdu !== null, dataset: readNavdataDataset(mcdu, 'mcdu', now) },
+    lnm: { present: lnm !== null, dataset: readNavdataDataset(lnm, 'lnm', now) },
+    importDir: navdataImportDir(),
+  };
+}
 
 function ingestTokenListBody(ingest: IngestConfig): IngestTokenListResponse {
   const tokens = listIngestTokens();
@@ -60,7 +78,11 @@ function validateLabel(label: unknown, max: number): { ok: true; label: string }
  * JSON body into INVALID_BODY, and a narrower mount would be bypassed entirely
  * by express.json() rejecting the body before routing.
  */
-export function createSettingsRouter(ingest: IngestConfig, mcp: McpConfig): Router {
+export function createSettingsRouter(
+  ingest: IngestConfig,
+  mcp: McpConfig,
+  onNavdataSourceChanged: () => void = () => {},
+): Router {
   const router = express.Router();
   // A separate instance from the login throttle in src/auth/routes.ts: a
   // stolen session cookie must not get an un-throttled oracle against the
@@ -125,6 +147,52 @@ export function createSettingsRouter(ingest: IngestConfig, mcp: McpConfig): Rout
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
+  });
+
+  // ── Navdata source ───────────────────────────────────────────────────────
+
+  // Both replicas stay open; this only chooses which one the browser reads.
+  const sendNavdataSource = (res: Response): void => {
+    try {
+      res.json(navdataSourceBody());
+    } catch (err) {
+      if (err instanceof NavdataBusyError) {
+        res.set('Retry-After', String(err.retryAfterSeconds));
+        res.status(503).json({ ok: false, code: 'NAVDATA_BUSY', message: err.message });
+        return;
+      }
+      res.status(500).json({ error: String(err) });
+    }
+  };
+
+  router.get('/settings/navdata-source', (_req, res) => {
+    sendNavdataSource(res);
+  });
+
+  router.put('/settings/navdata-source', (req, res) => {
+    const body = req.body as unknown;
+    const source = typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? (body as Record<string, unknown>).source
+      : undefined;
+    if (source !== 'mcdu' && source !== 'lnm') {
+      res.status(400).json({ error: "source must be 'mcdu' or 'lnm'", code: 'INVALID_SOURCE' });
+      return;
+    }
+    if (source === 'lnm' && getLnmNavDb() === null) {
+      res.status(409).json({ error: 'No Little Navmap data has been imported', code: 'LNM_NOT_AVAILABLE' });
+      return;
+    }
+    try {
+      // Persist first: a failed write leaves the running selection as it was.
+      writeNavdataSourceSetting(source);
+      setSelectedNavdataSource(source);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+      return;
+    }
+    // The sidecar re-polls /demand on this event and sees the want list change.
+    onNavdataSourceChanged();
+    sendNavdataSource(res);
   });
 
   // ── Ingest tokens ────────────────────────────────────────────────────────

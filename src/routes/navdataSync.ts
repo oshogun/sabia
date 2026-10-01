@@ -2,8 +2,8 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import fs from 'fs';
 import { checkIngestCredential } from '../auth/ingestAuth';
 import type { IngestConfig } from '../config';
-import { isNavdataBusy, NavdataBusyError } from '../navdata/connection';
-import { buildDemand, DemandSkipError, parseDemandSkip } from '../navdata/demand';
+import { effectiveNavdataSource, isNavdataBusy, NavdataBusyError } from '../navdata/connection';
+import { buildDemand, DemandSkipError, NAVDATA_DEMAND_CAP, parseDemandSkip } from '../navdata/demand';
 import { importNavdataSnapshot } from '../navdata/snapshot';
 import { parseSidecarStateReport, type SidecarStateStore } from '../navdata/sidecarState';
 import { applyIncrementalBatch, NavdataStoreError } from '../navdata/store';
@@ -179,7 +179,15 @@ export function createNavdataSyncRouter(
       return;
     }
     try {
-      res.json(buildDemand(new Date(), parseDemandSkip(req.query)));
+      const skip = parseDemandSkip(req.query);
+      // The Little Navmap dataset is complete, so there is nothing to harvest:
+      // answer an empty want list and leave the queued requests alone (they are
+      // neither pruned nor deleted) for when the simulator replica is shown again.
+      if (effectiveNavdataSource() === 'lnm') {
+        res.json({ v: 1, airports: [], waypoints: [], cap: NAVDATA_DEMAND_CAP, more: false, generatedAt: Date.now() });
+        return;
+      }
+      res.json(buildDemand(new Date(), skip));
     } catch (err) {
       if (err instanceof DemandSkipError) {
         log('/demand', 400, 'NAVDATA_BAD_BATCH', err.message);

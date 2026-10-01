@@ -3,7 +3,10 @@ import type {
   FeaturesResponse,
   RouteGeometryResponse,
   NavdataRequestBody,
+  NavdataDataset,
   NavdataRequestResponse,
+  NavdataSource,
+  NavdataSourceResponse,
   NavdataStatusResponse,
 } from '../types';
 
@@ -46,6 +49,30 @@ export function paddedBbox(b: { west: number; south: number; east: number; north
 
 export async function fetchNavdataStatus(signal?: AbortSignal): Promise<NavdataStatusResponse> {
   return apiFetch<NavdataStatusResponse>('/api/navdata/status', { signal });
+}
+
+export async function fetchNavdataSource(signal?: AbortSignal): Promise<NavdataSourceResponse> {
+  return apiFetch<NavdataSourceResponse>('/api/settings/navdata-source', { signal });
+}
+
+export async function saveNavdataSource(source: NavdataSource): Promise<NavdataSourceResponse> {
+  return apiFetch<NavdataSourceResponse>('/api/settings/navdata-source', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source }),
+  });
+}
+
+/**
+ * The validity window to append after a dataset's label: empty when the
+ * dataset has no valid-through date, so a current dataset shows its window
+ * too, not only an expired one.
+ */
+export function validityText(d: NavdataDataset): string {
+  if (d.validThrough === null) return '';
+  return d.validFrom !== null
+    ? ` · valid ${d.validFrom} – ${d.validThrough}`
+    : ` · valid until ${d.validThrough}`;
 }
 
 export async function fetchNavdataFeatures(

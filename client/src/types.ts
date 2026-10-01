@@ -843,6 +843,42 @@ export type NavdataSidecarState = 'nav.off' | 'nav.unavailable' | 'nav.bulk' | '
 export type NavdataDetailState = 'index' | 'pending' | 'detail' | 'absent' | 'failed';
 export type NavdataTransitionRole = 'common' | 'runway' | 'enroute' | 'approach' | 'final' | 'missed';
 
+/** Which replica the map reads: the simulator's (MCDU) or an imported Little Navmap database. */
+export type NavdataSource = 'mcdu' | 'lnm';
+export type LnmDataSource = 'NAVIGRAPH' | 'MSFS' | 'MSFS24';
+
+/** What a replica is: a label to show, its AIRAC cycle and validity when it has them. */
+export interface NavdataDataset {
+  source: NavdataSource;
+  /** Human text; display only, never parsed. */
+  label: string;
+  provider: LnmDataSource | null;
+  /** 'YYNN', e.g. '1801'; null when the dataset has none. */
+  airacCycle: string | null;
+  /** 'YYYY-MM-DD', UTC calendar date, inclusive. */
+  validFrom: string | null;
+  /** 'YYYY-MM-DD', UTC calendar date, inclusive. */
+  validThrough: string | null;
+  /** Decided by the server. null = not knowable (no validThrough). */
+  expired: boolean | null;
+  /** Zone-less local time text, shown verbatim if at all. */
+  compiledAt: string | null;
+  navigraphUpdate: boolean | null;
+  /** Epoch ms. */
+  importedAt: number | null;
+}
+
+/** GET/PUT /api/settings/navdata-source. */
+export interface NavdataSourceResponse {
+  selected: NavdataSource;
+  effective: NavdataSource;
+  /** Set iff selected is 'lnm' and the simulator replica answers instead. */
+  fallback: null | 'lnm-unavailable';
+  mcdu: { present: boolean; dataset: NavdataDataset | null };
+  lnm: { present: boolean; dataset: NavdataDataset | null };
+  importDir: string;
+}
+
 export interface NavdataStatusResponse {
   present: boolean;
   schemaVersion: number | null;
@@ -858,6 +894,14 @@ export interface NavdataStatusResponse {
     airwayLegs: number; runways: number; procedures: number; coverageCells: number; absent: number;
   } | null;
   sidecar: { state: NavdataSidecarState; reason: string | null } | null;
+  /** The source that answered: the selected one, unless it is unavailable. */
+  source: NavdataSource;
+  /** The stored choice from Settings. */
+  selectedSource: NavdataSource;
+  /** Set iff selectedSource is 'lnm' and the simulator replica answered instead. */
+  sourceFallback: null | 'lnm-unavailable';
+  /** What the answering replica is. null iff present is false. */
+  dataset: NavdataDataset | null;
 }
 
 /** Surface class of the airport's LONGEST runway. Never inferred when unknown. */

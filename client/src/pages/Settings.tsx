@@ -8,6 +8,7 @@ import { UnauthorizedError } from '../utils/api';
 import type { SayIntentionsSettings } from '../types';
 import { IngestTokensTile } from '../components/settings/IngestTokensTile';
 import { McpTokensTile } from '../components/settings/McpTokensTile';
+import { NavdataSourceTile } from '../components/settings/NavdataSourceTile';
 import { ChangePasswordTile } from '../components/settings/ChangePasswordTile';
 
 export function Settings() {
@@ -155,6 +156,7 @@ export function Settings() {
           </Form>
         </Tile>
 
+        <NavdataSourceTile />
         <IngestTokensTile />
         <McpTokensTile />
         <ChangePasswordTile />

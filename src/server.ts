@@ -213,7 +213,7 @@ export function createServer(flightManager: FlightManager): express.Express {
   // Mounted here, in the position the routes used to occupy, because
   // registration order is what express matches on.
 
-  app.use('/api', createSettingsRouter(config.ingest, config.mcp));
+  app.use('/api', createSettingsRouter(config.ingest, config.mcp, requestDemand));
 
   // ── Planned legs ───────────────────────────────────────────────────────────
   // Mounted after ── Trips ── and before ── PDF and KML export ──, in the

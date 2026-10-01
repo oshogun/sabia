@@ -46,7 +46,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   return res.json() as Promise<T>;
 }
 
-/** Everything the download plumbing needs. Private to this module. */
+/** The request options download() accepts. Private to this module. */
 type DownloadInit = {
   method?: string;
   headers?: Record<string, string>;

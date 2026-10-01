@@ -663,8 +663,8 @@ export function applySchema(db: Database.Database): void {
   `);
 
   // Unconditional and idempotent: an index can be missing even when its column
-  // exists. Both are partial UNIQUE indexes and are load-bearing — they turn a
-  // convention into a database guarantee. A SQLITE_CONSTRAINT from either means
+  // exists. Both are partial UNIQUE indexes, and the code relies on them: they
+  // turn a convention into a database guarantee. A SQLITE_CONSTRAINT from either means
   // the caller's statement order is wrong; fix the order, never the index.
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_flights_planned_leg ON flights(planned_leg_id) WHERE planned_leg_id IS NOT NULL;

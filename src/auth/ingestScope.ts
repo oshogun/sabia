@@ -7,9 +7,11 @@ export type IngestScopeResult = 'valid' | 'invalid' | 'absent';
 /**
  * The explicit, named set of routes an x-ingest-token may reach without a
  * session cookie. A method+path pair not in this list never gets marked, no
- * matter how correct the token is — that is what keeps the token from being
- * a skeleton key for the rest of /api. One path segment per `:param`, exact
- * path only: no trailing slash, no query-string leniency needed since
+ * matter how correct the token is — that is what stops the token from
+ * authenticating any other route behind requireAuth. /api/ingest/* and the
+ * /api/navdata sync routes are separate: they are mounted above the session
+ * middleware and check the token themselves. One path segment per `:param`,
+ * exact path only: no trailing slash, no query-string leniency needed since
  * req.path already excludes it, no wildcard prefix.
  */
 export const INGEST_SCOPED_ROUTES: readonly { method: 'GET' | 'POST' | 'DELETE'; pattern: RegExp; name: string }[] = [

@@ -20,9 +20,12 @@ const METHOD_NOT_ALLOWED_BODY = {
  * this router at all.
  */
 export function createMcpRouter(mcp: McpConfig, flightManager: FlightManager, onChanged: () => void = () => {}): Router {
-  // Startup assertion, run once here rather than per request: this is what
-  // keeps MCP_SCOPED_ROUTES load-bearing even though every tool handler below
-  // calls an in-process function instead of going through this router.
+  // Startup assertion, run once here rather than per request. Tool handlers
+  // call in-process functions rather than the /api routes MCP_SCOPED_ROUTES
+  // names, and the token gate below checks only the bearer token, never the
+  // path, so no request is ever checked against that list. This assertion,
+  // which compares each tool's declared route and kind with the list, is the
+  // only runtime use of it.
   assertToolRoutesAreScoped(MCP_TOOLS);
 
   const router = express.Router();

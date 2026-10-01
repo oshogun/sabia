@@ -198,7 +198,7 @@ export function matchPlannedLeg(input: LegMatchInput): LegMatchResult {
   if (eligible.length === 0) {
     // The nearest leg's obstacle, not the highest-precedence one: the user is
     // standing on a field, and the leg that departs from where they are is the
-    // one whose story explains why nothing matched.
+    // one whose refusal reason explains why nothing matched.
     const blocker = nearest(near);
     return {
       plannedLegId: null,

@@ -52,13 +52,14 @@ added here.
 **The IFR plan** (KSFO -> KLAX, FL270) is the procedures fixture. It carries a
 full `<Procedures>` block — SID `WESLA5`/28L/`SUSEY`, STAR `IRNMN2`/24R/`BURGL`,
 and a `Type=CUSTOM` approach with `CustomDistance`, `CustomAltitude` and
-`CustomOffsetAngle`. Two things make it load-bearing:
+`CustomOffsetAngle`. Two facts from this file explain behaviour in
+`src/lnmpln.ts` and `src/flight/legProgress.ts`:
 
 - **`<CustomOffsetAngle>` does not appear anywhere in the official XSD.** The
   schema is not an exhaustive description of what LNM writes, which is why the
   parser tolerates undocumented elements and never validates against the XSD.
-- **It quantifies the procedure gap.** Its en-route skeleton is 293.5 nm against
-  a direct great-circle of 293.2 nm — with one waypoint between the airports the
+- **It quantifies the procedure gap.** Its en-route waypoint list measures
+  293.5 nm against a direct great-circle of 293.2 nm — with one waypoint between the airports the
   planned route is essentially a straight line, while the real track curves away
   through the SID and STAR. A planned route drawn under a flown track will
   visibly diverge at both ends, and that is correct, not a rendering bug.
@@ -113,7 +114,7 @@ never a stack trace, never a partial object.
 |---|---|
 | `bad-empty.lnmpln` | `EMPTY_FILE` |
 | `bad-truncated-comment.lnmpln` | `NOT_XML` |
-| `bad-not-xml.lnmpln` | `NO_FLIGHTPLAN` — plain prose. fast-xml-parser is lenient enough that it does not throw, so the semantic check is what catches it; that is the §5.2 trap-7 safety net working, not a mis-mapping |
+| `bad-not-xml.lnmpln` | `NO_FLIGHTPLAN` — plain prose. fast-xml-parser is lenient enough that it does not throw, so the semantic check is what catches it; that is the §5.2 trap-7 fallback check rejecting it as designed, not a mis-mapping |
 | `bad-no-flightplan.lnmpln` | `NO_FLIGHTPLAN` |
 | `bad-zero-waypoints.lnmpln`, `bad-one-waypoint.lnmpln` | `TOO_FEW_WAYPOINTS` |
 | `bad-comment-swallowed-waypoints.lnmpln` | `TOO_FEW_WAYPOINTS` — an unbalanced comment whose stray `</SID>` reparents the rest of the tree. The observable symptom of a swallowed block |

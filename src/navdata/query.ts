@@ -178,7 +178,7 @@ const AIRPORT_SYMBOL_COLUMNS = `
  * select, `a` in the histogram — so the filter and the histogram can never
  * disagree.
  *
- * Three things here are load-bearing and must not be tidied away:
+ * Three choices here are deliberate; do not simplify them away:
  *  - the outer CASE gates the runway probe on detail_state, so it fires for
  *    the handful of detail-fetched airports instead of every candidate row;
  *  - MAX(length_m) is deliberate where the symbol columns use ORDER BY ...
@@ -280,7 +280,8 @@ export function queryFeatures(nav: Database.Database | null, q: FeaturesQuery): 
 
   // Overwritten only when the airports branch actually ran a tier decision;
   // every other outcome (kind not requested, zoom-gated, no replica, no
-  // classification data loaded) leaves the map's opinion out of it entirely.
+  // classification data loaded) leaves airportThinning at mode 'none', with no
+  // tier decision reported.
   let airportThinning: AirportThinning = { mode: 'none', through: null, hidden: 0, byTier: null, nextZoom: null };
 
   const unfilteredAirportsSql = `
@@ -323,8 +324,11 @@ export function queryFeatures(nav: Database.Database | null, q: FeaturesQuery): 
 
       const chosen = chooseAirportTier(byCode, zoom);
       if (chosen === AIRPORT_TIER_LAST_CODE) {
-        // A quiet viewport with nothing left to filter: report the counts
-        // that were measured, but run the unfiltered query.
+        // Not reached with the current constants: a floor of
+        // AIRPORT_TIER_LAST_CODE returned above, and chooseAirportTier() never
+        // lifts past AIRPORT_TIER_LAST_CLASSIFIED_CODE. Kept so that a future
+        // change to those constants still runs the unfiltered query when every
+        // tier is admitted, reporting the counts that were measured.
         airportThinning = { mode: 'none', through: null, hidden: 0, byTier, nextZoom: null };
         return nav!.prepare(unfilteredAirportsSql).all(s, n, ...pointClause.params, limit + 1) as Record<string, any>[];
       }

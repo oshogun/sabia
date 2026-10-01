@@ -20,13 +20,13 @@ export function plannedLegBadge(status: PlannedLegStatus): { label: string; clas
  * How a planned leg interleaves with flown flights in the trip's legs table.
  * Pure, client-side.
  *
- *   1. The flown spine is `flights`, in the order the caller supplies it.
+ *   1. The base sequence is `flights`, in the order the caller supplies it.
  *      `trip.flights` already arrives ordered by start_time ASC — exactly the
  *      order the legs table has always used — so it is NEVER re-sorted here.
  *      Flown rows keep the numbering/colour they always had, indexed by their
  *      position in `flights`, unaffected by any ghost row inserted around them.
  *   2. Each unflown planned leg (no linked flight — `linked_flight_id === null`)
- *      is inserted immediately before the first flown flight in the spine that
+ *      is inserted immediately before the first flown flight in `flights` that
  *      is linked to a planned leg with a HIGHER seq than it; if there is no
  *      such flight, it goes at the end.
  *   3. Unflown legs that land in the same slot are ordered by seq ASC, id ASC.

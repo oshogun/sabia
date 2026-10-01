@@ -95,8 +95,10 @@ export class OooiReporter {
    * Fired at most once per flight, on the first frame back on the ground; a
    * no-op once ON has been filed. The flag is set before the airport lookup
    * (and before the null-id return) so a rollout that stays onGround for many
-   * frames still resolves the airport and files ON exactly once — the dedup
-   * key (src/acars.ts) is the backstop, not the mechanism.
+   * frames still resolves the airport and files ON exactly once. Within one
+   * server process this flag is what prevents a second ON. After a restart it
+   * starts clear, so if ON was filed before the restart, the dedup key
+   * (src/acars.ts) is what drops the repeat.
    */
   onTouchdown(flightId: number | null, frame: SimFrame, refs: LegRefs): void {
     if (this.onEventFiled) return;

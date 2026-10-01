@@ -11,7 +11,7 @@ const isRendered = (el: HTMLElement) => el.getClientRects().length > 0;
  * a zero-delay timeout. Two Tab or Shift+Tab presses inside that gap step onto
  * the sentinel and then out to the page behind the modal. Wrapping the ends
  * synchronously, here, means focus never reaches a sentinel; Carbon's own
- * handler stays as the backstop for focus that arrives by other means.
+ * handler is left in place and still handles focus that arrives by other means.
  */
 function trapKeys(e: KeyboardEvent) {
   if ((e.key !== 'Tab' && e.key !== 'Escape') || e.ctrlKey || e.altKey || e.metaKey) return;

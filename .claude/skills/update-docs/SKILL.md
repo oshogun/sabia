@@ -17,7 +17,7 @@ owns `docs/**` or `README.md`.** There's also no schema/API/type contract
 being introduced by a docs change, so Designer doesn't apply either. Rather
 than force-fitting documentation work into roles built for code, the
 Orchestrator does the research and writing itself, and the run keeps the one
-piece of the loop that still earns its cost here: an independent **Reviewer**
+piece of the loop that is still worth its cost here: an independent **Reviewer**
 pass before anything is called done. This mirrors the tier-2 shape (one
 effective implementation pass + one Reviewer pass) with the Orchestrator
 standing in as implementer, recorded as a routing decision in `intake.md`,
@@ -117,6 +117,9 @@ came out of the first run, worth keeping:
 - **Precision over prose.** A route table with method/path/auth/purpose
   columns beats a paragraph describing the same routes. Tables for schemas,
   env vars, npm scripts, routes; short paragraphs for behavior/algorithms.
+- **Literal wording, no metaphors.** Say what the code does and why; a
+  metaphor in place of the reason is a Reviewer finding. The rule and its
+  examples are in `CLAUDE.md` § Writing comments and docs.
 - **State the current implementation, not the aspiration.** If a section of
   the app is thin (no metrics endpoint, no formal release process, one test
   file missing), say so plainly rather than describing what it should have.
@@ -164,8 +167,8 @@ table, the config table — by reading the real source file directly (not the
 research agent's report a second time) for the one or two pages a wrong
 claim would hurt most (usually `configuration.md` against `src/config.ts` or
 equivalent, and `data-model.md`/`api.md` against the schema/route source).
-This isn't a substitute for Reviewer; it's cheap insurance against sending
-an obviously wrong page to a spawn that costs more to run.
+This isn't a substitute for Reviewer; it's a cheap check that stops an
+obviously wrong page from reaching a Reviewer spawn, which costs more to run.
 
 ### 5. Reviewer, with a docs-specific brief
 

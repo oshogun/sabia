@@ -56,7 +56,7 @@ built on a guessed file format is the expensive kind of wrong.
 
 ## Rules
 
-- **Prototype the load-bearing assumption before freezing it.** If the design
+- **Prototype the assumption the design rests on before freezing it.** If the design
   rests on how a library parses a real file, run it against a real file first and
   put the result in the doc. Prototypes live in
   `.claude/runs/<run-id>/prototypes/`, never in `src/`.
@@ -74,6 +74,10 @@ built on a guessed file format is the expensive kind of wrong.
   `src/`, `client/src/`, or `tests/`. If a section's reasoning belongs in the
   code as a comment, that comment states the reasoning itself, not a pointer to
   where it came from.
+- **Literal wording, no metaphors** — in interface-stub comments and in the
+  design doc's prose alike, since implementers copy its phrasing into the
+  code. The rule and its examples are in `CLAUDE.md` § Writing comments and
+  docs.
 - **Write it to be read in parts.** A section should stand on its own, because it
   will be delivered on its own. Cross-reference by number ("see §4.2") so an
   agent handed one section knows what else to pull. Prose that assumes the reader

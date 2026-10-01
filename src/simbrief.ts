@@ -285,7 +285,8 @@ export interface ParsedSimbriefPlan {
 
 // ── Coercion helpers ──────────────────────────────────────────────────────────
 //
-// Load-bearing, not stylistic: see the three quirks in the header comment.
+// Required, not a style choice: together they absorb the three quirks
+// described above the OFP parser.
 
 /** "", {} and undefined all mean absent. Trims. Never returns "". */
 function str(v: unknown): string | null {

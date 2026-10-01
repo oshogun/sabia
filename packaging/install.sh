@@ -549,7 +549,7 @@ service_stop() {
 # answered on the configured host/port — not that it was our own service.
 # The port-free probe is the primary guard against a foreign listener, but it
 # only runs when the port is actually changing (see precheck_port_and_host);
-# this is the belt-and-suspenders check for the case it doesn't catch: our
+# this is a second, independent check for the case it doesn't catch: our
 # own unit failing to bind (e.g. EADDRINUSE against that same foreign
 # listener) while something else on the port answers the health probe.
 # Minimal on purpose: the unit must be active, with a MainPID whose own

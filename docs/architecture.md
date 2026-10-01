@@ -165,7 +165,7 @@ from the server is not supported. The Node.js agent that used to live in
 
 ### Request lifecycle (`src/server.ts`)
 
-Middleware order is deliberate and load-bearing:
+Middleware order is deliberate, and reordering it changes behaviour:
 
 1. `express.json()` (100KB body limit) and static file serving from
    `client/dist`.

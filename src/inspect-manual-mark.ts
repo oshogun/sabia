@@ -270,7 +270,7 @@ function runOutsideTheGrid(): void {
   // decideHandClose() and answers 404 'Planned leg not found' — this module
   // never produces a 404, it has no such reason code. Called anyway
   // (leg=null, planned_leg_id set) it falls into the same branch as "not
-  // linked at all", which is the honest, no-crash fallback this row
+  // linked at all", which is the safe, no-crash fallback this row
   // demonstrates.
   const linkedButLegMissingFlight: HandCloseFlight = {
     ...unlinkedFlight,

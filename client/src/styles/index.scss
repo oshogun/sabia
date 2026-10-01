@@ -1,6 +1,6 @@
 // Gray 100 theme and the Carbon component styles this prototype uses.
 //
-// Rules that are load-bearing, not stylistic:
+// Rules that change how the app builds or renders — not style choices:
 //   1. `config` MUST be configured BEFORE anything else loads it, or Sass
 //      raises "This module was already loaded, so it can't be configured
 //      using with" (observed with $css--font-face after @use ...themes).

@@ -197,9 +197,9 @@ export function createServer(flightManager: FlightManager): express.Express {
   // Mounted where the first of these routes used to sit. The whole /api/flights
   // block travels together, including the flight-plan attachment routes that
   // used to be registered further down: nothing under /api/flights can ever be
-  // matched by a /api/trips path, so only the order *inside* the router is
-  // load-bearing — and that is preserved, POST /flights/combine still ahead of
-  // /flights/:id.
+  // matched by a /api/trips path, so only the order *inside* the router
+  // matters — and that is preserved: GET /flights/search and GET /flights/stats
+  // are still registered ahead of GET /flights/:id.
 
   app.use('/api', createFlightsRouter(flightManager, notifyFlightsChanged));
 

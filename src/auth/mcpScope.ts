@@ -58,9 +58,11 @@ export const ROUTELESS_TOOLS: readonly string[] = ['get_weather'];
  * kind exactly — in both directions, not just "no read tool on a write
  * route", since a write tool silently landing on a route the allow-list
  * considers read-only would be just as wrong. Throws a plain Error at server
- * construction, before any listener is open, never at request time — this is
- * what keeps the allow-list load-bearing when tool handlers call in-process
- * functions instead of going through an Express gate.
+ * construction, before any listener is open, never at request time. Nothing
+ * checks a request against this list: tool handlers call in-process functions
+ * rather than the /api routes it names, and createMcpTokenGate checks only the
+ * bearer token, never the path. This assertion is the only runtime use of the
+ * list (isMcpScopedRoute has no caller outside tests).
  */
 export function assertToolRoutesAreScoped(
   tools: readonly { name: string; route: string | null; kind: 'read' | 'write' }[],

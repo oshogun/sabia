@@ -58,11 +58,10 @@ None of this router's routes are ingest-token-scoped — note this is a
 different router than the flight-scoped ACARS routes below, which share the
 `/api/flights/:id/...` prefix but are allow-listed.
 
-Registration order matters: `/flights/search` and `/flights/stats` are
-registered *before* `/flights/:id`, the same load-bearing reason
-`/flights/combine` already sits there — Express matches literals in
-registration order, so a later-registered literal would otherwise be
-shadowed by the earlier `:id` parameter route.
+Registration order matters: `GET /flights/search` and `GET /flights/stats`
+are registered *before* `GET /flights/:id`. Express tries routes in
+registration order, so a literal path registered after the `:id` parameter
+route would be matched by it and read as a flight id.
 
 ## Trips — `src/routes/trips.ts`
 

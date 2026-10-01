@@ -27,14 +27,14 @@ export const AIRPORT_TIER_BY_CODE = ['', 'large', 'medium', 'small', 'unknown', 
  *  AIRPORT_TIER_CODE.unknown — the SQL hard-codes this number. */
 export const AIRPORT_TIER_UNKNOWN_CODE = 4;
 
-/** The last step of the reveal ladder. When the chosen tier is this, no filter
- *  is applied at all and the query is the unfiltered one. */
+/** The highest tier code. When the chosen tier is this, no filter is applied
+ *  at all and the query is the unfiltered one. */
 export const AIRPORT_TIER_LAST_CODE = 5;
 
 /** The furthest the viewport budget may lift the tier. 'unknown' and 'other'
  *  are reached by zoom alone: an ident OurAirports does not carry is not
- *  claimed to be minor, and is not shown early just because the view is
- *  quiet. */
+ *  claimed to be minor, and is not shown early just because the viewport
+ *  holds few airports. */
 export const AIRPORT_TIER_LAST_CLASSIFIED_CODE = 3;
 
 /** Metres. The same two numbers the client uses to size the airport glyph:
@@ -208,11 +208,12 @@ export function ensureAirportTierTable(db: Database.Database): void {
   installed.set(db, mapVersion);
 }
 
-// ── the ladder ────────────────────────────────────────────────────────────────
+// ── tier choice by zoom and viewport count ────────────────────────────────────
 
-/** The highest tier code the zoom alone admits: the ladder's floor. Derived
- *  from AIRPORT_TIER_ZOOM_MIN, never hard-coded, so the table is the only
- *  place the ladder can be changed. */
+/** The highest tier code the zoom alone admits: the lowest tier
+ *  chooseAirportTier() can return. Derived from AIRPORT_TIER_ZOOM_MIN, never
+ *  hard-coded, so that table is the only place the zoom thresholds can be
+ *  changed. */
 export function airportTierFloor(zoom: number): number {
   let floor = 0;
   for (const tier of Object.keys(AIRPORT_TIER_ZOOM_MIN) as (keyof typeof AIRPORT_TIER_ZOOM_MIN)[]) {

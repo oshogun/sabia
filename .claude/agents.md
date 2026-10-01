@@ -78,7 +78,7 @@ task. Two tasks on the same file in the same phase are one agent, always. A
 backend task and a frontend task never batch into one spawn, even if
 sequential — different domain means a different agent. Reserve parallel spawns
 for work that is genuinely independent — parallelism buys wall-clock, not
-budget, and each extra agent pays the cold-start tax again.
+budget, and each extra agent re-reads its whole context from scratch.
 
 **3. Skip the steps a run does not need.** Design is for runs that introduce a
 contract — a schema change, a new endpoint, a shared type. A run that adds a
@@ -238,8 +238,8 @@ For tier-3 work only — see Cost discipline rule 6.
   clone on 2026-09-23 (the commit was never fetched into the live repo, so it
   was unrecoverable) precisely because nothing about a path under `/tmp`
   signals "don't touch this." Keeping it in-project doesn't make it safe to
-  delete carelessly, but it does keep it out of blast radius from cleanup
-  aimed at generic temp directories.
+  delete carelessly, but it does keep it out of reach of cleanup aimed at
+  generic temp directories.
 
   - **The run clone is the only install per run, and nothing goes in `/tmp`.**
     Per-agent copies of the tree with their own `node_modules` under the

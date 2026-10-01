@@ -4,7 +4,7 @@
 // It is a liveness ping, not a fact about the logbook: one instance per server
 // (not a module-level singleton) so a scratch server starts empty, and never
 // persisted — a restart loses at most one heartbeat of "sidecar known live",
-// which the next ping heals.
+// which the next ping restores.
 //
 // Staleness is judged on the arrival time, never on the sentAt the report
 // carries: that clock belongs to another machine.

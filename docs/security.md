@@ -57,7 +57,7 @@ which):
   and `requireAuth`/`requireSameOrigin` never see it. Unlike the ingest
   allow-list, `MCP_SCOPED_ROUTES` gates nothing live at request time (every
   MCP tool calls an in-process function, never this server's own HTTP
-  surface) — it's kept honest by a startup assertion instead: a tool
+  surface) — a startup assertion enforces it instead: a tool
   declaring an unlisted route, or a read/write kind mismatch, fails server
   construction rather than shipping silently.
 

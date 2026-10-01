@@ -594,9 +594,10 @@ export function getPlannedLegCandidatesForActiveTrip(): LegMatchCandidate[] {
  * from onCrash() and onSimDisconnect(), which is the worst moment to allocate
  * a track nobody reads.
  *
- * NULL means "no link", and it also means "no such flight": the one caller
- * does the same thing either way — nothing — so collapsing the two is honest
- * rather than lossy.
+ * NULL means "no link", and it also means "no such flight". Every caller
+ * treats the two alike: recordArrival() returns, refreshForFlight() clears its
+ * cache, and src/inspect-acars.ts prints null. So collapsing them loses no
+ * information any caller uses.
  */
 export function getFlightPlannedLegId(flightId: number): number | null {
   const row = getDb().prepare(
@@ -617,7 +618,7 @@ export function getFlightPlannedLegId(flightId: number): number | null {
  *
  * Linking a flight to the leg it ALREADY holds is a no-op, not a
  * re-target: re-targeting means putting a DIFFERENT leg onto an
- * already-linked flight, and running the unlink-then-link dance anyway would
+ * already-linked flight, and running the unlink-then-link sequence anyway would
  * silently reset a 'flown'/'diverted' leg back to 'planned' and discard its
  * recorded arrival_deviation_nm for a request that asked for no change. This
  * guard has to live here rather than in the endpoint: the auto-matcher calls

@@ -19,8 +19,8 @@ const COLUMNS = `
 `;
 
 // Notified once per newly created row — never for a dedup hit, never for a
-// read_at update or a delete. This is the one choke point every writer routes
-// through, so this is the only file that needs to know about the event at all.
+// read_at update or a delete. Every writer inserts through this module, so
+// this is the only file that needs to know about the event at all.
 let acarsInsertListener: ((hint: AcarsHint) => void) | null = null;
 
 export function setAcarsInsertListener(listener: ((hint: AcarsHint) => void) | null): void {

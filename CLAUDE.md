@@ -34,9 +34,9 @@ Three tiers, per `.claude/agents.md` § Cost discipline rule 6:
   something the user will see.
 
 Spinning up a Planner for a two-line change is the failure mode to avoid. The
-workflow's cost is only worth paying when the work has phases, and the loop is
-not a ceremony to perform on itself — configuration and doc changes to the
-workflow are tier 1.
+workflow's cost is only worth paying when the work has phases, and the full
+loop is not run on changes to the workflow itself — configuration and doc
+changes to the workflow are tier 1.
 
 **Documentation work in `docs/` or `README.md` beyond a one-line typo** —
 creating or substantively updating system documentation — is none of the
@@ -179,6 +179,29 @@ Read them with [.claude/tools/ctx.sh](.claude/tools/ctx.sh), not `cat`:
 `ctx.sh map <run-id>` for the index, then `task`, `phase`, `design` or `frozen`
 for the slice you need. These files run to 60–70 KB and you will open them many
 times in a run.
+
+## Writing comments and docs
+
+Code comments, `docs/`, `README.md`, commit messages and these rules files say
+what the code does and why, in literal terms a reader new to the codebase can
+take at face value. A metaphor is not an explanation; write the thing it
+stands for:
+
+- "load-bearing" → what breaks if it changes ("the build fails without it",
+  "the only thing that enforces the allow-list");
+- "belt-and-suspenders" → "a second check", plus what it catches that the
+  first one misses;
+- "tripwire" → the check;
+- "choke point" → the one module every writer goes through;
+- a "dance" → the sequence;
+- a "spine" or a "skeleton" → the list;
+- data that is "honest" → what actually happened.
+
+Established technical terms (golden file, focus trap, shell `trap`, escape
+hatch) are fine. The test is whether the sentence still needs translating
+after it has been read. Issue #10 removed a batch of these; the wording grep
+in the implementers' self-audit and Reviewer check 9 catch the commonest ones
+in a diff.
 
 ## Verification
 

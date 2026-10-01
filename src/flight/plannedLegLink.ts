@@ -183,8 +183,9 @@ export class PlannedLegLink {
         console.log(
           `[FlightManager] Ground session matched planned leg #${result.plannedLegId} (${route}${formatNm(result.distanceNm)}, ${result.reason})`
         );
-        // No SimVar publishes the parking spot's name. The one honest source
-        // on this path is the matched leg's own filed departure stand.
+        // No SimVar publishes the parking spot's name. On this path the only
+        // source is the matched leg's filed departure start (departure_start),
+        // which can also be a runway, or null.
         return { plannedLegId: result.plannedLegId, parkingPosition: leg?.departure_start ?? null };
       }
 
@@ -232,8 +233,9 @@ export class PlannedLegLink {
    *
    * Reached from a crash and a sim disconnect as well as from a normal
    * landing, so `frame` may be anywhere at all — mid-ocean, mid-climb. That is
-   * simply a large deviation and a 'diverted' leg, which is the honest record;
-   * it is not a special case and must not become one.
+   * simply a large deviation and a 'diverted' leg: the flight did end that far
+   * from its destination, and the record says so. It is not a special case and
+   * must not become one.
    */
   recordArrival(flightId: number, frame: SimFrame): void {
     try {

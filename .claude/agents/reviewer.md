@@ -54,6 +54,13 @@ independently and which ones you could not, with the reason.
    (`phase3.md`, `reviews/phase-2.md`). That is a finding even if the citation
    is accurate today — it makes the comment depend on a document the next
    reader of `src/`, `client/src/`, or `tests/` has no way to know exists.
+9. **Literal wording.** A new or edited comment or doc line explains in plain
+   terms; a metaphor standing in for the reason is a finding (the rule and its
+   examples: `CLAUDE.md` § Writing comments and docs). Run
+   `git diff -U0 | grep -niE '^\+.*(load[- ]?bearing|belt[- ]and[- ](suspenders|braces)|trip[- ]?wire|choke[- ]?point)'`
+   — it must print nothing outside the example list in `CLAUDE.md`
+   § Writing comments and docs — then read the new comments for the ones a
+   grep cannot list.
 
 ## How to work safely
 

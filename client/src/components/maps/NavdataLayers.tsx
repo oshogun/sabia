@@ -368,10 +368,10 @@ export function chooseLabelledCandidates(
   return labelled;
 }
 
-// Same reveal-ladder ordinal as the server's tier classification: a lower
-// number is the more significant airport. An airport with no tier at all
-// (neither the sim nor OurAirports could classify it) ranks below even
-// 'other' — 'other' is still a positive classification, no tier is none.
+// Same order as the server's tier codes: a lower number is the more
+// significant airport. An airport with no tier at all (neither the sim nor
+// OurAirports could classify it) ranks below even 'other' — 'other' is still
+// a positive classification, no tier is none.
 const AIRPORT_LABEL_TIER_RANK: Record<AirportTier, number> = {
   large: 0, medium: 1, small: 2, unknown: 3, other: 4,
 };

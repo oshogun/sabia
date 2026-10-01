@@ -69,6 +69,10 @@ prove it works.
   design decision or a prior review round is worth a comment, say the *why* —
   or what was actually decided — in the comment itself, in plain language,
   with no external pointer.
+- **Literal wording, no metaphors.** A comment says what the code does and
+  why in plain terms, never a metaphor in place of the reason. The rule and
+  its examples are in `CLAUDE.md` § Writing comments and docs; the wording
+  grep in the self-audit below catches the commonest ones.
 - Handle the failure paths the acceptance criteria name — empty input,
   malformed input, missing optional fields, concurrent writes — with a clear
   one-line reason, not a stack trace.
@@ -100,6 +104,8 @@ justify it in `risks`:
 ```bash
 # design/task/finding ids leaking into repo text (style rule): must print nothing
 git diff -U0 | grep -nE '^\+.*\b(RK|T|N|E)-[0-9]+[a-z]?\b|^\+.*§ ?[0-9]'
+# metaphors standing in for an explanation (wording rule): must print nothing
+git diff -U0 | grep -niE '^\+.*(load[- ]?bearing|belt[- ]and[- ](suspenders|braces)|trip[- ]?wire|choke[- ]?point)'
 # assertions removed from tests: every removed expect/assert needs a replacement
 git diff -U0 -- '*.test.*' '*.spec.*' | grep -cE '^-.*\b(expect|assert)\b'
 git diff -U0 -- '*.test.*' '*.spec.*' | grep -cE '^\+.*\b(expect|assert)\b'

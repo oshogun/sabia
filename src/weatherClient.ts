@@ -87,7 +87,7 @@ export interface RawWeather {
   fetched_at: string;
 }
 
-// Compile-time anchor, not a runtime call: fails to typecheck if RawWeather
+// Compile-time check, not a runtime call: fails to typecheck if RawWeather
 // (once its metar is known non-null) ever drifts from WxWeatherPayload's
 // shape — the two are meant to stay field-for-field identical.
 function _rawWeatherMatchesWxWeatherPayload(w: RawWeather & { metar: string }): WxWeatherPayload {

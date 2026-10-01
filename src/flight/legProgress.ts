@@ -41,7 +41,8 @@ export function lonDeltaDeg(from: number, to: number): number {
  * dist(waypoint, destination)? Triangle inequality means that sum is
  * smallest for the LAST waypoint unless the aircraft is off to the side of
  * the direct line — and a real planned route is nearly straight (the
- * KSFO->KLAX skeleton is 293.48 nm against a 293.23 nm direct great circle).
+ * KSFO->KLAX waypoint list is 293.48 nm against a 293.23 nm direct great
+ * circle).
  * That approach would report the destination as "next waypoint" from the
  * moment of takeoff on almost every real leg, which is exactly backwards.
  */

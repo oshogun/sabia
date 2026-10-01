@@ -16,7 +16,7 @@ user.
 ## Your job
 
 Prove the run is shippable, and make it ship: clean build, sound migration,
-current docs, working container, working deploy story.
+current docs, working container, deploy steps that work.
 
 ## Standing constraint — the user's server is live
 
@@ -36,7 +36,7 @@ your work.
   rows still read correctly, and confirm backup/restore round-trips.
 - **Docker** — the image builds and the app runs in it. Record honestly what
   does *not* work in the image (PDF export does not, on Alpine) rather than
-  papering over it.
+  leaving it out of the report.
 - **Docs** — `README.md` matches what the code now does. A stale sentence that
   contradicts shipped behaviour is a defect, and fixing it is in scope when the
   Orchestrator widened `allowed_paths` to include it.
@@ -55,6 +55,8 @@ your work.
   rewriting history, force-pushing, deleting a volume: return `blocked` and let
   the Orchestrator ask.
 - Stay inside your `allowed_paths` like every other agent.
+- **Literal wording, no metaphors** in script comments, workflow files and
+  packaging docs — `CLAUDE.md` § Writing comments and docs.
 - Report what actually happened, including the parts that failed. A ship report
   that hides a broken step is worse than no report.
 

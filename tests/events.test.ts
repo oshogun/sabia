@@ -6,7 +6,7 @@
 // pattern), driven with Node's own http client rather than fetch: an SSE
 // response never completes, so its body has to be read as a stream, and
 // http.request gives req.destroy() for the close-cleanup test with no extra
-// AbortController plumbing.
+// AbortController code.
 
 import express from 'express';
 import http from 'http';
@@ -238,7 +238,7 @@ describe('GET /api/events — cleanup on close', () => {
   });
 });
 
-// ── Errors: bad topics, and the stream-limit backstop ───────────────────────
+// ── Errors: bad topics, and the stream limit (503 when the hub is full) ─────
 
 describe('GET /api/events — 400 on a bad topics param', () => {
   it('names the unknown topic', async () => {

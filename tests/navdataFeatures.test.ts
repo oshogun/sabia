@@ -358,7 +358,7 @@ describe('airport tiering', () => {
     expect(body.airportThinning).toEqual({ mode: 'none', through: null, hidden: 0, byTier: null, nextZoom: null });
   });
 
-  it('reproduces the frozen reveal-ladder decision for a measured sample viewport (Bogotá, zoom 6)', () => {
+  it('reproduces the frozen tier decision for a measured sample viewport (Bogotá, zoom 6)', () => {
     // cum L/M/S/unk/other = 54/260/976/1903/1946 -> per-tier counts:
     const byTierCounts = { 1: 54, 2: 260 - 54, 3: 976 - 260, 4: 1903 - 976, 5: 1946 - 1903 };
     expect(airportTierFloor(6)).toBe(1);

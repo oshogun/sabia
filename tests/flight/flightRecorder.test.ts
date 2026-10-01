@@ -8,10 +8,16 @@
 // Every expected duration is a literal worked out in the comment beside it
 // from the advances the test made itself.
 //
-// The last block drives a real FlightManager for the rules only the
+// The first block that drives a real FlightManager for the rules only the
 // coordinator's sequencing can get wrong: a pause that came before the takeoff,
 // the recording interval after a failed resume point, the order inside a point
 // write, and the clock read the position report is given.
+//
+// Three blocks follow that one: two more drives of a real FlightManager (where the
+// flight clock starts relative to the takeoff notify; and the rules that only show
+// when a call is slow, a store fails or a pause arrives by another route: rounding,
+// what a failed point still counts, the pause arms), and one that steps the faked
+// clock on every read, the only way to see the order of the recorder's own reads.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SimFrame } from '../../src/types';
@@ -753,5 +759,277 @@ describe('FlightRecorder through the coordinator', () => {
       expect(msg.sent_at).toBe(iso(0));
       expect(dbMock.insertPoint.mock.calls[0][1]).toBe(iso(0));
     });
+  });
+});
+
+describe('FlightRecorder through the coordinator: the takeoff notify', () => {
+  it('starts the flight clock before the takeoff notify, so time the listener takes is excluded wall clock', () => {
+    const fm = new FlightManager();
+    let first = true;
+    // The first notify is the takeoff's; it takes 7 s of the faked clock.
+    fm.setScopeChangeListener(() => { if (first) { first = false; advance(7000); } });
+    for (let i = 0; i < 3; i++) fm.onFrame(makeFrame());   // takeoff; its first point is stored at 7 s
+    advance(5000);
+    fm.onFrame(makeFrame());                                 // point 2 at 12 s: 5 s counted
+    fm.onSimDisconnect();
+    // The flight clock started before the notify: 12 s of wall clock, 5 s counted, 7 s excluded.
+    // Started after it, the clock would show 5 s and no suffix.
+    expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s (7s interrupted, excluded)');
+  });
+});
+
+// More drives of a real FlightManager, for the rules that only show when a call is slow, when
+// a store fails, or when a frame reaches the recorder by a route the recorder's own tests do not take.
+describe('FlightRecorder through the coordinator: rounding, failed stores, pauses and slow calls', () => {
+  const takeoff = (fm: FlightManager, over: Partial<SimFrame> = {}): void => {
+    for (let i = 0; i < 3; i++) fm.onFrame(makeFrame(over));
+  };
+
+  const closeArgs = () => {
+    expect(dbMock.closeFlight).toHaveBeenCalledTimes(1);
+    const c = dbMock.closeFlight.mock.calls[0];
+    return {
+      endTime: c[1] as string, durationSec: c[4] as number, maxAltitudeFt: c[6] as number,
+      maxAirspeedKts: c[7] as number, pointCount: c[8] as number,
+    };
+  };
+
+  /** The instant the ACARS message filed under `label` was stamped with. */
+  const filedAt = (label: string): string | undefined => {
+    const call = acarsEventsMock.fileAcarsMessageOnce.mock.calls.find(c => c[1] === label);
+    return (call?.[0] as { sent_at?: string } | undefined)?.sent_at;
+  };
+
+  describe('rounding', () => {
+    it('rounds the counted time to the nearest second: 5.2 s is 5, not 6', () => {
+      const fm = new FlightManager();
+      takeoff(fm);
+      advance(5200);
+      fm.onFrame(makeFrame());                 // point 2 at 5.2 s: the whole gap counts; no tail
+      fm.onSimDisconnect();
+      expect(closeArgs().durationSec).toBe(5);
+    });
+
+    it.each([
+      [65_400, 65],
+      [65_500, 66],
+    ])('rounds the wall-clock time that was not counted to the nearest second: %i ms is %i s', (gapMs, seconds) => {
+      const fm = new FlightManager();
+      takeoff(fm);
+      advance(gapMs);                          // longer than a counted gap, so none of it is flight time
+      fm.onFrame(makeFrame());
+      fm.onSimDisconnect();
+      expect(closeArgs().durationSec).toBe(0);
+      expect(logged()).toContain(`[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 0s (${seconds}s interrupted, excluded)`);
+    });
+
+    it('rounds the highest altitude and airspeed to the nearest whole number', () => {
+      const fm = new FlightManager();
+      takeoff(fm, { altitudeFt: 3000.6, airspeedKnots: 129.4 });
+      fm.onSimDisconnect();
+      // 3000.6 ft is 3001 (a floor would say 3000); 129.4 kt is 129 (a ceiling would say 130).
+      expect(closeArgs().maxAltitudeFt).toBe(3001);
+      expect(closeArgs().maxAirspeedKts).toBe(129);
+    });
+  });
+
+  describe('a point that fails to store', () => {
+    const failingFrame = (fm: FlightManager): void => {
+      dbMock.insertPoint.mockImplementationOnce(() => { throw boom; });
+      expect(() => fm.onFrame(makeFrame())).toThrow(boom);
+    };
+
+    // The gap to a point is folded into the flight time before the point is stored, and the
+    // recording clock only moves once it is stored. A failed attempt therefore keeps its gap,
+    // and the next point measures from the last point that was stored, so the gap is counted again.
+    it('counts the gap of the failed attempt, and the next point measures from the last stored one', () => {
+      const fm = new FlightManager();
+      takeoff(fm);                             // point 1 at 0 s
+      advance(5000);
+      failingFrame(fm);                        // 5 s gap counted, store fails
+      advance(5000);
+      fm.onFrame(makeFrame());                 // 10 s since the last stored point, counted too
+      fm.onSimDisconnect();
+      // 5 s from the failed attempt and 10 s from the point after it; no tail.
+      expect(closeArgs().durationSec).toBe(15);
+      expect(closeArgs().pointCount).toBe(2);
+    });
+
+    it('measures the tail of a flight that ends right after a failed point from the last stored one', () => {
+      const fm = new FlightManager();
+      takeoff(fm);
+      advance(5000);
+      failingFrame(fm);                        // 5 s gap counted, store fails
+      fm.onSimDisconnect();
+      // 5 s from the failed attempt and a 5 s tail since the last stored point.
+      expect(closeArgs().durationSec).toBe(10);
+      expect(closeArgs().pointCount).toBe(1);
+    });
+
+    it('tries the point again on the next frame: the failed store did not move the recording interval', () => {
+      const fm = new FlightManager();
+      takeoff(fm);
+      advance(5000);
+      failingFrame(fm);
+      advance(1000);
+      fm.onFrame(makeFrame());                 // 6 s since the last stored point: due
+      // The takeoff point, the failed attempt and the retry.
+      expect(dbMock.insertPoint).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('the pause arm of the flying gate', () => {
+    it('a paused frame interrupts a flight that was resumed while the sim was paused', () => {
+      dbMock.getOpenFlight.mockReturnValue(row({ start_time: iso(-120_000) }));
+      dbMock.getFlightTrackPoints.mockReturnValue([stored(0, -120_000), stored(1, -115_000)]);
+      const fm = new FlightManager();
+      fm.setPaused(true, 1);
+      fm.onFrame(makeFrame());                 // adopts the flight and stores its point: a pause does not stop that
+      advance(5000);
+      fm.onFrame(makeFrame());                 // flying and paused: skipped, and the interruption marked again
+      advance(3000);
+      fm.onSimDisconnect();
+      // 5 s from the stored track. The 8 s since the resume point are excluded, tail included.
+      expect(closeArgs().durationSec).toBe(5);
+    });
+
+    it('a paused frame interrupts a flight that was started while the sim was paused', () => {
+      const fm = new FlightManager();
+      fm.setPaused(true, 1);
+      takeoff(fm);                             // a pause does not stop the takeoff or its first point
+      advance(5000);
+      fm.onFrame(makeFrame());                 // flying and paused: skipped, and marked
+      advance(3000);
+      fm.onSimDisconnect();
+      // Only the first point exists, so nothing was counted, and the 8 s since it are excluded.
+      expect(closeArgs().durationSec).toBe(0);
+    });
+
+    it('unpausing does not interrupt the flight: only the start of a pause is marked', () => {
+      const fm = new FlightManager();
+      takeoff(fm);
+      advance(5000);
+      fm.setPaused(false);                     // no pause to end
+      fm.onFrame(makeFrame());                 // point 2 at 5 s: counted
+      fm.onSimDisconnect();
+      expect(closeArgs().durationSec).toBe(5);
+    });
+  });
+
+  describe('slow calls between the clock reads', () => {
+    it('starts the flight clock before OUT and OFF are filed, so the time filing takes is excluded wall clock', () => {
+      let filing = true;
+      acarsEventsMock.fileAcarsMessageOnce.mockImplementation(() => { if (filing) advance(2000); return true; });
+      const fm = new FlightManager();
+      takeoff(fm);                             // OUT and OFF take 2 s each: the first point is stored at 4 s
+      filing = false;
+      advance(5000);
+      fm.onFrame(makeFrame());                 // point 2 at 9 s: 5 s counted
+      fm.onSimDisconnect();
+      // The clock started at 0 s: 9 s of wall clock, 5 s counted, 4 s excluded.
+      // Started after the filing, it would show 5 s and no suffix.
+      expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s (4s interrupted, excluded)');
+    });
+
+    it('starts the flight clock before the takeoff notify, however long every notify takes', () => {
+      const fm = new FlightManager();
+      fm.setScopeChangeListener(() => advance(5000));
+      takeoff(fm);                             // the takeoff notify takes 5 s: the first point is stored at 5 s
+      advance(5000);
+      fm.onFrame(makeFrame());                 // point 2 at 10 s: 5 s counted
+      fm.onSimDisconnect();
+      // The clock started at 0 s: 10 s of wall clock, 5 s counted, 5 s excluded.
+      expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s (5s interrupted, excluded)');
+    });
+
+    it('stores the flight under the takeoff instant the OFF event carries, not one read after the departure lookup', () => {
+      airportsMock.findNearestAirport.mockImplementation(() => { advance(20_000); return null; });
+      const fm = new FlightManager();
+      takeoff(fm);                             // the departure lookup takes 20 s
+      expect(dbMock.insertFlight.mock.calls[0][3]).toBe(iso(0));
+      expect(filedAt('Flight #1 OFF')).toBe(iso(0));
+    });
+
+    it('files ON and IN, and closes the flight, at the one end instant fixed before the arrival lookup', () => {
+      const fm = new FlightManager();
+      takeoff(fm);
+      advance(3000);
+      airportsMock.findNearestAirport.mockImplementation(() => { advance(20_000); return null; });
+      acarsEventsMock.fileAcarsMessageOnce.mockClear();
+      fm.onSimDisconnect();                    // the arrival lookup takes 20 s
+      expect(closeArgs().endTime).toBe(iso(3000));
+      expect(filedAt('Flight #1 ON')).toBe(iso(3000));
+      expect(filedAt('Flight #1 IN')).toBe(iso(3000));
+    });
+  });
+});
+
+/**
+ * Makes every Date.now() hand out the faked instant and then move the faked clock on by stepMs,
+ * so two reads in a row see two different instants. `new Date()` with no argument sees the moved
+ * clock. Only install it around the one call under test, and restore it with mockRestore().
+ */
+function stepEveryRead(stepMs: number) {
+  let t = Date.now();
+  return vi.spyOn(Date, 'now').mockImplementation(() => {
+    const read = t;
+    t += stepMs;
+    vi.setSystemTime(t);
+    return read;
+  });
+}
+
+describe('FlightRecorder clock reads, one at a time', () => {
+  it('startClock reads the recording-interval clock first and the flight clock second', () => {
+    const rec = new FlightRecorder();
+    rec.begin(makeFrame(), DEP, iso(0));
+    const reads = stepEveryRead(1000);
+    rec.startClock();                          // recording clock at 0 s, flight clock at 1 s
+    reads.mockRestore();                       // the faked clock now stands at 2 s
+    // The flight clock is 1 s behind the faked clock's first reading: 51 s is 50 s into the flight.
+    expect(rec.elapsedMs(Date.parse(iso(51_000)))).toBe(50_000);
+    advance(2999);                             // 4999 ms since the recording clock
+    expect(rec.maybeRecord(1, makeFrame())).toBeNull();
+    advance(1);                                // 5000 ms: due
+    expect(rec.maybeRecord(1, makeFrame())).not.toBeNull();
+  });
+
+  it('adopt reads the fallback flight start before it restarts the recording interval', () => {
+    dbMock.getFlightTrackPoints.mockReturnValue([stored(0, -120_000), stored(1, -115_000)]);
+    const rec = new FlightRecorder();
+    const reads = stepEveryRead(1000);
+    rec.adopt(row({ start_time: 'not a date' }), makeFrame());   // fallback read at 0 s, recording clock at 1 s
+    reads.mockRestore();                       // the faked clock now stands at 2 s
+    expect(rec.elapsedMs(Date.parse(iso(10_000)))).toBe(10_000);
+    advance(3000);                             // 5 s: 4 s since the recording clock
+    expect(rec.maybeRecord(77, makeFrame())).toBeNull();
+    advance(1000);                             // 6 s: 5 s since the recording clock
+    expect(rec.maybeRecord(77, makeFrame())).not.toBeNull();
+  });
+
+  it('writePoint takes the gap, the stamp and the returned instant from a single read', () => {
+    const { rec, id } = started();
+    rec.writePoint(id, makeFrame());
+    advance(5000);
+    const reads = stepEveryRead(1000);
+    const point = rec.writePoint(id, makeFrame());
+    expect(reads).toHaveBeenCalledTimes(1);
+    reads.mockRestore();
+    // A second read, for any of the three, would be 1 s later.
+    expect(point).toEqual({ flightId: id, nowMs: Date.parse(iso(5000)), ts: iso(5000) });
+    expect(dbMock.insertPoint.mock.calls[1][1]).toBe(iso(5000));
+  });
+
+  it('stopClock takes the end instant before the tail and the wall-clock span', () => {
+    const { rec, id } = started();
+    rec.writePoint(id, makeFrame());           // a point at 0 s
+    advance(2000);
+    const reads = stepEveryRead(1000);
+    const tally = rec.stopClock();             // end instant at 2 s, tail read at 2 s, span read at 3 s
+    reads.mockRestore();
+    expect(tally.endTime).toBe(iso(2000));
+    // 2 s counted; 3 s of wall clock since the flight clock started, 1 s of it not counted.
+    expect(tally.durationSec).toBe(2);
+    expect(tally.excludedSec).toBe(1);
   });
 });

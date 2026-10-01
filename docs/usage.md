@@ -117,7 +117,8 @@ A flight still in progress has no Replay tab; its live position is on Home.
   vertical speed, state (*Airborne*, *On ground* or *Recording gap*) and the
   current point number.
 - **Recording gaps** — where the log has a gap of more than 30 seconds (the sim
-  was paused, or the sim client disconnected), replay does not wait it out: the
+  was paused or slewed, the server was restarted mid-flight, or two flights were
+  combined), replay does not wait it out: the
   marker holds still for 2 seconds of replay time and the state shows *Recording
   gap* with the real duration.
 - **Keyboard** — with focus on the replay panel: Space plays/pauses, ←/→ seek

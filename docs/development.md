@@ -6,6 +6,8 @@
 src/                  Express + TypeScript server
   routes/             One file per feature's HTTP routes
   db/                 One file per table; only place raw SQL is allowed to live
+  flightManager.ts    The flight state machine's coordinator (see architecture.md)
+  flight/             Its collaborators: ground sessions, leg link, recorder, ACARS reporter, boot recovery, pure helpers
   auth/               Session, ingest-token, MCP-token, password, login-throttle logic
   mcp/                Optional MCP server: router, tool registry, the 18 read/write tools
   inspect-*.ts        ts-node CLI inspectors for eyeballing behavior against real data
@@ -21,7 +23,8 @@ client/               React + Vite web app on IBM Carbon (@carbon/react, Gray 10
   src/styles/         index.scss — the Carbon theme and the component styles the app uses
   scripts/            check-print-chunk.mjs (keeps Carbon out of the print bundle)
   e2e/                Playwright end-to-end specs, run against a scratch instance
-tests/                Vitest suite — mirrors src/ for unit tests, tests/db/ for the db/ modules
+tests/                Vitest suite — mirrors src/ for unit tests, tests/db/ for the db/ modules,
+                      tests/flight/ for src/flight/, tests/golden/ for the flight call-order goldens
 samples/              Read-only fixtures (e.g. .lnmpln files) used by tests
 packaging/            build-bundle.sh (release tarball), install.sh (Linux; its macOS path is untested), install.ps1 (Windows)
 docs/                 This documentation set
@@ -48,15 +51,24 @@ npm run set-password
 
 ## Testing strategy
 
-`npm test` (Vitest) covers pure/near-pure decision logic: flight state
-transitions and pause/duration handling (`src/flightManager.ts`), leg
-matching (`src/legMatcher.ts`), hand-close rules (`src/plannedLegClose.ts`),
-`.lnmpln`/SimBrief/ICAO parsing, and most of `src/db/*.ts` (`tests/db/`
-covers `connection`, `flights`, `trips`, `plannedLegs`, `settings`,
-`acarsMessages`, and `schema`/migrations — `groundSessions.ts` has no
-dedicated test file yet, only indirect coverage via
-`tests/flightManager.ground.test.ts`). It never touches the real
-`flights.db`, the network, or a live server:
+`npm test` (Vitest) covers pure and near-pure decision logic:
+- flight state transitions and pause/duration handling (`src/flightManager.ts`
+  and `src/flight/*`, see below);
+- leg matching (`src/legMatcher.ts`);
+- hand-close rules (`src/plannedLegClose.ts`);
+- `.lnmpln`/SimBrief/ICAO parsing;
+- most of `src/db/*.ts`. `tests/db/` covers `connection`, `flights`, `trips`,
+  `plannedLegs`, `settings`, `acarsMessages`, `ingestTokens`, `mcpTokens`,
+  and `schema`/migrations. `groundSessions.ts` has no dedicated test file.
+  Only its manual-entry path runs against a real database, through the
+  `/api/ground-sessions` route tests in `tests/flightsChanged.test.ts`, and
+  those check the change notification, not the rows. The flight state
+  machine tests either mock it, or load it with no database open (where
+  every call fails before any SQL runs). The auto-detected path's SQL
+  (`insertGroundSession`, `fillOpenGroundSessionGaps`) is therefore never
+  exercised.
+
+It never touches the real `flights.db`, the network, or a live server:
 
 - `tests/setup.ts` points `FLIGHTS_DB_PATH` at a tmpdir path before anything
   else runs, and silences `console.*` output.
@@ -75,8 +87,59 @@ npm run test:watch  # watch mode
 npm run test:types  # typecheck src/ + tests/ together (npm run build only typechecks src/)
 ```
 
-`src/db/groundSessions.ts` (see above) is the clearest gap; a reasonable
-place to add a dedicated test file before changing that module's logic.
+### Flight state machine tests
+
+The flight logic is covered at three layers.
+
+**Characterization net.** It pins the coordinator's externally visible
+behaviour step by step:
+- `tests/flightManager.callorder.test.ts` holds the `S-nn` scenarios and the
+  `E-nn` error-policy cases. Each drives a `FlightManager` and asserts the
+  whole ordered log of mocked DB calls, ACARS calls, scope notifications and
+  console lines, plus the final state.
+- Each scenario's log is compared with a golden file in
+  `tests/golden/flightManager/<id>.json` and `<id>.log`, using the helper in
+  `tests/helpers/callOrder.ts`.
+- `tests/flightManager.gaps.test.ts` (`G-nn`) covers branches the scenarios
+  don't reach.
+- `tests/flightManager.resumelog.test.ts` pins the resume log line and its
+  start-time fallback.
+
+**The original suites.** The other `tests/flightManager*.test.ts` files cover
+state transitions, ground sessions, ACARS, duration and resume.
+
+**Unit tests for the `src/flight/*` modules** (all but `constants.ts`).
+`tests/flight/*.test.ts` also pins rules that only show under a double fault
+or a slow call. One example is the order of clock reads: a plain fake clock
+can't see it, so those tests step the clock on every read.
+
+A change to flight behaviour that is **intended** shows up as a golden diff.
+To accept it:
+1. Review the diff.
+2. Regenerate only the affected goldens, one full id at a time (`-t S-1`
+   would also match `S-10` to `S-19`):
+   ```bash
+   CALLORDER_WRITE_GOLDEN=1 npx vitest run \
+     tests/flightManager.callorder.test.ts -t S-07
+   ```
+3. Review the regenerated files before committing.
+
+Never regenerate to make an unexplained failure pass.
+
+### Known gaps
+
+- `src/db/groundSessions.ts` (see above) has no test that checks the rows it
+  writes, and its auto-detected path never runs against a database. That is
+  a reasonable place to add a dedicated test file before changing the
+  module's logic.
+- A full `npm test` can time out intermittently in `tests/navdata*`
+  ("Test timed out in 5000ms") on a machine where fsync on the OS temp
+  directory is slow. The navdata tests build SQLite replica files under
+  `os.tmpdir()`, while the rest of the suite keeps its scratch database on
+  `/dev/shm` where available (`scratchDbRoot()` in `tests/helpers/db.ts`).
+  Tracked in [#9](https://github.com/oshogun/sabia/issues/9).
+  Until it is fixed, `npx vitest run --exclude 'tests/navdata*'` gives a
+  reliable run of everything else.
 
 Beyond Vitest: `npx tsc --noEmit` for a fast typecheck, `curl` against a
 locally-run scratch server (different port, scratch database — never the

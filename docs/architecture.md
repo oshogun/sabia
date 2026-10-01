@@ -198,8 +198,26 @@ in case a lingering connection blocks the graceful close.
 
 ## Flight state machine
 
-The core of the domain logic (`src/flightManager.ts`) — driven entirely by
-telemetry frames arriving over ingest, not by any client request.
+The core of the domain logic — driven entirely by telemetry frames arriving
+over ingest, not by any client request. `src/flightManager.ts`
+(`FlightManager`) is the coordinator. It owns:
+- the state;
+- the transition guards: the airborne and landed debounces, and entering
+  GROUND once `GroundTracker` reports the parked debounce met;
+- the order of every step in a takeoff, a resume and a landing.
+
+It is the only code that changes the state. Each concern it orchestrates
+lives in its own module under `src/flight/`:
+
+| Module | Responsibility |
+|---|---|
+| `groundTracker.ts` (`GroundTracker`) | Ground sessions: the parked streak; entry by adopting an open session or inserting a new one; the slew, superseded, crash and sim-exit exits; the off-blocks (OUT) memo; handing the session's airport and stand to the takeoff. |
+| `plannedLegLink.ts` (`PlannedLegLink`) | The planned-leg link: auto-link at takeoff, the non-consuming match at ground entry, the arrival outcome at landing, and the live progress reported by `GET /api/status`. |
+| `flightRecorder.ts` (`FlightRecorder`) | The `flights` row and its track points, and the duration, distance and maxima accounting (below). |
+| `oooiReporter.ts` (`OooiReporter`) | ACARS OUT/OFF/ON/IN messages and periodic position reports. |
+| `bootRecovery.ts` | The one-time open-flight lookup after a restart (below). |
+| `legProgress.ts`, `summarizeTrack.ts` | Pure helpers: progress along a planned route; rebuilding a flight's totals from its stored track. |
+| `constants.ts` | Shared thresholds: `MAX_COUNTED_GAP_MS` (60 s) and `TAXI_OUT_SPEED_KTS` (3 kt), both also re-exported from `src/flightManager.ts`. |
 
 **States:** `IDLE` → `GROUND` → `FLYING` → back to `IDLE`.
 
@@ -217,6 +235,25 @@ telemetry frames arriving over ingest, not by any client request.
 - **FLYING → IDLE (landing)**: 10 consecutive landed frames (on ground,
   groundspeed &lt;5kt), or immediately on crash/sim-disconnect. Writes final
   flight stats, records the leg outcome (below), files ON/IN ACARS messages.
+- **Resume after a server restart**: shutdown never ends a flight. On the
+  first running frame after the process starts, the server looks once for a
+  `flights` row that was never closed. If it finds one, it continues that
+  flight instead of starting a new one:
+  - it rebuilds distance, maxima, point count and counted time from the
+    stored points;
+  - it excludes the outage from the duration;
+  - it reloads the existing leg link without matching again;
+  - it does not insert a row, close a ground session or re-file OUT/OFF.
+
+  If the resume fails, the outcome depends on where:
+  - **The lookup, or the read of the stored points.** The error is logged
+    ("Open-flight check failed…") and the server carries on as if no flight
+    were open. A takeoff then starts a new flight, and the old row stays
+    open.
+  - **The leg reload.** It is logged ("planned-leg cache not restored"),
+    and the flight continues without a live leg status.
+  - **The first point write.** It is logged as "Open-flight check
+    failed…", and the flight stays resumed.
 
 **Pause handling**: the MCDU client forwards SimConnect's `Pause_EX1` bitmask,
 distinguishing a full pause, an "active pause," and a menu pause — all three
@@ -224,11 +261,43 @@ stop the flight clock and suspend track recording, unlike the legacy
 `Paused`/`Unpaused` events (kept only as a fallback) which miss active pause
 entirely.
 
-**Duration**: not wall-clock time. It's the sum of gaps *between recorded
-points*, only counted when the gap is ≤60s and the flight wasn't interrupted
-(paused/slewed) since the previous point — so a pause, pause menu, frozen
-sim, or dropped client connection is excluded from the logged duration rather
-than inflating it.
+**Duration**: not wall-clock time.
+- **What is summed.** The gaps *between recorded points*, plus the final gap
+  when the flight ends. A point is stored at most every 5 s while flying.
+- **When a gap counts.** Only when it is ≤60s and the flight wasn't
+  interrupted since the previous point. Interrupted means paused (any
+  `Pause_EX1` flag, or the legacy `Paused` event), slewed, or resumed after
+  a restart.
+- **Pauses and slews.** No point is recorded during a pause or a slew, so
+  that time falls inside a gap that isn't counted. A pause, the pause menu
+  or a frozen sim is therefore excluded rather than inflating the duration.
+  That holds only while frames keep arriving.
+  - The MCDU client sends one frame per SimConnect per-second data callback
+    and doesn't stop on pause, so the exclusion depends on whether MSFS keeps
+    delivering that data while paused. That hasn't been checked live.
+  - If MSFS stops delivering, a pause longer than about 10–15 s ends the
+    flight through the disconnect rule below.
+  - A loading stall or other hang makes the client go silent, with the same
+    result.
+- **A dropped MCDU connection.** The server checks every 5 s, so it
+  notices silence 10–15 s after the last frame. It then marks the client
+  disconnected and **ends** the flight. A `disconnected` event from the
+  client does the same immediately.
+  - The silence up to that moment counts as the flight's last seconds,
+    unless the flight was paused or slewed since its last point.
+  - Frames arriving later in the air start a new flight (see
+    [troubleshooting.md § Data](troubleshooting.md#data)).
+  - A drop shorter than that isn't noticed, and its gap counts like any
+    other.
+
+Known issues:
+- After a restart, a pause or slew from *before* the restart, if it was
+  shorter than about a minute, is counted again. Rebuilding from stored
+  points applies only the 60 s rule
+  ([#7](https://github.com/oshogun/sabia/issues/7)).
+- When a point's database write fails, its time and distance are counted,
+  and counted again on every retry
+  ([#8](https://github.com/oshogun/sabia/issues/8)).
 
 ## Leg matching and closing
 

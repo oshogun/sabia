@@ -135,18 +135,32 @@ wrong "current password" attempts lock the password form, not the login page.
 ## Data
 
 **A flight looks split into two entries with a gap.**
-The MCDU client likely lost its connection to the server mid-flight (network
-blip, server restart), or MSFS itself paused or hung in a way the client
-recorded as a disconnect. Use "Combine flights" from the All Flights page,
-then run `npm run backfill-icao` if the merged flight is missing
-departure/arrival airport codes (combining doesn't re-resolve them).
+The server stopped hearing from the MCDU client mid-flight. Either the client
+sent a `disconnected` event, or no frame arrived for more than 10 s. The
+second happens with a network drop, the client crashing or being killed, or
+MSFS hanging or pausing in a way that stops the client's frames. The server then
+ends the flight, and the frames that arrive later in the air start a new
+one.
+
+A server restart does **not** split a flight: the restarted server resumes
+the open flight on its first frame (see
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)).
+
+Use "Combine flights" from the All Flights page. Then run
+`npm run backfill-icao` if the merged flight is missing departure/arrival
+airport codes (combining doesn't re-resolve them).
 
 **A flight's logged duration looks too short.**
-Expected if the flight was paused, in the pause menu, or the MCDU client
-reconnected after a drop — none of that time is counted (see
+Expected if the flight was paused, in the pause menu or slewed, or if the
+server was restarted mid-flight. None of that time is counted (see
 [architecture.md § Flight state machine](architecture.md#flight-state-machine)).
 If the flight predates this behavior, `npm run backfill-durations` (dry-run
 first) recomputes it.
+
+**A flight's logged duration looks too long after a server restart.**
+Known issue [#7](https://github.com/oshogun/sabia/issues/7): a pause or slew
+from before the restart is counted again when the flight is resumed, if it
+was shorter than about a minute. The outage itself is not counted.
 
 **Takeoff didn't auto-link to the planned leg you expected.**
 Leg matching requires: an active trip, a planned leg for that trip whose

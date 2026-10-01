@@ -243,7 +243,11 @@ application code never writes raw SQL outside `src/db/`:
 
 ## Flight state machine → data model
 
-Rows are created by `src/flightManager.ts` as a flight is detected, not by
-any client request — see [architecture.md § Flight state machine](architecture.md#flight-state-machine)
+Flight rows and their track points are created by the flight state machine
+(`src/flightManager.ts` and its collaborators in `src/flight/`) as a flight
+is detected. The one client request that creates them is "Combine flights"
+(`POST /api/flights/combine`), which merges two finished flights into a new
+row. Ground-session rows also come from the operator's manual entry. See
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)
 for the full IDLE → GROUND → FLYING transition logic, pause/duration
 accounting, and how leg matching decides `planned_leg_id`.

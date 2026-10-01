@@ -143,19 +143,21 @@ export class FlightRecorder {
     const now = Date.now();
     const ts = new Date(now).toISOString();
 
+    // Everything this point adds is worked out first and committed only after
+    // the insert succeeds: a point that fails to store leaves the recorder as it
+    // was, and the retry counts the whole segment from the last stored point.
+    let segmentNm = 0;
+    let countedGapMs = 0;
     if (this.pointCount > 0) {
-      this.distanceNm += haversineNm(this.lastPointLat, this.lastPointLon, frame.lat, frame.lon);
+      segmentNm = haversineNm(this.lastPointLat, this.lastPointLon, frame.lat, frame.lon);
 
       // Flight time is built from the gaps between points rather than the wall
       // clock. A gap far longer than the recording interval means recording had
       // stopped — a pause, slew, a frozen sim, a crashed agent — and that time
       // was not flown, so it is not counted.
       const gap = now - this.lastPointTime;
-      if (!this.interrupted && gap <= MAX_COUNTED_GAP_MS) this.activeMs += gap;
+      if (!this.interrupted && gap <= MAX_COUNTED_GAP_MS) countedGapMs = gap;
     }
-
-    if (frame.altitudeFt > this.maxAltitudeFt) this.maxAltitudeFt = frame.altitudeFt;
-    if (frame.airspeedKnots > this.maxAirspeedKts) this.maxAirspeedKts = frame.airspeedKnots;
 
     insertPoint(
       flightId,
@@ -170,6 +172,10 @@ export class FlightRecorder {
       frame.onGround
     );
 
+    this.distanceNm += segmentNm;
+    this.activeMs += countedGapMs;
+    if (frame.altitudeFt > this.maxAltitudeFt) this.maxAltitudeFt = frame.altitudeFt;
+    if (frame.airspeedKnots > this.maxAirspeedKts) this.maxAirspeedKts = frame.airspeedKnots;
     this.lastPointLat = frame.lat;
     this.lastPointLon = frame.lon;
     this.lastPointTime = now;

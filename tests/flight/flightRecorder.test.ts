@@ -314,7 +314,7 @@ describe('FlightRecorder.writePoint', () => {
   });
 
   describe('when the point cannot be stored', () => {
-    it('propagates the throw, after the distance and the maxima have already been raised', () => {
+    it('propagates the throw, and a frame that was never stored raises neither the distance nor the maxima', () => {
       const { rec, id } = started(makeFrame({ altitudeFt: 1500, airspeedKnots: 110 }));
       advance(5000);
       rec.writePoint(id, at(0));
@@ -323,9 +323,9 @@ describe('FlightRecorder.writePoint', () => {
       expect(() => rec.writePoint(id, at(10, { altitudeFt: 9000, airspeedKnots: 250 }))).toThrow(boom);
 
       const out = end(rec, id, at(10));
-      expect(out.maxAltitudeFt).toBe(9000);
-      expect(out.maxAirspeedKts).toBe(250);
-      expect(out.distanceNm).toBe(10);
+      expect(out.maxAltitudeFt).toBe(1500);
+      expect(out.maxAirspeedKts).toBe(110);
+      expect(out.distanceNm).toBe(0);
       expect(out.pointCount).toBe(1);
     });
 
@@ -340,12 +340,12 @@ describe('FlightRecorder.writePoint', () => {
       advance(5000);
       rec.writePoint(id, at(10));
 
-      // The failed attempt added its 10 nm and the next point measures from the last point that
-      // was stored, so the same 10 nm again. The mark survived the failure: the 15 s since the
-      // stored point is not counted.
+      // The failed attempt added nothing, and the next point measures from the last point that
+      // was stored, so the 10 nm is counted once. The mark survived the failure: the 15 s since
+      // the stored point is not counted.
       const out = end(rec, id, at(10));
       expect(out.pointCount).toBe(2);
-      expect(out.distanceNm).toBe(20);
+      expect(out.distanceNm).toBe(10);
       expect(out.durationSec).toBe(0);
     });
   });
@@ -711,7 +711,7 @@ describe('FlightRecorder through the coordinator', () => {
     expect(closeArgs().durationSec).toBe(3);
   });
 
-  it('raises the maxima and adds the distance before storing a point, so a failed store still counts them', () => {
+  it('adds the distance and raises the maxima only once the point is stored, so a failed store counts neither', () => {
     const fm = new FlightManager();
     takeoff(fm);                               // point 1, at the takeoff fix
     advance(5000);
@@ -721,9 +721,9 @@ describe('FlightRecorder through the coordinator', () => {
 
     const c = closeArgs();
     expect(c.pointCount).toBe(1);
-    expect(c.maxAltitudeFt).toBe(9000);
-    expect(c.maxAirspeedKts).toBe(250);
-    expect(c.distanceNm).toBe(10);
+    expect(c.maxAltitudeFt).toBe(1500);
+    expect(c.maxAirspeedKts).toBe(110);
+    expect(c.distanceNm).toBe(0);
   });
 
   describe('the position report of a written point', () => {
@@ -789,7 +789,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
     expect(dbMock.closeFlight).toHaveBeenCalledTimes(1);
     const c = dbMock.closeFlight.mock.calls[0];
     return {
-      endTime: c[1] as string, durationSec: c[4] as number, maxAltitudeFt: c[6] as number,
+      endTime: c[1] as string, durationSec: c[4] as number, distanceNm: c[5] as number, maxAltitudeFt: c[6] as number,
       maxAirspeedKts: c[7] as number, pointCount: c[8] as number,
     };
   };
@@ -839,19 +839,19 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       expect(() => fm.onFrame(makeFrame())).toThrow(boom);
     };
 
-    // The gap to a point is folded into the flight time before the point is stored, and the
-    // recording clock only moves once it is stored. A failed attempt therefore keeps its gap,
-    // and the next point measures from the last point that was stored, so the gap is counted again.
-    it('counts the gap of the failed attempt, and the next point measures from the last stored one', () => {
+    // A point's gap, distance and maxima are folded in only once it is stored, and the recording
+    // clock moves with them. A failed attempt leaves everything as it was, and the next point
+    // measures from the last point that was stored, so each segment is counted once.
+    it('does not count the gap of the failed attempt, and the next point measures from the last stored one', () => {
       const fm = new FlightManager();
       takeoff(fm);                             // point 1 at 0 s
       advance(5000);
-      failingFrame(fm);                        // 5 s gap counted, store fails
+      failingFrame(fm);                        // store fails: nothing counted
       advance(5000);
-      fm.onFrame(makeFrame());                 // 10 s since the last stored point, counted too
+      fm.onFrame(makeFrame());                 // 10 s since the last stored point, counted once
       fm.onSimDisconnect();
-      // 5 s from the failed attempt and 10 s from the point after it; no tail.
-      expect(closeArgs().durationSec).toBe(15);
+      // The 10 s from the stored point to the next; no tail.
+      expect(closeArgs().durationSec).toBe(10);
       expect(closeArgs().pointCount).toBe(2);
     });
 
@@ -859,11 +859,30 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       const fm = new FlightManager();
       takeoff(fm);
       advance(5000);
-      failingFrame(fm);                        // 5 s gap counted, store fails
+      failingFrame(fm);                        // store fails: nothing counted
       fm.onSimDisconnect();
-      // 5 s from the failed attempt and a 5 s tail since the last stored point.
-      expect(closeArgs().durationSec).toBe(10);
+      // Only the 5 s tail since the last stored point.
+      expect(closeArgs().durationSec).toBe(5);
       expect(closeArgs().pointCount).toBe(1);
+    });
+
+    it('counts a stored segment once, however many attempts failed before it', () => {
+      const fm = new FlightManager();
+      takeoff(fm);                             // point 1 at KSBA, 0 s
+      advance(5000);
+      dbMock.insertPoint.mockImplementation(() => { throw boom; });
+      for (let s = 5; s <= 9; s++) {
+        expect(() => fm.onFrame(at(s / 10))).toThrow(boom);
+        advance(1000);
+      }
+      dbMock.insertPoint.mockImplementation(() => undefined);
+      fm.onFrame(at(1.0));                     // point 2 at 10 s
+      fm.onSimDisconnect();
+      expect(closeArgs().pointCount).toBe(2);
+      expect(closeArgs().durationSec).toBe(10);
+      expect(closeArgs().distanceNm).toBe(1);
+      const startMs = Date.parse(dbMock.insertFlight.mock.calls[0][3] as string);
+      expect(closeArgs().durationSec).toBeLessThanOrEqual((Date.parse(closeArgs().endTime) - startMs) / 1000);
     });
 
     it('tries the point again on the next frame: the failed store did not move the recording interval', () => {

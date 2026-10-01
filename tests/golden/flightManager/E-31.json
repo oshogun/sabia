@@ -85,7 +85,7 @@
       34.52613361088918,
       -119.841507,
       15,
-      8,
+      6,
       4500,
       123,
       5,
@@ -95,7 +95,7 @@
   },
   {
     "t": "log",
-    "text": "[FlightManager] Flight #77 ended — 5 points, 8.0 nm, 15s (51s interrupted, excluded)"
+    "text": "[FlightManager] Flight #77 ended — 5 points, 6.0 nm, 15s (51s interrupted, excluded)"
   },
   {
     "t": "call",

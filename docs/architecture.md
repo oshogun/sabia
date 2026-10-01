@@ -295,9 +295,6 @@ Known issues:
   shorter than about a minute, is counted again. Rebuilding from stored
   points applies only the 60 s rule
   ([#7](https://github.com/oshogun/sabia/issues/7)).
-- When a point's database write fails, its time and distance are counted,
-  and counted again on every retry
-  ([#8](https://github.com/oshogun/sabia/issues/8)).
 
 ## Leg matching and closing
 

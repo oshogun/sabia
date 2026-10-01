@@ -154,8 +154,8 @@ rather than assuming the prefix reached the right process.
 
 ## Scratch space — disk budget, and never `/tmp`
 
-**The disk is small and shared.** The root filesystem is 39 GB with only a few GB
-free, and `/tmp` is on that same disk (it is not RAM, and it is wiped at boot).
+**The disk is shared and finite.** The root filesystem is 77 GB (grown from 39 GB
+on 2026-10-01; ~45 GB free at the time), and `/tmp` is on that same disk (it is not RAM, and it is wiped at boot).
 On 2026-09-24 a run filled it: every agent made its own full clone with its own
 `node_modules` (400 MB–1 GB each) under the harness's session scratchpad in
 `/tmp`, nobody deleted them, the disk ran out and the machine had to be

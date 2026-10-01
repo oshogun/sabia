@@ -138,7 +138,7 @@ after data changes that leave stale derived columns:
 | Command | Purpose |
 |---|---|
 | `npm run backfill-icao` | Fills in missing `departure_icao`/`arrival_icao`/`*_name` on flights that have coordinates but no resolved airport (e.g. after combining flights, which doesn't recompute these). |
-| `npm run backfill-durations` | Recomputes `duration_sec` from the recorded track for flights logged before gap-based duration accounting existed. **Dry-run by default** — prints a diff, only for flights differing by more than 2 minutes; pass `--apply` to write. |
+| `npm run backfill-durations` | Recomputes `duration_sec` from the recorded track for flights logged before gap-based duration accounting existed. **Dry-run by default** — prints a diff, only for flights differing by more than 2 minutes; pass `--apply` to write. It checks every flight, not just old ones, and uses only the 60 s gap rule: it ignores `flight_points.after_interruption`. On a flight whose short pauses or slews add up to more than 2 minutes, it therefore proposes a longer duration than the recorder stored. Read the dry-run diff before passing `--apply`. |
 
 Both are idempotent to re-run and safe against a live server (they only
 touch rows that need correcting).

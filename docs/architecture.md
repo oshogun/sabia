@@ -240,7 +240,8 @@ lives in its own module under `src/flight/`:
   `flights` row that was never closed. If it finds one, it continues that
   flight instead of starting a new one:
   - it rebuilds distance, maxima, point count and counted time from the
-    stored points;
+    stored points (`summarizeTrack`), applying the same gap rule as the live
+    path (below);
   - it excludes the outage from the duration;
   - it reloads the existing leg link without matching again;
   - it does not insert a row, close a ground session or re-file OUT/OFF.
@@ -268,6 +269,12 @@ entirely.
   interrupted since the previous point. Interrupted means paused (any
   `Pause_EX1` flag, or the legacy `Paused` event), slewed, or resumed after
   a restart.
+- **The interruption is stored with the point.** The first point stored
+  after an interruption is written with `flight_points.after_interruption`
+  = 1. When a restarted server resumes the flight, it skips the gap that ends
+  at a flagged point, so pauses, slews and earlier outages from before the
+  restart are not counted again. Points stored before this column existed
+  read 0, so for those only the 60 s rule applies.
 - **Pauses and slews.** No point is recorded during a pause or a slew, so
   that time falls inside a gap that isn't counted. A pause, the pause menu
   or a frozen sim is therefore excluded rather than inflating the duration.
@@ -289,12 +296,6 @@ entirely.
     [troubleshooting.md § Data](troubleshooting.md#data)).
   - A drop shorter than that isn't noticed, and its gap counts like any
     other.
-
-Known issues:
-- After a restart, a pause or slew from *before* the restart, if it was
-  shorter than about a minute, is counted again. Rebuilding from stored
-  points applies only the 60 s rule
-  ([#7](https://github.com/oshogun/sabia/issues/7)).
 
 ## Leg matching and closing
 

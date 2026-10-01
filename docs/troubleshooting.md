@@ -158,9 +158,12 @@ If the flight predates this behavior, `npm run backfill-durations` (dry-run
 first) recomputes it.
 
 **A flight's logged duration looks too long after a server restart.**
-Known issue [#7](https://github.com/oshogun/sabia/issues/7): a pause or slew
-from before the restart is counted again when the flight is resumed, if it
-was shorter than about a minute. The outage itself is not counted.
+A resumed flight doesn't count the outage, or any pause or slew from before
+the restart. The exception is a flight that was already open when the server
+was upgraded to the version that added `flight_points.after_interruption`.
+Its earlier points carry no interruption mark, so on resume a pause or slew
+shorter than about a minute from before the upgrade is counted again (see
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)).
 
 **Takeoff didn't auto-link to the planned leg you expected.**
 Leg matching requires: an active trip, a planned leg for that trip whose

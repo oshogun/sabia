@@ -68,6 +68,15 @@ Track log — one row per recorded telemetry sample.
 | `lat`, `lon` | REAL NOT NULL |
 | `altitude_ft`, `airspeed_kts`, `ground_speed_kts`, `heading_deg`, `vertical_speed_fpm` | REAL NOT NULL |
 | `on_ground` | INTEGER NOT NULL (0/1) |
+| `after_interruption` | INTEGER NOT NULL DEFAULT 0 (0/1) |
+
+`after_interruption` is 1 on the first point stored after a pause, a slew or
+a resume after a server restart. When a flight is resumed, the gap that ends at
+a flagged point is not counted toward its duration (see
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)).
+The column was added in place by a migration in `applySchema`, so points
+recorded before it existed read 0. It is internal: the flight and trip
+endpoints select an explicit column list that leaves it out.
 
 ### `trips`
 

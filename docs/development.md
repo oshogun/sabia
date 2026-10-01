@@ -77,6 +77,13 @@ It never touches the real `flights.db`, the network, or a live server:
   a smaller set of tests (the four CLI scripts, and `tests/db/*`) use a real
   scratch SQLite database instead (`tests/helpers/db.ts`), never the
   repository's own `flights.db`.
+- Scratch databases and replica directories go under `scratchDbRoot()`
+  (`tests/helpers/scratchRoot.ts`, re-exported from `tests/helpers/db.ts`):
+  `/dev/shm` when it is writable, else `os.tmpdir()`. On a disk with slow
+  fsync, SQLite files under the OS temp directory made the navdata tests time
+  out ([#9](https://github.com/oshogun/sabia/issues/9)). The one CPU-bound
+  test in `tests/navdataStore.test.ts`, the 20,000-row ceiling, has its own
+  30 s timeout.
 - `restoreMocks: true` in `vitest.config.ts` only restores `vi.spyOn()`
   spies, not plain `vi.fn()` mocks — call `resetMocks()` from the helpers in
   `beforeEach`/`afterEach` if a test needs a clean mock between cases.
@@ -132,14 +139,6 @@ Never regenerate to make an unexplained failure pass.
   writes, and its auto-detected path never runs against a database. That is
   a reasonable place to add a dedicated test file before changing the
   module's logic.
-- A full `npm test` can time out intermittently in `tests/navdata*`
-  ("Test timed out in 5000ms") on a machine where fsync on the OS temp
-  directory is slow. The navdata tests build SQLite replica files under
-  `os.tmpdir()`, while the rest of the suite keeps its scratch database on
-  `/dev/shm` where available (`scratchDbRoot()` in `tests/helpers/db.ts`).
-  Tracked in [#9](https://github.com/oshogun/sabia/issues/9).
-  Until it is fixed, `npx vitest run --exclude 'tests/navdata*'` gives a
-  reliable run of everything else.
 
 Beyond Vitest: `npx tsc --noEmit` for a fast typecheck, `curl` against a
 locally-run scratch server (different port, scratch database — never the
@@ -205,7 +204,7 @@ The procedure-key collision ordering is pinned by a shared fixture,
 the suite asserts; it is shared byte for byte with the MCDU repository, so neither
 side edits it alone. The navdata schema in `src/navdata/schema.ts` is likewise the
 MCDU repository's canonical file, adopted verbatim and pinned by sha256. Tests
-build scratch databases in a temp directory and never touch `flights.db` or
+build scratch databases under `scratchDbRoot()` and never touch `flights.db` or
 the live server.
 
 ## CI

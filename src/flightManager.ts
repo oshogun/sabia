@@ -6,12 +6,11 @@ import type { FlightStatePayload } from './eventHub';
 import type { OpenFlightRow, FlightTrackPoint } from './db';
 import { getOpenFlight } from './db';
 import { findNearestAirport } from './airports';
-import { buildOooiMessage, buildPositionReportMessage, parsePositionReportIntervalMs } from './acars';
-import { fileAcarsMessageOnce } from './acarsEvents';
 import { PlannedLegLink } from './flight/plannedLegLink';
 import { GroundTracker } from './flight/groundTracker';
 import { FlightRecorder } from './flight/flightRecorder';
 import type { RecordedPoint } from './flight/flightRecorder';
+import { OooiReporter } from './flight/oooiReporter';
 
 export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
@@ -24,16 +23,9 @@ export class FlightManager {
   private readonly link = new PlannedLegLink();
   private readonly ground = new GroundTracker();
   private readonly recorder = new FlightRecorder();
+  private readonly acars = new OooiReporter();
   private airborneStreak = 0;
   private landedStreak = 0;
-  // Set once ON has been filed for the current flight, from either the
-  // touchdown frame or the end-of-flight fallback — keeps whichever fires
-  // second from filing ON twice.
-  private onEventFiled = false;
-  // Resolved once per flight from POSITION_REPORT_INTERVAL_MIN; 0 disables
-  // position reports for this flight.
-  private positionReportIntervalMs = 0;
-  private lastPositionReportWindow = 0;
   private isPaused = false;
   // Notified after every flight/leg scope change (see the call sites below);
   // null while nothing has attached one, which is the case for every existing
@@ -143,7 +135,7 @@ export class FlightManager {
 
         this.recordPoint(frame);
 
-        if (frame.onGround && !this.onEventFiled) this.fileTouchdownOn(frame);
+        if (frame.onGround) this.acars.onTouchdown(this.currentFlightId, frame, this.link.refs());
 
         if (frame.onGround && frame.groundSpeedKnots < 5) {
           this.landedStreak++;
@@ -286,33 +278,6 @@ export class FlightManager {
     this.notifyScopeChange();
   }
 
-  /**
-   * Fired at most once per flight, on the first frame back on the ground.
-   * The flag is set before anything else so a rollout that stays onGround
-   * for many frames still resolves the airport and files ON exactly once —
-   * the dedup key (src/acars.ts) is the backstop, not the mechanism.
-   */
-  private fileTouchdownOn(frame: SimFrame): void {
-    this.onEventFiled = true;
-    if (this.currentFlightId === null) return;
-
-    const at = new Date().toISOString();
-    const ap = findNearestAirport(frame.lat, frame.lon);
-    const refs = this.link.refs();
-    const msg = buildOooiMessage({
-      flightId: this.currentFlightId,
-      event: 'ON',
-      at,
-      airportIcao: ap?.icao ?? null,
-      stand: null,
-      aircraft: frame.aircraft,
-      destinationIdent: refs.destinationIdent,
-      plannedLegId: refs.plannedLegId,
-      estimated: false,
-    });
-    fileAcarsMessageOnce(msg, `Flight #${this.currentFlightId} ON`);
-  }
-
   private startFlight(frame: SimFrame): void {
     const startTime = new Date().toISOString();
     const dep = findNearestAirport(frame.lat, frame.lon);
@@ -337,39 +302,8 @@ export class FlightManager {
     this.appState.currentFlightId = id;
     this.notifyScopeChange();
 
-    this.onEventFiled = false;
-    this.positionReportIntervalMs = parsePositionReportIntervalMs(process.env.POSITION_REPORT_INTERVAL_MIN);
-    this.lastPositionReportWindow = 0;
-    if (this.positionReportIntervalMs > 0) {
-      console.log(`[FlightManager] Flight #${id} position reports every ${(this.positionReportIntervalMs / 60_000).toFixed(1)} min`);
-    } else {
-      console.log(`[FlightManager] Flight #${id} position reports disabled (POSITION_REPORT_INTERVAL_MIN=0)`);
-    }
-
-    const outEstimated = out.outAt === null;
-    const refs = this.link.refs();
-    fileAcarsMessageOnce(buildOooiMessage({
-      flightId: id,
-      event: 'OUT',
-      at: out.outAt ?? startTime,
-      airportIcao: out.airportIcao,
-      stand: out.stand,
-      aircraft: frame.aircraft,
-      destinationIdent: refs.destinationIdent,
-      plannedLegId: refs.plannedLegId,
-      estimated: outEstimated,
-    }), `Flight #${id} OUT`);
-    fileAcarsMessageOnce(buildOooiMessage({
-      flightId: id,
-      event: 'OFF',
-      at: startTime,
-      airportIcao: dep?.icao ?? null,
-      stand: null,
-      aircraft: frame.aircraft,
-      destinationIdent: refs.destinationIdent,
-      plannedLegId: refs.plannedLegId,
-      estimated: false,
-    }), `Flight #${id} OFF`);
+    this.acars.beginFlight(id);
+    this.acars.fileOutOff(id, frame, out, startTime, dep, this.link.refs());
 
     console.log(`[FlightManager] Flight #${id} started — ${frame.aircraft}`);
 
@@ -403,9 +337,7 @@ export class FlightManager {
     // must not be counted, even though its distance (added by the writePoint()
     // call below) should be.
     this.recorder.markInterrupted();
-    this.onEventFiled = false;
-    this.positionReportIntervalMs = parsePositionReportIntervalMs(process.env.POSITION_REPORT_INTERVAL_MIN);
-    this.lastPositionReportWindow = 0;
+    this.acars.resumeFlight();
 
     // Reloaded read-only: this flight's link (if any) was already made at its
     // real takeoff, and matching again here would consume a leg a second time.
@@ -442,36 +374,7 @@ export class FlightManager {
 
     // ON and IN both carry the link's refs, so they are read before the link
     // is cleared below.
-    const refs = this.link.refs();
-
-    // ON's fallback: only when no touchdown frame was ever seen (crash, sim
-    // exit or agent loss while airborne) — the touchdown path (fileTouchdownOn)
-    // already filed it. Either way IN follows immediately, sharing the end instant.
-    if (!this.onEventFiled) {
-      fileAcarsMessageOnce(buildOooiMessage({
-        flightId: id,
-        event: 'ON',
-        at: tally.endTime,
-        airportIcao: arr?.icao ?? null,
-        stand: null,
-        aircraft: frame.aircraft,
-        destinationIdent: refs.destinationIdent,
-        plannedLegId: refs.plannedLegId,
-        estimated: true,
-      }), `Flight #${id} ON`);
-      this.onEventFiled = true;
-    }
-    fileAcarsMessageOnce(buildOooiMessage({
-      flightId: id,
-      event: 'IN',
-      at: tally.endTime,
-      airportIcao: arr?.icao ?? null,
-      stand: null,
-      aircraft: frame.aircraft,
-      destinationIdent: refs.destinationIdent,
-      plannedLegId: refs.plannedLegId,
-      estimated: false,
-    }), `Flight #${id} IN`);
+    this.acars.fileArrival(id, frame, tally.endTime, arr, this.link.refs());
 
     this.currentFlightId = null;
     this.link.clear();
@@ -525,45 +428,6 @@ export class FlightManager {
    * report's `at` agree with the stored point.
    */
   private reportPosition(frame: SimFrame, point: RecordedPoint): void {
-    this.maybeFilePositionReport(frame, point.nowMs, point.ts);
-  }
-
-  /**
-   * Files a position report at most once per configured interval window, and
-   * only for a flight linked to a planned leg — an unlinked flight gets
-   * clean OOOI-only reporting, never a thrown error and never a log line.
-   * Wrapped in its own try/catch so nothing here, including a degenerate
-   * route from link.status(), can interrupt point recording.
-   */
-  private maybeFilePositionReport(frame: SimFrame, nowMs: number, ts: string): void {
-    try {
-      if (this.currentFlightId === null) return;
-      if (this.positionReportIntervalMs <= 0) return;
-      if (this.link.currentLegId() === null) return;
-
-      const windowIndex = Math.floor(this.recorder.elapsedMs(nowMs) / this.positionReportIntervalMs);
-      if (windowIndex < 1 || windowIndex <= this.lastPositionReportWindow) return;
-      this.lastPositionReportWindow = windowIndex;
-
-      const status = this.link.status(frame.lat, frame.lon);
-      if (status === null) return;
-
-      fileAcarsMessageOnce(buildPositionReportMessage({
-        flightId: this.currentFlightId,
-        windowIndex,
-        at: ts,
-        lat: frame.lat,
-        lon: frame.lon,
-        altitudeFt: frame.altitudeFt,
-        groundSpeedKnots: frame.groundSpeedKnots,
-        headingDeg: frame.headingDeg,
-        nextWaypointIdent: status.nextWaypointIdent,
-        destinationIdent: status.destinationIdent,
-        remainingDistanceNm: status.remainingDistanceNm,
-        plannedLegId: status.plannedLegId,
-      }), `Flight #${this.currentFlightId} position report`);
-    } catch (err) {
-      console.warn('[FlightManager] Position report not filed:', err);
-    }
+    this.acars.maybePositionReport(point.flightId, frame, point.ts, this.recorder.elapsedMs(point.nowMs), this.link);
   }
 }

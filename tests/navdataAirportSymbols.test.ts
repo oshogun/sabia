@@ -5,7 +5,6 @@
 import express from 'express';
 import type { Server } from 'http';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,6 +14,7 @@ import { SidecarStateStore } from '../src/navdata/sidecarState';
 import { applyNavdataSchema } from '../src/navdata/schema';
 import { closeNavDb, openNavdata } from '../src/navdata/connection';
 import { surfaceBucket } from '../src/navdata/query';
+import { scratchDbRoot } from './helpers/scratchRoot';
 
 let dir: string;
 let server: Server;
@@ -58,7 +58,7 @@ const features = async (q: string) => (await (await get(`/api/navdata/features?$
 const detail = async (ident: string) => (await (await get(`/api/navdata/airports/${ident}`)).json()) as any;
 
 beforeEach(async () => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'navdata-symbols-'));
+  dir = fs.mkdtempSync(path.join(scratchDbRoot(), 'navdata-symbols-'));
   process.env.NAVDATA_DB_PATH = path.join(dir, 'navdata.db');
   closeNavDb();
   openNavdata();

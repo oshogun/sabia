@@ -4,13 +4,13 @@
 import express from 'express';
 import type { Server } from 'http';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createNavdataSyncRouter, createRejectionLogger } from '../src/routes/navdataSync';
 import { SidecarStateStore } from '../src/navdata/sidecarState';
 import { closeNavDb, openNavdata } from '../src/navdata/connection';
 import { createScratchDb, destroyScratchDb, type ScratchDb } from './helpers/db';
+import { scratchDbRoot } from './helpers/scratchRoot';
 
 const TOKEN = 'sync-log-secret-token';
 const savedEnv = process.env.NAVDATA_DB_PATH;
@@ -87,7 +87,7 @@ describe('sync routes rejection log', () => {
 
   beforeEach(async () => {
     scratch = createScratchDb();
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'navdata-synclog-'));
+    dir = fs.mkdtempSync(path.join(scratchDbRoot(), 'navdata-synclog-'));
     process.env.NAVDATA_DB_PATH = path.join(dir, 'navdata.db');
     openNavdata();
     warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

@@ -5,7 +5,6 @@ import express from 'express';
 import http from 'http';
 import type { Server } from 'http';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import zlib from 'zlib';
 import Database from 'better-sqlite3';
@@ -17,6 +16,7 @@ import { SidecarStateStore } from '../src/navdata/sidecarState';
 import { closeNavDb, getNavDb, openNavdata, resolveNavdataPath } from '../src/navdata/connection';
 import { upsertNavdataRequest } from '../src/db/navdataRequests';
 import { createScratchDb, destroyScratchDb, type ScratchDb } from './helpers/db';
+import { scratchDbRoot } from './helpers/scratchRoot';
 
 const TOKEN = 'test-ingest-token';
 const savedEnv = process.env.NAVDATA_DB_PATH;
@@ -74,7 +74,7 @@ const uploadTemps = (): string[] => {
 
 beforeEach(async () => {
   scratch = createScratchDb();
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'navdata-routes-'));
+  dir = fs.mkdtempSync(path.join(scratchDbRoot(), 'navdata-routes-'));
   process.env.NAVDATA_DB_PATH = path.join(dir, 'navdata.db');
   openNavdata();
   state = new SidecarStateStore();

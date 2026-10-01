@@ -4,7 +4,6 @@
 import express from 'express';
 import type { Server } from 'http';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -20,6 +19,7 @@ import {
 import { listNavdataRequests } from '../src/db/navdataRequests';
 import { applyNavRows } from '../src/navdata/store';
 import { createScratchDb, destroyScratchDb, type ScratchDb } from './helpers/db';
+import { scratchDbRoot } from './helpers/scratchRoot';
 
 const savedEnv = process.env.NAVDATA_DB_PATH;
 
@@ -69,7 +69,7 @@ const features = async (q: string) => (await (await get(`/api/navdata/features?$
 
 beforeEach(async () => {
   scratch = createScratchDb();
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'navdata-features-'));
+  dir = fs.mkdtempSync(path.join(scratchDbRoot(), 'navdata-features-'));
   process.env.NAVDATA_DB_PATH = path.join(dir, 'navdata.db');
   closeNavDb();
   openNavdata();

@@ -1,18 +1,18 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { applyNavdataSchema } from '../src/navdata/schema';
 import {
   openNavdata, getNavDb, swapInReplica, closeNavDb, resolveNavdataPath, incomingNavdataPath,
 } from '../src/navdata/connection';
+import { scratchDbRoot } from './helpers/scratchRoot';
 
 const dirs: string[] = [];
 const savedEnv = process.env.NAVDATA_DB_PATH;
 
 function scratch(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'navdata-test-'));
+  const d = fs.mkdtempSync(path.join(scratchDbRoot(), 'navdata-test-'));
   dirs.push(d);
   process.env.NAVDATA_DB_PATH = path.join(d, 'navdata.db');
   return d;

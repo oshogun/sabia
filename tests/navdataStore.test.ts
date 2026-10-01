@@ -4,7 +4,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import zlib from 'zlib';
 import { applyNavdataSchema } from '../src/navdata/schema';
@@ -24,13 +23,14 @@ import {
 } from '../src/navdata/store';
 import { importNavdataSnapshot } from '../src/navdata/snapshot';
 import type { NavRow, NavRowType } from '../src/navdata/wire';
+import { scratchDbRoot } from './helpers/scratchRoot';
 
 const dirs: string[] = [];
 const handles: Database.Database[] = [];
 const savedEnv = process.env.NAVDATA_DB_PATH;
 
 function tempDir(): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'navdata-store-'));
+  const d = fs.mkdtempSync(path.join(scratchDbRoot(), 'navdata-store-'));
   dirs.push(d);
   return d;
 }
@@ -764,6 +764,10 @@ describe('incremental batches', () => {
       expect(absentCount()).toBe(2000);
     });
 
+    // Imports a snapshot (a replica build), then applies a batch of exactly the
+    // production ceiling, NAVDATA_BATCH_HARD_ROW_CEILING = 20,000 rows. The apply is
+    // CPU-bound and measured up to ~11 s on a loaded dev machine (issue #9), so this
+    // one test gets 30 s; the global 5 s testTimeout stays for everything else.
     it('accepts exactly the ceiling and refuses one row more', async () => {
       await ready();
       const ack = applyIncrementalBatch(batch({ rows: absentRows(20000, () => 8) }));
@@ -775,7 +779,7 @@ describe('incremental batches', () => {
       expect(err).toMatchObject({ code: 'NAVDATA_BAD_BATCH', status: 400 });
       expect((err as Error).message).toBe('batch carries 20001 rows, more than 20000');
       expect(absentCount()).toBe(20000);
-    });
+    }, 30_000);
 
     it('does not let a row without an integer rev pass as single-rev', async () => {
       await ready();

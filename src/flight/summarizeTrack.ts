@@ -56,9 +56,11 @@ export function summarizeTrack(
     // first writePoint(), or a hand-edited row): there is no evidence to
     // reconstruct maxima from, so they are seeded from the current frame —
     // the same thing startFlight() does at takeoff. lastPointLat/Lon fall
-    // back to the flight's own departure coordinates, taken together, so
-    // the first post-resume leg measures from where the flight actually
-    // began rather than from Null Island.
+    // back to the flight's own departure coordinates, taken together. The
+    // fallback is a dead rule: the recorder reads lastPointLat/Lon only once
+    // pointCount is above 0, and the first point written after the resume
+    // overwrites them, so no leg is ever measured from here. It is kept so a
+    // resume still seeds exactly the values it always has.
     pointCount = 0;
     maxAltitudeFt = frame.altitudeFt;
     maxAirspeedKts = frame.airspeedKnots;

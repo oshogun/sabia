@@ -2,14 +2,15 @@
 //
 // Chooses the planned leg a just-started flight belongs to, or refuses with a
 // reason code. Pure and deterministic: same input, same output, no I/O, no
-// clock, no randomness. The caller (FlightManager.startFlight()) loads
-// the candidates and writes the link; everything in here is arithmetic over the
-// values it was handed, which is what lets src/inspect-legmatch.ts exercise
-// every refusal without a database.
+// clock, no randomness. The caller (PlannedLegLink.autoLink() for a takeoff,
+// matchForGround() for a ground entry, both in src/flight/plannedLegLink.ts)
+// loads the candidates and writes the link; everything in here is arithmetic
+// over the values it was handed, which is what lets src/inspect-legmatch.ts
+// exercise every refusal without a database.
 //
 // It imports ./geo and ./types and nothing else — no ./db, no ./airports, no
 // fs, no http. See src/geo.ts's header for why the distance helper is imported
-// rather than copied a fourth time.
+// rather than copied again.
 //
 // The algorithm below is frozen. The two properties worth keeping in mind
 // while reading it:
@@ -104,8 +105,9 @@ export const DEPARTURE_RADIUS_NM = 10;
 /**
  * Arrival radius for the landing outcome (flown vs diverted). Same rationale
  * as the departure radius and deliberately the same number: the two ends of a
- * leg are judged by one standard. Used by endFlight(); it lives here
- * so both radii are tuned in one file.
+ * leg are judged by one standard. Used by PlannedLegLink.recordArrival()
+ * (src/flight/plannedLegLink.ts); it lives here so both radii are tuned in
+ * one file.
  */
 export const ARRIVAL_RADIUS_NM = 10;
 

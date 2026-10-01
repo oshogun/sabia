@@ -1,15 +1,15 @@
 // ── Shared geo helpers ────────────────────────────────────────────────────────
 //
-// `haversineNm` and `bearingDeg` exist three more times in this tree, privately,
-// in src/db.ts, src/airports.ts and src/flightManager.ts. These are deliberate
+// `haversineNm` also exists privately in src/airports.ts and src/db/flights.ts,
+// and `bearingDeg` in src/db/flights.ts. This module's versions are deliberate
 // behavioural copies of those — same earth radius, same formula, same operation
-// order — so that consolidating the legacy three onto this module later is a
-// pure deletion rather than a numerical change.
+// order — so that consolidating the legacy ones onto this module later is a
+// pure deletion rather than a numerical change. The flight state machine's own
+// copy is already gone: the flight modules import this one.
 //
-// They are NOT migrated as part of the planned-leg feature: doing so would put an
-// unrelated edit into the flight state machine and the distance accumulator, the
-// two places where a regression is most expensive. What this module guarantees
-// is that no *new* copy gets written:
+// The remaining copies are NOT migrated as part of the planned-leg feature:
+// doing so would put an unrelated edit into the airport lookup and the flight
+// queries. What this module guarantees is that no *new* copy gets written:
 // src/lnmpln.ts and src/legMatcher.ts must both stay free of ./db and ./airports
 // imports, so neither could have borrowed one of the existing copies anyway.
 

@@ -626,8 +626,9 @@ export function buildWxUnavailableBody(icao: string): string {
 // OUT/OFF/ON/IN: server-generated, one per flight, keyed to a flight rather
 // than a planned leg — a flight row always exists by the time any of these
 // is filed, even though OUT is timestamped to an earlier instant (the
-// off-blocks memo). Every function here is pure; the emitter (FlightManager,
-// via src/acarsEvents.ts) owns the clock and the database.
+// off-blocks memo). Every function here is pure; the emitter (OooiReporter in
+// src/flight/oooiReporter.ts, via src/acarsEvents.ts) owns the filing, with its
+// clock reads and database writes.
 
 export const POSITION_REPORT_LABEL = 'POS REPORT';
 export const MIN_ETA_GROUND_SPEED_KTS = 30;
@@ -645,7 +646,7 @@ export interface OooiEventInput {
   stand: string | null;
   /** frame.aircraft, or null. */
   aircraft: string | null;
-  /** plannedLegCache.destinationIdent, or null when the flight is unlinked. */
+  /** The linked leg's destinationIdent, from the planned-leg link's cache, or null when unlinked. */
   destinationIdent: string | null;
   /** Recorded in payload_json only; the row stays flight-scoped. */
   plannedLegId: number | null;
@@ -721,8 +722,9 @@ export function buildOooiMessage(input: OooiEventInput): CreateAcarsMessage & { 
 // ── Position reports ─────────────────────────────────────────────────────────
 //
 // Periodic enroute reports, filed only for a flight linked to a planned leg,
-// at most once per configured interval window (FlightManager owns the window
-// arithmetic and the clock; everything here is pure).
+// at most once per configured interval window (OooiReporter in
+// src/flight/oooiReporter.ts owns the window arithmetic, working from the
+// elapsed time the flight recorder hands it; everything here is pure).
 
 export interface PositionReportInput {
   flightId: number;

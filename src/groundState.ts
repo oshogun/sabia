@@ -4,8 +4,9 @@
 // frame counts as "parked", the debounce streak arithmetic, and the
 // anchor-drift check that invalidates a ground session once the aircraft has
 // moved somewhere else entirely. No I/O, no clock, no db or express import —
-// src/flightManager.ts owns the state machine and the persistence; this
-// module only decides, the same separation src/legMatcher.ts keeps.
+// src/flightManager.ts owns the state machine and GroundTracker
+// (src/flight/groundTracker.ts) the persistence; this module only decides, the
+// same separation src/legMatcher.ts keeps.
 
 import { haversineNm } from './geo';
 import type { SimFrame } from './types';

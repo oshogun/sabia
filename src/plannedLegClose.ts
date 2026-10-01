@@ -14,9 +14,9 @@
 // This module must not import or reference ARRIVAL_RADIUS_NM, and 'diverted'
 // must never appear as an output: a hand-mark is ALWAYS the status the user
 // requested, however large the deviation. That rule is the one place the
-// hand path deliberately differs from endFlight()'s touchdown rule in
-// src/flightManager.ts, which does use ARRIVAL_RADIUS_NM to choose between
-// 'flown' and 'diverted'.
+// hand path deliberately differs from the touchdown rule in
+// PlannedLegLink.recordArrival() (src/flight/plannedLegLink.ts), which does
+// use ARRIVAL_RADIUS_NM to choose between 'flown' and 'diverted'.
 
 import { haversineNm } from './geo';
 
@@ -154,7 +154,8 @@ export function decideHandClose(
  *   Math.round(haversineNm(flight.arrival_lat, flight.arrival_lon,
  *                          leg.destination_lat, leg.destination_lon) * 10) / 10
  *
- * Character-identical to the rounding at src/flightManager.ts:463
+ * Character-identical to the rounding in PlannedLegLink.recordArrival()
+ * (src/flight/plannedLegLink.ts)
  * (`Math.round(deviationNm * 10) / 10`). Not `toFixed(1)`, not
  * `Number(x.toFixed(1))`, not a `round(x, 1)` helper — those disagree with
  * this expression at specific x.x5 boundaries (src/inspect-manual-mark.ts's

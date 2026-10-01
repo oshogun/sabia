@@ -5,13 +5,14 @@
 // src/inspect-legmatch.ts: a scenario table, expected against actual, exits
 // non-zero if any row disagrees. There is no test framework driving this
 // directly — it exercises the pure decision functions frame-by-frame, the way
-// FlightManager.onFrame() feeds them one frame at a time.
+// the coordinator's per-state frame handlers feed them one frame at a time.
 //
 //   npx ts-node src/inspect-groundstate.ts
 //
 // Each scenario is a sequence of frames fed one at a time through
 // nextParkedStreak()/hasParkedDebounce(), the same two calls
-// FlightManager.onFrame() makes for its IDLE and GROUND cases. The table
+// GroundTracker.observeIdle() (src/flight/groundTracker.ts) makes for the
+// coordinator's IDLE frame handler. The table
 // records the 1-based frame index at which entry occurs, or null if the whole
 // sequence never trips it — so "enters on the 5th frame, not the 4th" is
 // simply a sequence of 4 or 5 qualifying frames with a different expectation.
@@ -145,7 +146,7 @@ const SCENARIOS: Scenario[] = [
 
 // ── Simulation ────────────────────────────────────────────────────────────────
 
-/** Feeds frames one at a time through the same two calls FlightManager makes. */
+/** Feeds frames one at a time through the same two calls GroundTracker.observeIdle() makes. */
 function simulateEntry(frames: SimFrame[]): number | null {
   let streak = 0;
   for (let i = 0; i < frames.length; i++) {
@@ -161,8 +162,9 @@ function simulateEntry(frames: SimFrame[]): number | null {
 // src/flightManager.ts, unchanged. What this proves is narrower and just as
 // important: a frame carrying the new optional ground fields is decided
 // identically to one without them, on the *existing* IDLE -> FLYING rule.
-// Transcribed here, not imported: flightManager.ts does not export either the
-// predicate or the constant.
+// Transcribed here, not imported: the airborne predicate is inline in the
+// coordinator and AIRBORNE_DEBOUNCE_FRAMES is private to src/flightManager.ts,
+// so neither is exported.
 
 const AIRBORNE_DEBOUNCE_FRAMES = 3;
 

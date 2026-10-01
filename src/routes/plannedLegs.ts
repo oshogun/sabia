@@ -629,7 +629,7 @@ export function createPlannedLegsRouter(flightManager: FlightManager, onChanged:
         linkFlightToPlannedLeg(id, plannedLegId as number, 'manual');
       }
       // A manual link/unlink bypasses FlightManager entirely, so its live-status
-      // cache would otherwise keep whatever autoLinkPlannedLeg last set for
+      // cache would otherwise keep whatever PlannedLegLink.autoLink last set for
       // this flight. A no-op unless `id` is the flight in progress.
       flightManager.refreshPlannedLegForFlight(id);
       onChanged();
@@ -688,10 +688,11 @@ export function createPlannedLegsRouter(flightManager: FlightManager, onChanged:
 
       const saved = getPlannedLegById(decision.legId);
 
-      // The automatic path announces itself (flightManager.ts:465, "leg #7
-      // marked diverted"); without this line a leg that reads 'flown' with a
-      // deviation and no matching log would be unexplainable after the fact —
-      // the one asymmetry between the two ways a leg reaches 'flown'.
+      // The automatic path announces itself (src/flight/plannedLegLink.ts,
+      // recordArrival(): "leg #7 marked diverted"); without this line a leg
+      // that reads 'flown' with a deviation and no matching log would be
+      // unexplainable after the fact — the one asymmetry between the two ways
+      // a leg reaches 'flown'.
       console.log(
         decision.status === 'flown'
           ? `[PlannedLeg] Flight #${id} hand-marked flown ` +

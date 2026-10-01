@@ -418,7 +418,7 @@ function runNamedScenarios(): void {
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // The rounding is frozen as `Math.round(deviationNm * 10) / 10`,
-// character-identical to src/flightManager.ts:463, and explicitly rules out
+// character-identical to PlannedLegLink.recordArrival(), and explicitly rules out
 // `toFixed(1)` / `Number(x.toFixed(1))` / a `round(x, 1)` helper as look-alikes
 // that can disagree. This row is constructed (by binary search over a due-north
 // offset, so the two points share a meridian and the geometry is exact) so

@@ -3,14 +3,14 @@ import type {
   GroundSessionLiveStatus, GroundSessionEndReason,
 } from './types';
 import type { FlightStatePayload } from './eventHub';
-import type { OpenFlightRow, FlightTrackPoint } from './db';
-import { getOpenFlight } from './db';
 import { findNearestAirport } from './airports';
 import { PlannedLegLink } from './flight/plannedLegLink';
 import { GroundTracker } from './flight/groundTracker';
 import { FlightRecorder } from './flight/flightRecorder';
 import type { RecordedPoint } from './flight/flightRecorder';
 import { OooiReporter } from './flight/oooiReporter';
+import { tryResumeOpenFlight } from './flight/bootRecovery';
+import type { OpenFlightRow } from './flight/bootRecovery';
 
 export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
@@ -178,15 +178,7 @@ export class FlightManager {
       // The flag is set before the query, not after, so a failing database is
       // asked once rather than at frame rate.
       this.openFlightCheckedAtBoot = true;
-      try {
-        const open = getOpenFlight();
-        if (open) {
-          this.resumeFlight(open, frame);
-          return;
-        }
-      } catch (err) {
-        console.warn('[FlightManager] Open-flight check failed; starting fresh if a takeoff follows:', err);
-      }
+      if (tryResumeOpenFlight(row => this.resumeFlight(row, frame))) return;
     }
 
     if (!inSlew && !frame.onGround && frame.airspeedKnots > 30) {

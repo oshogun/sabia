@@ -56,7 +56,11 @@ export function getTripById(id: number): TripWithFlights | null {
   if (!row) return null;
 
   const flightRows = getDb().prepare('SELECT * FROM flights WHERE trip_id = ? ORDER BY start_time ASC').all(id) as Flight[];
-  const fetchPoints = getDb().prepare('SELECT * FROM flight_points WHERE flight_id = ? ORDER BY ts ASC');
+  const fetchPoints = getDb().prepare(`
+    SELECT id, flight_id, ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts,
+           heading_deg, vertical_speed_fpm, on_ground
+    FROM flight_points WHERE flight_id = ? ORDER BY ts ASC
+  `);
   const flights: FlightWithPoints[] = flightRows.map(f => ({
     ...f,
     points: fetchPoints.all(f.id) as FlightPoint[],

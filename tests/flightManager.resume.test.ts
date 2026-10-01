@@ -87,6 +87,13 @@ function fourPointTrack(): FlightTrackPoint[] {
   ];
 }
 
+/** What a later process reads back: every point stored so far, with its interruption mark. */
+const snapshotTrack = (): FlightTrackPoint[] => dbMock.insertPoint.mock.calls.map(c => ({
+  ts: c[1] as string, lat: c[2] as number, lon: c[3] as number,
+  altitude_ft: c[4] as number, airspeed_kts: c[5] as number,
+  after_interruption: c[10] ? 1 : 0,
+}));
+
 describe('FlightManager — adopting an open flight at boot', () => {
   beforeEach(() => {
     resetMocks();
@@ -240,6 +247,114 @@ describe('FlightManager — duration across a restart', () => {
     expect(c[0]).toBe(77);
     expect(c[4]).toBe(35); // durationSec
     expect(c[8]).toBe(9); // pointCount
+  });
+
+  describe('interruptions stored with the track', () => {
+    let logSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => { logSpy = vi.spyOn(console, 'log').mockImplementation(() => {}); });
+    afterEach(() => logSpy.mockRestore());
+
+    const resumeLine = (): string[] =>
+      logSpy.mock.calls.map((c: unknown[]) => String(c[0])).filter((l: string) => l.includes('resumed after restart'));
+
+    it('a pause before a restart is not counted again after the resume', () => {
+      // Process 1: 20 s cruise, 20 s paused, 20 s cruise. Points at +0 +5 +10
+      // +15 +20, then +41 +46 +51 +56 (the +41 point is the first after the pause).
+      const fm1 = new FlightManager();
+      takeoff(fm1);
+      feed(fm1, 20);
+      fm1.setPaused(true, 1);
+      feed(fm1, 20);
+      fm1.setPaused(false);
+      feed(fm1, 20);
+
+      const track = snapshotTrack();
+      expect(track.map(p => p.after_interruption)).toEqual([0, 0, 0, 0, 0, 1, 0, 0, 0]);
+      dbMock.getOpenFlight.mockImplementation(() => makeOpenFlightRow({ id: 1, start_time: iso(0) }));
+      dbMock.getFlightTrackPoints.mockImplementation(() => track);
+
+      advance(10_000); // outage
+      const fm2 = new FlightManager();
+      fm2.onFrame(makeFrame()); // resume at +70
+      feed(fm2, 10, LANDED);    // points at +75 +80, lands on the 10th frame
+
+      // Live had 20 + 15 = 35 s. Replay: 35 s; after the resume: +5 +5 = 10 s.
+      expect(resumeLine()).toHaveLength(1);
+      expect(resumeLine()[0]).toContain('9 points, 0.0 nm, 35s counted before the interruption');
+      const c = dbMock.closeFlight.mock.calls[0];
+      expect(c[4]).toBe(45); // 80 s wall - 21 s (pause gap) - 14 s (outage gap)
+      expect(c[8]).toBe(12);
+    });
+
+    it('does not count the first outage again when the server restarts a second time', () => {
+      const fm1 = new FlightManager();
+      takeoff(fm1);
+      feed(fm1, 20); // points +0 +5 +10 +15 +20: 20 s counted
+      const track1 = snapshotTrack();
+      advance(30_000); // first outage
+
+      dbMock.getOpenFlight.mockImplementation(() => makeOpenFlightRow({ id: 1, start_time: iso(0) }));
+      dbMock.getFlightTrackPoints.mockImplementation(() => track1);
+      const fm2 = new FlightManager();
+      fm2.onFrame(makeFrame()); // resume at +50, flagged
+      feed(fm2, 10);            // points +55 +60
+      const track2 = snapshotTrack();
+      advance(20_000); // second outage
+
+      dbMock.getFlightTrackPoints.mockImplementation(() => track2);
+      logSpy.mockClear();
+      const fm3 = new FlightManager();
+      fm3.onFrame(makeFrame()); // resume at +80
+      feed(fm3, 10, LANDED);    // points +85 +90
+
+      // 20 s + 10 s are counted before the second resume; the 30 s gap ending
+      // at the flagged +50 point is not.
+      expect(resumeLine()[0]).toContain('8 points, 0.0 nm, 30s counted before the interruption');
+      const c = dbMock.closeFlight.mock.calls[0];
+      expect(c[4]).toBe(40); // 30 s replayed + 10 s flown after the second resume
+      expect(c[8]).toBe(11);
+    });
+
+    it('still counts unflagged gaps of 60 s or less and excludes gaps above 60 s after a resume', () => {
+      // Hand-built track: +0 .. +10 ordinary (10 s), a flagged point at +40
+      // (skipped), +45 ordinary (5 s), a 90 s gap to +135 (excluded), +140 (5 s).
+      const track: FlightTrackPoint[] = [
+        makeTrackPoint({ ts: iso(-140000), after_interruption: 0 }),
+        makeTrackPoint({ ts: iso(-135000), after_interruption: 0 }),
+        makeTrackPoint({ ts: iso(-130000), after_interruption: 0 }),
+        makeTrackPoint({ ts: iso(-100000), after_interruption: 1 }),
+        makeTrackPoint({ ts: iso(-95000), after_interruption: 0 }),
+        makeTrackPoint({ ts: iso(-5000), after_interruption: 0 }),
+        makeTrackPoint({ ts: iso(0), after_interruption: 0 }),
+      ];
+      dbMock.getOpenFlight.mockImplementation(() => makeOpenFlightRow({ start_time: iso(-140000) }));
+      dbMock.getFlightTrackPoints.mockImplementation(() => track);
+
+      const fm = new FlightManager();
+      fm.onFrame(makeFrame());
+
+      expect(resumeLine()[0]).toContain('7 points, 0.0 nm, 20s counted before the interruption');
+    });
+
+    it('resumes pre-upgrade data (every flag 0) with the same numbers as before', () => {
+      dbMock.getOpenFlight.mockImplementation(() => makeOpenFlightRow({ start_time: iso(-45000) }));
+      dbMock.getFlightTrackPoints.mockImplementation(() =>
+        fourPointTrack().map(p => ({ ...p, after_interruption: 0 })));
+
+      const fm = new FlightManager();
+      fm.onFrame(makeFrame());
+      advance(5000); fm.onFrame(makeFrame());
+      advance(5000); fm.onFrame(makeFrame());
+      for (let i = 0; i < 10; i++) {
+        advance(1000);
+        fm.onFrame(makeFrame(LANDED));
+      }
+
+      expect(resumeLine()[0]).toContain('4 points, 0.0 nm, 15s counted before the interruption');
+      const c = dbMock.closeFlight.mock.calls[0];
+      expect(c[4]).toBe(35);
+      expect(c[8]).toBe(9);
+    });
   });
 
   it('adds the distance flown during the outage exactly once', () => {

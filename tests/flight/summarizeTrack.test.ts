@@ -132,6 +132,34 @@ describe('summarizeTrack with points', () => {
     expect(s.distanceNm).toBeGreaterThan(nm(p[0], p[1]) + nm(p[2], p[3]) + 50);
   });
 
+  it('skips the gap ending at a flagged point, keeps its distance, and still counts the unflagged gap after it', () => {
+    const p = [
+      pt(0, 35.0, -120),
+      pt(5000, 35.1, -120),
+      pt(10_000, 35.2, -120, { after_interruption: 1 }),
+      pt(15_000, 35.3, -120, { after_interruption: 0 }),
+    ];
+    const s = summarizeTrack(p, ROW, FRAME);
+    expect(s.activeMs).toBe(5000 + 5000);
+    expect(s.distanceNm).toBe(nm(p[0], p[1]) + nm(p[1], p[2]) + nm(p[2], p[3]));
+  });
+
+  it('skips a flagged gap above the maximum too, and treats a missing or null flag as unflagged', () => {
+    const p = [
+      pt(0, 35.0, -120),
+      pt(MAX_COUNTED_GAP_MS + 1, 35.1, -120, { after_interruption: 1 }),
+      pt(MAX_COUNTED_GAP_MS + 6001, 35.2, -120, { after_interruption: null as unknown as number }),
+      pt(MAX_COUNTED_GAP_MS + 11_001, 35.3, -120),
+    ];
+    expect(summarizeTrack(p, ROW, FRAME).activeMs).toBe(6000 + 5000);
+  });
+
+  it('ignores a flag on the first point: no gap ends there', () => {
+    const plain = [pt(0, 35.0, -120), pt(5000, 35.1, -120)];
+    const flagged = [pt(0, 35.0, -120, { after_interruption: 1 }), pt(5000, 35.1, -120)];
+    expect(summarizeTrack(flagged, ROW, FRAME)).toEqual(summarizeTrack(plain, ROW, FRAME));
+  });
+
   it('skips a non-positive gap (equal or out-of-order timestamps), keeping its distance', () => {
     const p = [
       pt(0, 35.0, -120),

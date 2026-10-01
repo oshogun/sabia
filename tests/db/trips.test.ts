@@ -104,6 +104,20 @@ describe('getTripById()', () => {
     expect(trip!.planned_legs[0].trip_id).toBe(tripId);
   });
 
+  it('returns points with exactly the API columns, without the interruption mark', () => {
+    const tripId = seedTrip(scratch.db);
+    const flightId = seedFlight(scratch.db, { trip_id: tripId, start_time: T0 });
+    scratch.db.prepare(`
+      INSERT INTO flight_points (flight_id, ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts, heading_deg, vertical_speed_fpm, on_ground, after_interruption)
+      VALUES (?, ?, 34.4, -119.8, 1500, 110, 105, 270, 0, 0, 1)
+    `).run(flightId, T0);
+
+    expect(Object.keys(getTripById(tripId)!.flights[0].points[0])).toEqual([
+      'id', 'flight_id', 'ts', 'lat', 'lon', 'altitude_ft', 'airspeed_kts',
+      'ground_speed_kts', 'heading_deg', 'vertical_speed_fpm', 'on_ground',
+    ]);
+  });
+
   it('orders a trip\'s flights by start_time ASC', () => {
     const tripId = seedTrip(scratch.db);
     const laterId = seedFlight(scratch.db, { trip_id: tripId, start_time: '2026-06-01T00:00:00.000Z' });

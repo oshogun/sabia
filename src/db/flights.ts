@@ -97,13 +97,14 @@ export function insertPoint(
   groundSpeedKts: number,
   headingDeg: number,
   verticalSpeedFpm: number,
-  onGround: boolean
+  onGround: boolean,
+  afterInterruption = false
 ): void {
   getDb().prepare(`
     INSERT INTO flight_points
-      (flight_id, ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts, heading_deg, vertical_speed_fpm, on_ground)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(flightId, ts, lat, lon, altitudeFt, airspeedKts, groundSpeedKts, headingDeg, verticalSpeedFpm, onGround ? 1 : 0);
+      (flight_id, ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts, heading_deg, vertical_speed_fpm, on_ground, after_interruption)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(flightId, ts, lat, lon, altitudeFt, airspeedKts, groundSpeedKts, headingDeg, verticalSpeedFpm, onGround ? 1 : 0, afterInterruption ? 1 : 0);
 }
 
 export function getFlights(): Flight[] {
@@ -113,7 +114,11 @@ export function getFlights(): Flight[] {
 export function getFlightById(id: number): FlightWithPoints | null {
   const flight = getDb().prepare('SELECT * FROM flights WHERE id = ?').get(id) as Flight | undefined;
   if (!flight) return null;
-  const points = getDb().prepare('SELECT * FROM flight_points WHERE flight_id = ? ORDER BY ts ASC').all(id) as FlightPoint[];
+  const points = getDb().prepare(`
+    SELECT id, flight_id, ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts,
+           heading_deg, vertical_speed_fpm, on_ground
+    FROM flight_points WHERE flight_id = ? ORDER BY ts ASC
+  `).all(id) as FlightPoint[];
   return { ...flight, points };
 }
 
@@ -144,14 +149,16 @@ export interface OpenFlightRow {
   departure_lon: number | null;
 }
 
-/** A strict five-column subset of FlightPoint (src/types.ts:96) — the only
- *  columns the accumulator reconstruction reads. */
+/** A strict subset of FlightPoint (src/types.ts:96) plus the stored
+ *  interruption mark — the only columns the accumulator reconstruction reads. */
 export interface FlightTrackPoint {
   lat: number;
   lon: number;
   altitude_ft: number;
   airspeed_kts: number;
   ts: string;
+  /** 1 when the point was written while recording was interrupted; absent means 0. */
+  after_interruption?: number;
 }
 
 /**
@@ -187,14 +194,14 @@ export function getOpenFlight(): OpenFlightRow | null {
 }
 
 /**
- * Every recorded point of one flight, oldest first, in the five columns the
+ * Every recorded point of one flight, oldest first, in the six columns the
  * caller needs to rebuild a flight's accumulators. Raw rows only: distance,
  * maxima and the gap-summed duration are computed by the caller, never by
  * SQL. Empty array when the flight has no points.
  */
 export function getFlightTrackPoints(flightId: number): FlightTrackPoint[] {
   return getDb().prepare(`
-    SELECT lat, lon, altitude_ft, airspeed_kts, ts
+    SELECT lat, lon, altitude_ft, airspeed_kts, ts, after_interruption
     FROM flight_points
     WHERE flight_id = ?
     ORDER BY ts ASC

@@ -169,7 +169,8 @@ export class FlightRecorder {
       frame.groundSpeedKnots,
       frame.headingDeg,
       frame.verticalSpeedFpm,
-      frame.onGround
+      frame.onGround,
+      this.interrupted
     );
 
     this.distanceNm += segmentNm;

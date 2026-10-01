@@ -239,7 +239,7 @@ describe('FlightRecorder.writePoint', () => {
 
     expect(now).toHaveBeenCalledTimes(1);
     expect(point).toEqual({ flightId: id, nowMs: Date.parse(iso(1234)), ts: iso(1234) });
-    expect(dbMock.insertPoint).toHaveBeenCalledWith(id, iso(1234), 1.5, 2.5, 3000, 120, 115, 90, -300, true);
+    expect(dbMock.insertPoint).toHaveBeenCalledWith(id, iso(1234), 1.5, 2.5, 3000, 120, 115, 90, -300, true, false);
   });
 
   it('returns null, stores nothing and reads no clock when there is no current flight', () => {

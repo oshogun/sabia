@@ -9,6 +9,8 @@ export interface TrackPointLike {
   altitude_ft: number;
   airspeed_kts: number;
   ts: string;
+  /** 1 when the point was written while recording was interrupted; absent means 0. */
+  after_interruption?: number;
 }
 
 /** The columns of the open flight row that the replay reads. */
@@ -28,7 +30,7 @@ export interface TrackSummary {
   lastPointLon: number;
   /** Sum of haversineNm over every consecutive pair, whatever their gap. */
   distanceNm: number;
-  /** Sum of the gaps that are finite, positive and no longer than MAX_COUNTED_GAP_MS. */
+  /** Sum of the gaps that are finite, positive and no longer than MAX_COUNTED_GAP_MS and whose ending point is not flagged. */
   activeMs: number;
   /** The row's start time in epoch ms, or null when it does not parse. The caller picks the fallback. */
   startMs: number | null;
@@ -78,16 +80,18 @@ export function summarizeTrack(
     lastPointLat = points[n - 1].lat;
     lastPointLon = points[n - 1].lon;
 
-    // The same counted/uncounted gap rule writePoint() applies live —
-    // a gap this long means recording had stopped — applied
-    // retroactively across the seeded track, with two additions the live
-    // path never needs: a non-positive or unparseable gap (out-of-order or
-    // hand-edited timestamps) is skipped rather than let corrupt every
-    // later number.
+    // The same counted/uncounted gap rule writePoint() applies live, applied
+    // retroactively across the seeded track: a gap counts only when it is
+    // short enough (a longer one means recording had stopped) and its ending
+    // point carries no stored interruption mark (a pause, slew or restart
+    // that ended in that point). A non-positive or unparseable gap
+    // (out-of-order or hand-edited timestamps) is also skipped rather than
+    // let corrupt every later number. The distance of a skipped gap still
+    // counts.
     for (let i = 1; i < n; i++) {
       distanceNm += haversineNm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
       const gap = Date.parse(points[i].ts) - Date.parse(points[i - 1].ts);
-      if (Number.isFinite(gap) && gap > 0 && gap <= MAX_COUNTED_GAP_MS) activeMs += gap;
+      if (!points[i].after_interruption && Number.isFinite(gap) && gap > 0 && gap <= MAX_COUNTED_GAP_MS) activeMs += gap;
     }
   }
 

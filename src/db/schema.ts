@@ -216,7 +216,8 @@ export function applySchema(db: Database.Database): void {
       ground_speed_kts    REAL NOT NULL,
       heading_deg         REAL NOT NULL,
       vertical_speed_fpm  REAL NOT NULL,
-      on_ground           INTEGER NOT NULL
+      on_ground           INTEGER NOT NULL,
+      after_interruption  INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE INDEX IF NOT EXISTS idx_points_flight ON flight_points(flight_id);
@@ -625,6 +626,13 @@ export function applySchema(db: Database.Database): void {
   }
   if (!cols.includes('planned_leg_prev_trip_id')) {
     db.exec('ALTER TABLE flights ADD COLUMN planned_leg_prev_trip_id INTEGER'); // trip_id held immediately before the link
+  }
+
+  // The first point written after a pause, slew or resume is flagged so the
+  // resume replay can skip the outage gap that ends at it.
+  const pointCols = (db.prepare('PRAGMA table_info(flight_points)').all() as { name: string }[]).map(c => c.name);
+  if (!pointCols.includes('after_interruption')) {
+    db.exec('ALTER TABLE flight_points ADD COLUMN after_interruption INTEGER NOT NULL DEFAULT 0');
   }
 
   const tripCols = (db.prepare('PRAGMA table_info(trips)').all() as { name: string }[]).map(c => c.name);

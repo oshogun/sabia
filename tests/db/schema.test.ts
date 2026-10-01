@@ -123,6 +123,27 @@ describe('applySchema()', () => {
     expect(columnsOf(db, 'trips')).toContain('is_active');
   });
 
+  describe('flight_points.after_interruption', () => {
+    it('is added to an existing table with every old row reading 0, and re-running is a no-op', () => {
+      applySchema(db);
+      // Back to the pre-column shape, with a row written by the old code.
+      db.exec('ALTER TABLE flight_points DROP COLUMN after_interruption');
+      expect(columnsOf(db, 'flight_points')).not.toContain('after_interruption');
+      db.prepare(`INSERT INTO flights (aircraft, start_time, departure_lat, departure_lon) VALUES ('A320', '2026-03-01T12:00:00.000Z', 1, 2)`).run();
+      db.prepare(`
+        INSERT INTO flight_points (flight_id, ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts, heading_deg, vertical_speed_fpm, on_ground)
+        VALUES (1, '2026-03-01T12:00:00.000Z', 1, 2, 3, 4, 5, 6, 7, 0)
+      `).run();
+
+      applySchema(db);
+      expect(() => applySchema(db)).not.toThrow();
+
+      const row = db.prepare('SELECT after_interruption AS a, typeof(after_interruption) AS t FROM flight_points').get();
+      expect(row).toEqual({ a: 0, t: 'integer' });
+      expect(columnsOf(db, 'flight_points').filter(c => c === 'after_interruption')).toHaveLength(1);
+    });
+  });
+
   describe('planned_legs.trip_id rebuild (pre-migration NOT NULL -> nullable)', () => {
     /**
      * Hand-builds the exact pre-run table: trip_id INTEGER NOT NULL, every

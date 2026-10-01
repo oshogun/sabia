@@ -20,6 +20,7 @@ import {
   getFlights,
   getFlightById,
   getFlightPointCount,
+  getFlightTrackPoints,
   deleteFlight,
   combineFlights,
   getFlightStats,
@@ -152,6 +153,36 @@ describe('getFlightById', () => {
     const flight = getFlightById(id);
     expect(flight?.id).toBe(id);
     expect(flight?.points.map(p => p.ts)).toEqual([T0, '2026-09-09T12:00:10.000Z']);
+  });
+});
+
+describe('after_interruption', () => {
+  const pointRows = (id: number) => scratch.db
+    .prepare('SELECT after_interruption AS a FROM flight_points WHERE flight_id = ? ORDER BY ts ASC')
+    .all(id) as { a: number }[];
+
+  it('insertPoint() stores 1 when flagged and 0 for the ten-argument form or an explicit false', () => {
+    const id = insertFlight('Cessna 172', KSBA.lat, KSBA.lon, T0);
+    insertPoint(id, T0, KSBA.lat, KSBA.lon, 1500, 110, 105, 270, 0, false);
+    insertPoint(id, '2026-09-09T12:00:05.000Z', KSBA.lat, KSBA.lon, 1500, 110, 105, 270, 0, false, false);
+    insertPoint(id, '2026-09-09T12:00:10.000Z', KSBA.lat, KSBA.lon, 1500, 110, 105, 270, 0, false, true);
+    expect(pointRows(id).map(r => r.a)).toEqual([0, 0, 1]);
+  });
+
+  it('getFlightTrackPoints() returns the mark as 0 or 1, oldest first', () => {
+    const id = insertFlight('Cessna 172', KSBA.lat, KSBA.lon, T0);
+    insertPoint(id, '2026-09-09T12:00:10.000Z', KSBA.lat, KSBA.lon, 1500, 110, 105, 270, 0, false, true);
+    insertPoint(id, T0, KSBA.lat, KSBA.lon, 1500, 110, 105, 270, 0, false);
+    expect(getFlightTrackPoints(id).map(p => p.after_interruption)).toEqual([0, 1]);
+  });
+
+  it('getFlightById() points keep exactly the API columns, without the mark', () => {
+    const id = insertFlight('Cessna 172', KSBA.lat, KSBA.lon, T0);
+    insertPoint(id, T0, KSBA.lat, KSBA.lon, 1500, 110, 105, 270, 0, false, true);
+    expect(Object.keys(getFlightById(id)!.points[0])).toEqual([
+      'id', 'flight_id', 'ts', 'lat', 'lon', 'altitude_ft', 'airspeed_kts',
+      'ground_speed_kts', 'heading_deg', 'vertical_speed_fpm', 'on_ground',
+    ]);
   });
 });
 

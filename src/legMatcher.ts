@@ -2,11 +2,12 @@
 //
 // Chooses the planned leg a just-started flight belongs to, or refuses with a
 // reason code. Pure and deterministic: same input, same output, no I/O, no
-// clock, no randomness. The caller (PlannedLegLink.autoLink() for a takeoff,
-// matchForGround() for a ground entry, both in src/flight/plannedLegLink.ts)
-// loads the candidates and writes the link; everything in here is arithmetic
-// over the values it was handed, which is what lets src/inspect-legmatch.ts
-// exercise every refusal without a database.
+// clock, no randomness. The callers (PlannedLegLink.autoLink() for a takeoff,
+// which also writes the link, and matchForGround() for a ground entry, which
+// never does; both in src/flight/plannedLegLink.ts) load the candidates;
+// everything in here is arithmetic over the values they were handed, which
+// is what lets src/inspect-legmatch.ts exercise every refusal without a
+// database.
 //
 // It imports ./geo and ./types and nothing else — no ./db, no ./airports, no
 // fs, no http. See src/geo.ts's header for why the distance helper is imported

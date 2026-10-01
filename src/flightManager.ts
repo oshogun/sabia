@@ -27,12 +27,9 @@ export class FlightManager {
   private airborneStreak = 0;
   private landedStreak = 0;
   private isPaused = false;
-  // Notified after every flight/leg scope change (see the call sites below);
-  // null while nothing has attached one, which is the case for every existing
-  // caller of this class that doesn't care.
+  // Told after every flight/leg scope change; null until something attaches one.
   private scopeChangeListener: (() => void) | null = null;
-  // The open-flight lookup is attempted exactly once per process, on the first
-  // frame this instance evaluates — not once per takeoff. See checkAirborneDebounce().
+  // The open-flight lookup runs once per process, not once per takeoff.
   private openFlightCheckedAtBoot = false;
 
   readonly appState: AppState = {
@@ -52,8 +49,8 @@ export class FlightManager {
    * the duration; the flags are kept so the UI can name the kind of pause.
    */
   setPaused(paused: boolean, flags = paused ? 1 : 0): void {
-    // Mark here as well as in onFrame: a paused sim may stop sending frames
-    // altogether, in which case onFrame never runs to flag the interruption.
+    // Mark here as well as in onFlyingFrame: a paused sim may stop sending frames
+    // altogether, in which case it never runs to flag the interruption.
     if (paused) this.recorder.markInterrupted();
     this.isPaused = paused;
     this.appState.paused = paused;
@@ -66,11 +63,9 @@ export class FlightManager {
   }
 
   /**
-   * The current flight/leg scope, resolved the same way at every call: for a
-   * flight in progress, the effective leg is whatever the planned-leg link's
-   * cache holds (never a database read); otherwise it is the open ground session's
-   * planned_leg_id, if any, which covers a manual session open before or
-   * between flights.
+   * The current flight/leg scope: the link's cached leg during a flight,
+   * otherwise the open ground session's leg (which covers a manual session
+   * open before or between flights).
    */
   getFlightStatePayload(): FlightStatePayload {
     const currentFlightId = this.appState.currentFlightId;
@@ -93,11 +88,7 @@ export class FlightManager {
     this.appState.lastFrame = frame;
 
     if (frame.simRunning === 0) {
-      if (this.state === 'FLYING') this.endFlight(frame);
-      // The sim itself reporting not-running is positive telemetry evidence,
-      // not mere silence — unlike onCrash()/onSimDisconnect() below, this
-      // closes a manual session too.
-      else if (this.state === 'GROUND') this.leaveGround('sim-exit');
+      this.onSimNotRunning(frame);
       return;
     }
 
@@ -105,47 +96,65 @@ export class FlightManager {
 
     switch (this.state) {
       case 'IDLE':
-        this.checkAirborneDebounce(frame, inSlew);
-        if (this.state !== 'IDLE') break; // startFlight() already ran
-
-        if (this.ground.observeIdle(frame) === 'debounce-met') {
-          this.enterGround(frame);
-        }
+        this.onIdleFrame(frame, inSlew);
         break;
-
       case 'GROUND':
-        if (inSlew) {
-          this.leaveGround('slew');
-          break;
-        }
-        if (this.ground.observeGround(frame) === 'left-anchor') {
-          this.leaveGround('superseded');
-          break;
-        }
-        // Taxiing does not leave this state — only rotation (below) or one of
-        // the two checks above does. The same airborne test as from IDLE.
-        this.checkAirborneDebounce(frame, inSlew);
+        this.onGroundFrame(frame, inSlew);
         break;
-
       case 'FLYING':
-        if (inSlew || this.isPaused) {
-          this.recorder.markInterrupted();
-          break;
-        }
-
-        this.recordPoint(frame);
-
-        if (frame.onGround) this.acars.onTouchdown(this.currentFlightId, frame, this.link.refs());
-
-        if (frame.onGround && frame.groundSpeedKnots < 5) {
-          this.landedStreak++;
-          if (this.landedStreak >= LANDED_DEBOUNCE_FRAMES) {
-            this.endFlight(frame);
-          }
-        } else {
-          this.landedStreak = 0;
-        }
+        this.onFlyingFrame(frame, inSlew);
         break;
+    }
+  }
+
+  private onSimNotRunning(frame: SimFrame): void {
+    if (this.state === 'FLYING') this.endFlight(frame);
+    // The sim itself reporting not-running is positive telemetry evidence,
+    // not mere silence — unlike onCrash()/onSimDisconnect() below, this
+    // closes a manual session too.
+    else if (this.state === 'GROUND') this.leaveGround('sim-exit');
+  }
+
+  private onIdleFrame(frame: SimFrame, inSlew: boolean): void {
+    this.checkAirborneDebounce(frame, inSlew);
+    if (this.state !== 'IDLE') return; // startFlight() or a resume already ran
+
+    if (this.ground.observeIdle(frame) === 'debounce-met') {
+      this.enterGround(frame);
+    }
+  }
+
+  private onGroundFrame(frame: SimFrame, inSlew: boolean): void {
+    if (inSlew) {
+      this.leaveGround('slew');
+      return;
+    }
+    if (this.ground.observeGround(frame) === 'left-anchor') {
+      this.leaveGround('superseded');
+      return;
+    }
+    // Taxiing does not leave this state — only rotation (below) or one of
+    // the two checks above does. The same airborne test as from IDLE.
+    this.checkAirborneDebounce(frame, inSlew);
+  }
+
+  private onFlyingFrame(frame: SimFrame, inSlew: boolean): void {
+    if (inSlew || this.isPaused) {
+      this.recorder.markInterrupted();
+      return;
+    }
+
+    this.recordPoint(frame);
+
+    if (frame.onGround) this.acars.onTouchdown(this.currentFlightId, frame, this.link.refs());
+
+    if (frame.onGround && frame.groundSpeedKnots < 5) {
+      this.landedStreak++;
+      if (this.landedStreak >= LANDED_DEBOUNCE_FRAMES) {
+        this.endFlight(frame);
+      }
+    } else {
+      this.landedStreak = 0;
     }
   }
 
@@ -166,9 +175,8 @@ export class FlightManager {
   }
 
   /**
-   * The airborne debounce, identical whether reached from IDLE or from
-   * GROUND: three consecutive qualifying frames start a flight. Factored out
-   * so the two call sites cannot drift apart from each other.
+   * The airborne debounce, shared by IDLE and GROUND: three consecutive
+   * qualifying frames start a flight.
    */
   private checkAirborneDebounce(frame: SimFrame, inSlew: boolean): void {
     if (!this.openFlightCheckedAtBoot) {
@@ -191,30 +199,16 @@ export class FlightManager {
     }
   }
 
-  /**
-   * The ground-session live-status cache, or null while no session is
-   * tracked as GROUND. Read-only, no query per call — same reasoning as
-   * getPlannedLegStatus().
-   */
+  /** The ground-session live-status cache, or null; read-only, no query per call. */
   getGroundSessionStatus(): GroundSessionLiveStatus | null {
     return this.ground.status();
   }
 
   /**
-   * Called by the ground-sessions routes after every write, which talk to
-   * the database directly and never go through FlightManager. Without this,
-   * a refine, a correction, or a manual close would leave the live-status
-   * cache pointed at whatever enterGround() last built, silently disagreeing
-   * with the row the rest of the app now reads — the same problem
-   * refreshPlannedLegForFlight() solves for a manual leg link.
-   *
-   * An open row is adopted into the cache whatever this.state currently is —
-   * a manual session may exist with no agent connected at all, and this is
-   * how a poll started after that write still sees it once the machine does
-   * reach GROUND. Only the reverse direction touches state: finding no open
-   * row while this machine is GROUND means the operator (or a correction)
-   * closed the very session this machine was tracking, so it returns to
-   * IDLE, exactly as a slew or a re-anchor would.
+   * Called by the ground-sessions routes after every write, which bypass this
+   * class. An open row is adopted into the cache in any state; no open row
+   * while GROUND means the tracked session was closed under us, so return to
+   * IDLE, otherwise just drop the cache.
    */
   refreshGroundSession(): void {
     if (this.ground.refresh() === 'updated') {
@@ -230,12 +224,7 @@ export class FlightManager {
     }
   }
 
-  /**
-   * Reached when GROUND_DEBOUNCE_FRAMES consecutive frames have qualified as
-   * parked. The ground tracker resolves the airport and a planned leg exactly
-   * once, the same work startFlight() does for a takeoff — never per frame.
-   * Only a successful entry changes state.
-   */
+  /** Reached once the parked debounce is met; only a successful entry changes state. */
   private enterGround(frame: SimFrame): void {
     if (this.ground.enter(frame, (f, startedAt) => this.link.matchForGround(f, startedAt)) === 'failed') return;
     this.state = 'GROUND';
@@ -244,9 +233,8 @@ export class FlightManager {
   }
 
   /**
-   * Closes whatever ground session is open, whatever its source, and returns
-   * to IDLE: the exits that are themselves positive evidence the aircraft is
-   * no longer where the session says it is.
+   * Closes any ground session, whatever its source, and returns to IDLE: the
+   * exits that are themselves positive evidence the aircraft moved.
    */
   private leaveGround(reason: GroundSessionEndReason): void {
     this.ground.closeAny(reason);
@@ -254,9 +242,8 @@ export class FlightManager {
   }
 
   /**
-   * Closes the open ground session and returns to IDLE, but only when the
-   * session was detected automatically: a vanished agent or a crash is not
-   * evidence against a manual session.
+   * Closes only an auto-detected session and returns to IDLE: a crash or a
+   * vanished agent is no evidence against a manual one.
    */
   private leaveGroundAutoOnly(reason: GroundSessionEndReason): void {
     this.ground.closeAutoOnly(reason);
@@ -276,9 +263,7 @@ export class FlightManager {
     const id = this.recorder.begin(frame, dep, startTime);
     if (dep) console.log(`[FlightManager] Departure airport: ${dep.icao} (${dep.name})`);
 
-    // Unconditional, whatever this.state was: OUT reports the stand, airport
-    // and off-blocks instant of a ground session that may have been adopted
-    // while IDLE, and the session is closed and forgotten here.
+    // Unconditional, whatever the state was: a session adopted while IDLE still feeds OUT.
     const out = this.ground.handOffToFlight(id);
 
     this.link.clear();
@@ -304,17 +289,9 @@ export class FlightManager {
   }
 
   /**
-   * Adopts an already-open flights row instead of starting a new one: the
-   * server was restarted (or crashed) while this flight was in progress, and
-   * the row it inserted at takeoff is still open. Everything the live
-   * accumulators would have held is rebuilt from the points already recorded
-   * for that flight; the downtime itself is disowned by the recorder's
-   * interruption mark, exactly as a pause disowns the gap that spans it.
-   *
-   * Deliberately NOT a branch inside startFlight(): a resume must not insert a
-   * row, must not close a ground session, must not file OUT/OFF, and must not
-   * consume a planned leg — all four of those already happened for this flight,
-   * before the restart.
+   * Adopts the flight row left open by a previous run. Deliberately not a
+   * branch inside startFlight(): a resume must not insert a row, close a
+   * ground session, file OUT/OFF or consume a planned leg again.
    */
   private resumeFlight(row: OpenFlightRow, frame: SimFrame): void {
     const seed = this.recorder.adopt(row, frame);
@@ -325,14 +302,12 @@ export class FlightManager {
     this.appState.currentFlightId = row.id;
     this.airborneStreak = 0;
     this.landedStreak = 0;
-    // The outage is an interruption exactly like a pause or a slew: its time
-    // must not be counted, even though its distance (added by the writePoint()
-    // call below) should be.
+    // The outage is an interruption like a pause: its time is not counted,
+    // its distance (added by the point written below) is.
     this.recorder.markInterrupted();
     this.acars.resumeFlight();
 
-    // Reloaded read-only: this flight's link (if any) was already made at its
-    // real takeoff, and matching again here would consume a leg a second time.
+    // Reloaded read-only: matching again would consume a leg a second time.
     this.link.clear();
     try {
       this.refreshPlannedLegForFlight(row.id);
@@ -345,9 +320,8 @@ export class FlightManager {
       `${seed.distanceNm.toFixed(1)} nm, ${Math.round(seed.activeMs / 1000)}s counted before the interruption`
     );
 
-    // Same call startFlight() ends with: it adds the outage's distance,
-    // drops its (already-excluded) gap because the recorder is marked
-    // interrupted, and clears the mark so the next gap counts normally.
+    // Same call startFlight() ends with; it clears the interruption mark so the
+    // next gap counts normally.
     this.writePoint(frame);
     this.notifyScopeChange();
   }
@@ -364,8 +338,7 @@ export class FlightManager {
 
     this.link.recordArrival(id, frame);
 
-    // ON and IN both carry the link's refs, so they are read before the link
-    // is cleared below.
+    // ON and IN carry the link's refs, so they go out before the link is cleared.
     this.acars.fileArrival(id, frame, tally.endTime, arr, this.link.refs());
 
     this.currentFlightId = null;
@@ -378,26 +351,15 @@ export class FlightManager {
     this.landedStreak = 0;
   }
 
-  /**
-   * The live-panel context for /api/status, or null while unlinked. Reads the
-   * link's cache only, so a 1 Hz poll costs nothing here; see
-   * PlannedLegLink.status() in src/flight/plannedLegLink.ts.
-   */
+  /** The live-panel context for /api/status, or null while unlinked; reads the link's cache only. */
   getPlannedLegStatus(lat: number, lon: number): PlannedLegLiveStatus | null {
     return this.link.status(lat, lon);
   }
 
   /**
-   * Called by the manual link/unlink endpoint, which talks
-   * to the database directly and never goes through FlightManager. Without
-   * this, linking or unlinking the in-progress flight by hand would leave the
-   * live-status cache pointed at whatever link.autoLink last set (or at
-   * nothing), silently disagreeing with the row the rest of the app now
-   * reads. A no-op for any flight that isn't the one currently flying.
-   *
-   * The scope listener is told after every call, including one for a flight
-   * that is not current; a throw from the link's reads propagates with no
-   * notification.
+   * Called by the manual link/unlink endpoint, which bypasses this class. The
+   * scope listener is told after every call, even for a flight that is not
+   * current; a throw from the link's reads propagates with no notification.
    */
   refreshPlannedLegForFlight(flightId: number): void {
     this.link.refreshForFlight(flightId, this.currentFlightId);
@@ -414,11 +376,7 @@ export class FlightManager {
     if (point) this.reportPosition(frame, point);
   }
 
-  /**
-   * The position-report check for a point the recorder just wrote, run with
-   * that write's own clock read and timestamp so the report window and the
-   * report's `at` agree with the stored point.
-   */
+  /** Runs the position-report check with the point's own clock read and timestamp. */
   private reportPosition(frame: SimFrame, point: RecordedPoint): void {
     this.acars.maybePositionReport(point.flightId, frame, point.ts, this.recorder.elapsedMs(point.nowMs), this.link);
   }

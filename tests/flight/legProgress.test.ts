@@ -212,6 +212,16 @@ describe('progressAlongLeg', () => {
     expect(p.remainingDistanceNm).toBe(haversineNm(lat, lon, 51, -30) + remaining[1]);
   });
 
+  it('keeps the first segment at the same corner for a second position, which the norm form decides', () => {
+    // Pins the Math.sqrt(dx * dx + dy * dy) form of the cross-track norm. Past
+    // the apex both segments' distances are mathematically equal; Math.hypot
+    // rounds them so that the second wins, which flips the answer from V to B.
+    const route = [wp('A', 50, -40), wp('V', 51, -30), wp('B', 50, -20)];
+    const remaining = buildRemainingFromNm(route);
+    const q = progressAlongLeg(route, remaining, 52.23466765880585, -30.299783277511597);
+    expect(q.nextWaypointIdent).toBe('V');
+  });
+
   it('lets a zero-length segment win when it is the nearest, rather than skipping it as NaN', () => {
     const route = [wp('A', 10, 20), wp('B', 10, 20), wp('C', 10, 21)];
     const p = progressAlongLeg(route, buildRemainingFromNm(route), 10, 20);

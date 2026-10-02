@@ -429,7 +429,7 @@ export function queryFeatures(nav: Database.Database | null, q: FeaturesQuery): 
   const navaids = fetch(
     'navaids',
     () => nav!.prepare(
-      `SELECT kind, ident, region, lat, lon, frequency_hz, name, nav_type, is_dme
+      `SELECT kind, ident, region, lat, lon, frequency_hz, name, nav_type, is_dme, is_nav, is_tacan, magvar
          FROM nav_navaid
         WHERE lat BETWEEN ? AND ? AND ${pointClause.clause}
         ORDER BY kind, ident, region ASC LIMIT ?`,
@@ -437,6 +437,7 @@ export function queryFeatures(nav: Database.Database | null, q: FeaturesQuery): 
     (r): FeatureNavaid => ({
       kind: r.kind, ident: r.ident, region: r.region, lat: r.lat, lon: r.lon,
       frequencyHz: r.frequency_hz, name: r.name, navType: r.nav_type, isDme: bool(r.is_dme),
+      isNav: bool(r.is_nav), isTacan: bool(r.is_tacan), magvar: r.magvar ?? null,
     }),
   );
 

@@ -87,6 +87,7 @@ export interface AirportThinning {
 export interface FeatureNavaid {
   kind: 'V' | 'N'; ident: string; region: string; lat: number; lon: number;
   frequencyHz: number | null; name: string | null; navType: number | null; isDme: boolean | null;
+  isNav: boolean | null; isTacan: boolean | null; magvar: number | null;
 }
 export interface FeatureWaypoint {
   key: string; ident: string; region: string; lat: number; lon: number; terminal: boolean | null;

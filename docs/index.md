@@ -14,7 +14,7 @@ actually works and how to operate it.
 | [setup.md](setup.md) | One-line installers, detailed local/dev setup, HTTPS, Docker (published image), connecting the simulator, validating the install |
 | [configuration.md](configuration.md) | Every environment variable — server, agent, and Docker Compose — with defaults and validation rules |
 | [usage.md](usage.md) | Logging a flight, planning trips, ACARS, exports, run/debug/test commands, common failures |
-| [navdata.md](navdata.md) | Map navdata: the replica of the MCDU client's MSFS navigation data, its sync/query endpoints, route expansion, licensing and operation |
+| [navdata.md](navdata.md) | Map navdata: the replica of the MCDU client's MSFS navigation data and the Little Navmap import, choosing the source, sync/query/import endpoints, route expansion, licensing and operation |
 | [api.md](api.md) | Every HTTP route, its auth requirement, and its request/response shape |
 | [data-model.md](data-model.md) | Full SQLite schema, entity relationships, the `src/db/` module map |
 | [operations.md](operations.md) | Running in production, installer-managed services, Docker, backups/restore, maintenance scripts, log locations |

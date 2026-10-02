@@ -70,7 +70,11 @@ Destructive actions (delete, remove, skip) ask for confirmation in a dialog.
   view; active-trip toggle, PDF/KML export, **Edit trip details** (name and
   notes, in a dialog) and delete.
 - **Settings** — the SimBrief pilot ID and the optional SayIntentions API
-  key; **Ingest tokens (MCDU)** and **MCP tokens**: create a labelled token
+  key; **Navigation data**: choose whether the maps show the simulator's
+  navdata or a Little Navmap import, with each dataset's label, validity
+  and an expired warning; **Import Little Navmap data**: upload a `.sqlite`
+  file or pick one from the server's import folder, with progress and Cancel
+  ([details](navdata.md#little-navmap-import)); **Ingest tokens (MCDU)** and **MCP tokens**: create a labelled token
   (its secret is shown once, in a dialog with a copy button — copy it then),
   see when each was last used, and revoke any of them, all without a
   restart; a banner says whether `INGEST_TOKEN`/`MCP_TOKEN` is being ignored
@@ -87,10 +91,13 @@ and **Cancel** or Escape discards it. Saving an empty box clears the notes.
 
 ## Navdata on the maps
 
-When the MCDU client has synced navdata, the maps gain a **Navdata** panel and
-expanded planned routes; without it nothing changes. See [navdata.md](navdata.md)
-for what each layer shows, the coverage notes, *Fetch detail*, and the dashed
-*computed straight-in / computed departure* lines drawn for custom procedures.
+When the MCDU client has synced navdata, or a Little Navmap database has been
+imported and selected in Settings, the maps gain a **Navdata** panel and
+expanded planned routes; without either nothing changes. See
+[navdata.md](navdata.md) for what each layer shows, the dataset line and
+expired warning, the coverage notes, *Fetch detail* (simulator data only), and
+the dashed *computed straight-in / computed departure* lines drawn for custom
+procedures.
 
 ### Map zoom
 

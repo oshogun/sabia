@@ -172,13 +172,15 @@ An installer-managed instance prints its own backup command at the end of
 the install.
 
 Do not copy an open `flights.db` by itself — WAL data may not yet be in the
-main file. Full backup/restore guidance:
+main file. The navdata replicas are not backed up: the simulator's is re-sent
+by the MCDU client, and a Little Navmap import is rebuilt by importing its
+`.sqlite` again, so keep that file. Full backup/restore guidance:
 [`docs/operations.md#backups`](docs/operations.md#backups).
 
 ## Documentation
 
 - [Documentation home](docs/index.md)
-- [Navdata on the maps](docs/navdata.md)
+- [Navdata on the maps](docs/navdata.md) — from the simulator or a Little Navmap import
 - [Architecture](docs/architecture.md)
 - [Setup](docs/setup.md)
 - [Configuration](docs/configuration.md)

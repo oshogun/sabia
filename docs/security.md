@@ -30,7 +30,11 @@ which):
   hard-coded true/false). `express-session`'s `regenerate()` runs before a
   successful login sets `req.session.user`, defeating session fixation.
   Sessions are stored in the database (not in-memory), so they survive a
-  restart, and are swept for expiry every 6 hours.
+  restart, and are swept for expiry every 6 hours. The rolling expiry is
+  written back at most once an hour (an earlier one at once), so a session can
+  end up to 1 h before its 30-day cookie says, never later; that write is an
+  `UPDATE` only, so a request still in flight when you log out or change the
+  password cannot bring the deleted session back.
 - **Ingest token** (`x-ingest-token` header) for the MCDU client and other
   non-browser clients: compared with `crypto.timingSafeEqual` against a
   SHA-256 digest (not a plain string compare), so response timing doesn't
@@ -118,6 +122,12 @@ file-level encryption built in — rely on filesystem/disk-level protection
 (permissions, disk encryption) if that matters for your deployment, and keep
 backups (`npm run backup`, after `npm run build`) under the same protection as the live file.
 
+The navdata directory (`dirname(NAVDATA_DB_PATH)`) holds unencrypted copies of
+licensed data: `navdata.db`, `navdata.db.lnm`, any Little Navmap `.sqlite` you
+placed there, and, during an upload, its spool file. The replicas and the spool
+are created with the process's default file mode (not `0600`), so protect the
+directory itself if other local users must not read them.
+
 An installer-managed instance ([setup.md](setup.md#installer)) keeps its
 secrets in the install root. `sabia.env` holds `INGEST_TOKEN`, and
 `certs/sabia.key` is the TLS private key, unencrypted. On Linux (and on macOS, which is unsupported) the
@@ -141,17 +151,45 @@ Two properties worth knowing: the 4 MiB JSON parser for `/api/navdata/rows` runs
 up to 4 MiB (every other path rejects at 100 kB); and snapshot uploads are staged
 in a per-process temporary directory created with mode `0700` and deleted after
 import. A snapshot with zero rows is refused when the replica already holds any (it would erase the replica in exchange for nothing). Rejected sync requests are logged at warning level without the token, request body or row values. `ALLOW_UNAUTHENTICATED_INGEST`, when it is the credential in force (no Settings-page ingest token and no `INGEST_TOKEN` — see [configuration.md](configuration.md#tokens-created-on-the-settings-page)), opens these four routes too, like `/api/ingest/*`. The replica may contain Navigraph-derived data: it is git-ignored and
-docker-ignored and must never be committed or baked into an image. See
-[navdata.md](navdata.md).
+docker-ignored and must never be committed or baked into an image; the same
+holds for `navdata.db.lnm` and any Little Navmap `.sqlite` (`.gitignore` covers
+`navdata.db*` and `*.sqlite` in any letter case; `.dockerignore` covers
+`navdata.db`, its `-wal`/`-shm` and `.incoming-*` files, `navdata.db.lnm*`,
+`navdata/`, `**/*.sqlite` in any letter case, and `.claude/`). See [navdata.md](navdata.md).
+
+## Little Navmap import
+
+`/api/navdata/lnm-import*` and `/api/settings/navdata-source` are session
+routes (`requireAuth`; the ingest token is never accepted; writes also need a
+same-origin request). A logged-in user can make the server read a `.sqlite`
+file, but only one directly inside the import folder: the request carries a
+bare file name, which must end in `.sqlite`, must not start with `.`, and must
+be a regular file (a symlink is refused). The file is opened read-only and
+checked for the SQLite header and the atools schema before anything is built.
+The folder's absolute path is returned to the logged-in user (`dir`,
+`importDir`) so the Settings page can say where to put files. Messages and log
+lines carry error codes, counts and file base names only, never row values
+or absolute paths (an unsupported `data_source` value is echoed, cut to 16
+characters).
+
+Every request body has a 300 s deadline after which the connection is closed;
+only an authenticated Little Navmap upload, after its checks pass, gets 1 h.
+Request headers must arrive within 60 s. One import runs at a time, and an
+import refuses to start (`507`) when free disk or memory is short.
 
 ## Uploads
 
 File uploads (`multer`) are size- and count-capped per route (attached
 flight-plan PDFs: 20MB, PDF-only, verified by both MIME type and file magic
 bytes, not extension alone; `.lnmpln` imports: 512KB each, up to 25 per
-request, sniffed as XML before parsing). Oversized or excess uploads are
-rejected with `400` by the app-level error handler, not left to Express's
-default multipart handling.
+request, sniffed as XML before parsing). Oversized or excess uploads on those
+routes are rejected with `400` by the app-level error handler, not left to
+Express's default multipart handling. A navdata snapshot over 64 MiB gets
+`413 NAVDATA_TOO_LARGE`. The Little Navmap upload is handled by its own route:
+one file, no other fields, at most 2 GiB, spooled to the navdata directory
+rather than memory, checked for the SQLite header; it answers
+`411 LNM_LENGTH_REQUIRED` without a `Content-Length`, `413 LNM_TOO_LARGE` over
+the limit, and `400 LNM_BAD_REQUEST` for any other shape.
 
 ## License
 

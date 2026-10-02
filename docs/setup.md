@@ -168,7 +168,9 @@ under `sudo`.
 
 The root is the server's working directory, so `flights.db`,
 `flight_plans/`, `navdata/`, `backups/`, `certs/` and `logs/` (macOS and
-Windows) all live in it, next to the app.
+Windows) all live in it, next to the app. `navdata/` is also the folder to put
+a Little Navmap `.sqlite` in for a server-side import
+([navdata.md](navdata.md#running-an-import)).
 
 The server listens on `0.0.0.0:3000` by default on every OS. On Windows the
 installer also creates an inbound firewall rule `SabiaServer-In` (Private
@@ -227,9 +229,10 @@ come up healthy, it restores the previous app, config and certificate, and
 restarts the old version.
 
 `--uninstall` (`-Uninstall`) removes the service, the firewall rule and the
-app files. It keeps `sabia.env`, `flights.db*`, `flight_plans/`, `navdata/`,
-`backups/`, `certs/` and `logs/`, so a later install picks up where it left
-off. Adding `--purge` (`-Purge`) deletes the whole root after you type
+app files. It keeps `sabia.env`, `flights.db*`, `flight_plans/`, `navdata/`
+(including a Little Navmap import, `navdata.db.lnm`, and any `.sqlite` you put
+there), `backups/`, `certs/` and `logs/`, so a later install picks up where it
+left off. Adding `--purge` (`-Purge`) deletes the whole root after you type
 `purge`, or with `--yes`.
 
 ## Docker

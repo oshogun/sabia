@@ -190,15 +190,22 @@ command or on the Settings page (`POST /api/settings/password`).
 
 `express-session` store backing the web UI's login cookie: `sid` TEXT PK,
 `data` TEXT NOT NULL (JSON), `expires_at` INTEGER NOT NULL (epoch ms). Swept
-periodically by the server (see [operations.md](operations.md)).
+periodically by the server (see [operations.md](operations.md)). The rolling
+expiry is written back at most once an hour per session (an earlier expiry is
+written at once), so `expires_at` can be up to 1 h earlier than the login
+cookie's, never later. That refresh is an `UPDATE` only: it never re-creates a
+session that was logged out or removed by a password change
+(`sessionTouch`, `src/db/settings.ts`).
 
 ### `app_secret` / `app_setting`
 
 Two small key-value tables: `app_secret` holds server-generated secrets (e.g.
 a session secret, when `SESSION_SECRET` isn't set); `app_setting` holds
 operator-editable settings (the SimBrief pilot ID under key
-`simbrief_user_id`, and the SayIntentions API key under
-`sayintentions_api_key`). Both are `name` (TEXT PK) / `value` (TEXT NOT NULL) plus
+`simbrief_user_id`, the SayIntentions API key under
+`sayintentions_api_key`, and the navdata source shown on the maps under
+`navdata_source`, `mcdu` or `lnm`; a missing or unrecognised value means
+`mcdu`). Both are `name` (TEXT PK) / `value` (TEXT NOT NULL) plus
 a timestamp.
 
 ### `ingest_tokens` / `mcp_tokens`
@@ -228,11 +235,15 @@ Manual "fetch detail" requests from the map (`POST /api/navdata/request`),
 remembered until the sidecar's next demand poll. Lives in `flights.db`, not in
 `navdata.db`, so replacing the replica cannot wipe a pending request. Rows
 expire after 7 days (`NAVDATA_REQUEST_TTL_MS`) and are deleted once the replica
-holds the answer. Added additively with `CREATE TABLE IF NOT EXISTS`; access is
+holds the answer. While Little Navmap data is shown, no request is queued and
+the demand poll neither answers nor deletes the queued ones. Added additively with `CREATE TABLE IF NOT EXISTS`; access is
 in `src/db/navdataRequests.ts`.
 
-The navdata replica itself is a separate SQLite file with its own 13-table schema
-(`nav_*`); see [navdata.md](navdata.md). It is never part of `flights.db`.
+The navdata replicas are separate SQLite files with their own 13-table schema
+(`nav_*`): `navdata.db` from the MCDU client, and `navdata.db.lnm` from a Little
+Navmap import, which adds one table of its own, `lnm_dataset` (the imported
+file's data source, cycle, validity and label). See [navdata.md](navdata.md).
+Neither is ever part of `flights.db`.
 
 ## CRUD modules
 

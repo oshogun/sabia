@@ -18,7 +18,8 @@ compiled ahead of time; nothing rebuilds itself at runtime).
 For unattended operation, wrap it in your process manager of choice (a
 systemd service running `npm start` with `Restart=on-failure`, `pm2`, or a
 `nohup`/`screen`/`tmux` session) — the server handles `SIGTERM`/`SIGINT`
-gracefully (closes the DB cleanly, checkpointing WAL) so any manager that
+gracefully (cancels a running Little Navmap import and removes its temporary
+files, then closes the DB cleanly, checkpointing WAL) so any manager that
 sends those signals on stop/restart is safe to use.
 
 ### Installer-managed instance
@@ -82,7 +83,9 @@ is plain JavaScript. The runtime image has system Chromium (for PDF export
 via Puppeteer) and no build toolchain: `better-sqlite3` loads the musl
 binary that ships inside its npm package (`linuxmusl-x64` or
 `linuxmusl-arm64`). `docker-compose.yml` bind-mounts `flights.db`,
-`flight_plans/` and the `navdata/` directory for persistence and passes
+`flight_plans/` and the `navdata/` directory for persistence (`./navdata` also
+holds the Little Navmap replica and is where you drop a `.sqlite` to import)
+and passes
 `INGEST_TOKEN`, `MCP_TOKEN`, `TLS_CERT_FILE`, `TLS_KEY_FILE`,
 `ALLOW_PLAINTEXT_HTTP`, `SESSION_SECRET` through from the shell/`.env`. Mount
 `./certs:/app/certs:ro` (commented out by default in the compose file) if
@@ -117,7 +120,9 @@ backup API rather than a naive file copy — a plain `cp flights.db` can miss
 data still sitting in `flights.db-wal` if the server is running. The script
 also verifies the copy opens and runs `PRAGMA integrity_check`, and copies
 `flight_plans/` (attached PDF flight plans) alongside it. Safe to run while
-the server is live; suitable for cron.
+the server is live; suitable for cron. The navdata replicas are not included:
+the MCDU client re-sends `navdata.db`, and `navdata.db.lnm` is rebuilt by
+importing its Little Navmap `.sqlite` again, so keep that file somewhere safe.
 
 ```bash
 npm run backup -- /path/to/destination
@@ -192,7 +197,9 @@ install root, or `/app` in the container.
 | Path | Contents |
 |---|---|
 | `flights.db` (+ `-wal`/`-shm` while running) | All application data — see [data-model.md](data-model.md) |
-| `navdata.db` (+ `-wal`/`-shm`; in Docker under the `./navdata` directory) | Replica of the MCDU client's navdata. Rebuildable: not part of `npm run backup`, and safe to delete — see [navdata.md](navdata.md) |
+| `navdata.db` (+ `-wal`/`-shm`; in Docker under the `./navdata` directory; `<root>/navdata/` on an installer-managed instance) | Replica of the MCDU client's navdata. Rebuildable: not part of `npm run backup`, and safe to delete — see [navdata.md](navdata.md) |
+| `navdata.db.lnm` (+ `-wal`/`-shm`, beside `navdata.db`) | Replica built by a Little Navmap import. Not part of `npm run backup`; deleting it means importing again, so keep the `.sqlite` it came from — see [navdata.md § Little Navmap import](navdata.md#little-navmap-import) |
+| `*.sqlite` beside `navdata.db` | Little Navmap databases you placed there for a server-side import (Navigraph-licensed when they come from Navigraph). Never deleted by the server. `navdata.db.incoming-*`, `navdata.db.lnm.incoming-*` and `navdata.db.lnm.upload-*` files there are temporary import files, deleted at the next startup if a crash left them |
 | `flight_plans/` | Attached PDF flight plans (uploaded per-flight) |
 | `certs/` | TLS certificate/key, if you keep them in-repo (gitignored by default) |
 | `sabia.env`, `node/`, `logs/`, `.sabia-install` | Installer-managed instance only: config, private Node 24, service logs (macOS/Windows), install marker |

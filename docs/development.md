@@ -10,6 +10,7 @@ src/                  Express + TypeScript server
   flight/             Its collaborators: ground sessions, leg link, recorder, ACARS reporter, boot recovery, pure helpers
   auth/               Session, ingest-token, MCP-token, password, login-throttle logic
   mcp/                Optional MCP server: router, tool registry, the 18 read/write tools
+  navdata/            Navdata replicas (simulator and Little Navmap), queries, route geometry; navdata/lnm/ is the Little Navmap importer (worker thread)
   inspect-*.ts        ts-node CLI inspectors for eyeballing behavior against real data
   install/            Helper CLI the installers call (dist/install/cli.js): self-signed cert, env-file merge, port/health checks, pairing
 client/               React + Vite web app on IBM Carbon (@carbon/react, Gray 100 theme)
@@ -196,9 +197,18 @@ does start a live server, deliberately isolated from the developer's own:
   `TMPDIR`; keep `TMPDIR` short (the full socket path must stay under 108
   characters) or the PDF test fails with "Socket path too long".
 
-Navdata tests (`tests/navdata*.test.ts`, client `Navdata*`/`RouteGeometry*`
-tests) use **synthetic idents and coordinates only** — never real navdata, which
-is licensed content (see [navdata.md](navdata.md#data-provenance-and-licensing)).
+Navdata tests (`tests/navdata*.test.ts`, `tests/lnm*.test.ts`, client
+`Navdata*`/`RouteGeometry*` tests) use **synthetic idents and coordinates
+only** — never real navdata, which is licensed content (see
+[navdata.md](navdata.md#data-provenance-and-licensing)). The Little Navmap
+importer's tests build atools-shaped databases with invented rows from
+`tests/helpers/lnmFixture.ts`; never point a test at a real Little Navmap file.
+To check the importer against a real file without a server, run
+`npx ts-node src/inspect-lnm-import.ts <little_navmap.sqlite> <out.db> [--worker] [--force]`:
+it opens the source read-only, builds a replica at `<out.db>` and prints row
+counts, the dataset label and the completeness checks (exit 0 on success, 1 on
+failure, 2 on a usage error). Keep `<out.db>` out of the repository and delete
+it afterwards.
 The procedure-key collision ordering is pinned by a shared fixture,
 `tests/fixtures/navdata/approach-collision-vectors.json`, whose sha256 and length
 the suite asserts; it is shared byte for byte with the MCDU repository, so neither

@@ -16,7 +16,7 @@ of truth, generated from `src/server.ts` and `src/routes/*.ts`.
 Every `/api` route below is one of exactly three values: **session**
 (cookie only), **session or token** (either credential works), or
 **public** (no auth at all). "Session or token" is not a default for
-`/api` — it applies *only* to the 19 method+path pairs in the explicit
+`/api` — it applies *only* to the 20 method+path pairs in the explicit
 allow-list `INGEST_SCOPED_ROUTES` (`src/auth/ingestScope.ts`). Everything
 else under `/api` is session-only: an otherwise-valid ingest token is never
 read for an off-list route, let alone accepted. `/mcp` is a separate,
@@ -151,10 +151,13 @@ session.
 | GET | `/api/settings/mcp-tokens` | session | `{tokens, mode, env_token_set}`; `mode` is `ui_tokens` \| `env_token` \| `disabled`. Otherwise as the ingest-token GET |
 | POST | `/api/settings/mcp-tokens` | session | As the ingest-token POST, for MCP tokens |
 | DELETE | `/api/settings/mcp-tokens/:id` | session | As the ingest-token DELETE, for MCP tokens |
+| GET | `/api/settings/navdata-source` | session | `{selected, effective, fallback, mcdu: {present, dataset}, lnm: {present, dataset}, importDir}` — which navdata source the maps show; see [navdata.md § Source and import endpoints](navdata.md#source-and-import-endpoints-session) |
+| PUT | `/api/settings/navdata-source` | session | Body `{source: 'mcdu' \| 'lnm'}`; applied at once. `400 INVALID_SOURCE`, `409 LNM_NOT_AVAILABLE` (nothing imported), `503 NAVDATA_BUSY` with `Retry-After` is reserved for a request that finds a replica swap in progress (also on the GET); swaps run synchronously, so it is not expected in practice |
 | POST | `/api/settings/password` | session | Body `{current_password, new_password}`. `200 {ok: true, other_sessions_revoked}`: every other session is logged out and the caller's session id is rotated. `403 WRONG_CURRENT_PASSWORD` (403, not 401, so the client doesn't treat it as a logged-out session), `400 INVALID_BODY` (either field missing or not a string) / `PASSWORD_TOO_SHORT` / `PASSWORD_TOO_LONG` / `PASSWORD_BLANK` / `PASSWORD_UNCHANGED`, `429 TOO_MANY_ATTEMPTS` with `Retry-After` — throttled by its own instance of the login throttle |
 
-None of the token or password routes is in `INGEST_SCOPED_ROUTES`: an ingest
-or MCP token can never list, create or revoke tokens, or change the password.
+None of the token, password or navdata-source routes is in
+`INGEST_SCOPED_ROUTES`: an ingest or MCP token can never list, create or revoke
+tokens, change the password, or switch the navdata source.
 Which credential is in force, and when the env vars stop counting, is in
 [configuration.md § Tokens created on the Settings page](configuration.md#tokens-created-on-the-settings-page).
 
@@ -275,7 +278,7 @@ Every tool's declared route is checked at server startup against a hardcoded
 allow-list (`MCP_SCOPED_ROUTES`) — a tool with no matching entry, or a
 mismatched read/write kind, fails startup rather than shipping silently.
 
-## Navdata — `src/routes/navdataSync.ts`, `src/routes/navdata.ts`, `src/routes/navdataRouteGeometry.ts`
+## Navdata — `src/routes/navdataSync.ts`, `src/routes/navdata.ts`, `src/routes/navdataRouteGeometry.ts`, `src/routes/navdataImport.ts`
 
 Full behaviour, error codes and merge rules: [navdata.md](navdata.md).
 
@@ -287,19 +290,35 @@ is in `INGEST_SCOPED_ROUTES`):
 |---|---|---|---|
 | POST | `/api/navdata/snapshot` | ingest token | Multipart, one part `navdataSnapshot`, gzipped NDJSON, ≤ 64 MiB. Replaces the replica atomically. |
 | POST | `/api/navdata/rows` | ingest token | JSON incremental batch: a single-`rev` batch may exceed 2000 rows (20 000 ceiling), a mixed-`rev` batch may not; 4 MiB byte bound (exempt from the 100 kB JSON limit). |
-| GET | `/api/navdata/demand` | ingest token | What the sidecar should fetch next (≤ 50 per poll); waypoint entries carry `kind` `W`/`V`/`N`, fixes before navaids; optional `skipAirports`/`skipWaypoints` lists of parked idents. |
+| GET | `/api/navdata/demand` | ingest token | What the sidecar should fetch next (≤ 50 per poll); waypoint entries carry `kind` `W`/`V`/`N`, fixes before navaids; optional `skipAirports`/`skipWaypoints` lists of parked idents. Always an empty list while Little Navmap data is shown. |
 | POST | `/api/navdata/state` | ingest token | Sidecar health report; `204` (`400` if the body is not a state report). |
 
-**Query endpoints — session only** (an ingest token is rejected; with no replica
-they answer empty with `200`):
+Sidecar routes always read and write the simulator replica, `navdata.db`,
+whichever source is selected.
+
+**Query endpoints — session only** (an ingest token is rejected; they read the
+replica of the source shown — `navdata.db` or the Little Navmap import's
+`navdata.db.lnm` — and with no replica for it answer empty with `200`):
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/navdata/status` | session | Whether a replica exists (`present`), its epoch/counts, sidecar state |
+| GET | `/api/navdata/status` | session | Whether a replica exists for the source shown (`present`), its epoch/counts, `source`/`selectedSource`/`sourceFallback`, the `dataset` label and validity (`expired`), and the simulator sidecar's state |
 | GET | `/api/navdata/features` | session | Map features in a bbox at a zoom, with coverage metadata |
 | GET | `/api/navdata/airports/:ident` | session | Airport detail; `404` only if not in the index |
-| POST | `/api/navdata/request` | session + same-origin | Queue a "fetch detail" request (stored in `flights.db`) |
+| POST | `/api/navdata/request` | session + same-origin | Queue a "fetch detail" request (stored in `flights.db`); while Little Navmap data is shown it never queues and answers `already-present`/`known-absent` |
 | GET | `/api/planned-legs/:legId/route-geometry` | session | A planned leg expanded into SID/enroute/STAR/approach chains |
+
+**Little Navmap import — session only** (an ingest token is rejected; `POST` and
+`DELETE` also need a same-origin request). Job shape, stages and every error
+code: [navdata.md § Source and import endpoints](navdata.md#source-and-import-endpoints-session).
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/navdata/lnm-import` | session | `{job}` — the running or last import (`null` after a restart) |
+| GET | `/api/navdata/lnm-import/files` | session | `.sqlite` files in the server's import folder, its path, the upload limit and free space |
+| POST | `/api/navdata/lnm-import/path` | session + same-origin | JSON `{fileName}` (bare name in the import folder); `202 {job}` |
+| POST | `/api/navdata/lnm-import/upload` | session + same-origin | Multipart, one part `lnmDatabase`, ≤ 2 GiB, `Content-Length` required; `202 {job}` after the body arrives. `411`, `413`, `400`, `409`, `507` refusals; `500 LNM_SPOOL_FAILED` if the file cannot be written |
+| DELETE | `/api/navdata/lnm-import` | session + same-origin | Cancel the running import; `202 {job}`, `409 LNM_NOT_RUNNING` when idle |
 
 ## Errors
 
@@ -307,9 +326,16 @@ Errors are JSON: `{"error": "<message>"}`, sometimes with a `code` field for
 programmatic handling (e.g. `INVALID_INGEST_TOKEN`, `NOT_A_CANNED_MESSAGE`,
 `NO_DISPATCH_DATA`, `NO_OPEN_GROUND_SESSION`). A malformed JSON body on a
 handful of write endpoints (`/api/settings/*`, `*/acars-messages`,
-`*/acars-messages/wx`, `/api/ground-sessions*`) is normalized to `400
-{"error":"Invalid request body","code":"INVALID_BODY"}`; other invalid-JSON
-routes fall through to Express's default error response.
+`*/acars-messages/wx`, `/api/ground-sessions*`, `/api/navdata/lnm-import/path`)
+is normalized to `400 {"error":"Invalid request body","code":"INVALID_BODY"}`;
+other invalid-JSON routes fall through to Express's default error response.
+The two `507` import prechecks add `requiredBytes` and `availableBytes`; the
+navdata sidecar routes and the navdata-source `503` use
+`{"ok": false, "code", "message"}`.
+
+Every request body must finish arriving within 300 s, or the connection is
+closed without a response; only an authenticated Little Navmap upload gets 1 h.
+Request headers must arrive within 60 s.
 
 ## Consumers beyond the web UI
 

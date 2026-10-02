@@ -119,7 +119,8 @@ window elapses, if you truly need to bypass it during development.
 
 **Logged out unexpectedly mid-session.**
 Sessions expire after 30 days of inactivity (rolling — each request
-extends it) or on server restart if `SESSION_SECRET` isn't set *and* the
+extends the cookie; the server saves the new expiry at most once an hour, so
+the server-side session can end up to 1 h before the cookie) or on server restart if `SESSION_SECRET` isn't set *and* the
 generated secret somehow changed (it shouldn't — it's persisted in the
 database, not regenerated per boot). A `401` on any `/api` call while the UI
 is open bounces the client to `/login` automatically.
@@ -183,7 +184,9 @@ on-file dispatch data, not invented from nothing.
 `flights.db`) and waits for the MCDU client to poll `/api/navdata/demand` and fetch
 the airport from the simulator; it is cleared when the replica holds the airport's
 detail or a record that the simulator does not have it. Nothing else can answer it.
-Check the client's navdata state in `GET /api/navdata/status` (`sidecar`).
+Check the client's navdata state in `GET /api/navdata/status` (`sidecar`). While
+Little Navmap data is shown the button is hidden and nothing is queued; requests
+queued earlier wait until the simulator source is selected again.
 
 **The sidecar is stuck retrying `/api/navdata/rows`.** Read `server.log` for
 `navdata: /rows rejected <status> <code>: <message>`: the message names the row,
@@ -191,9 +194,13 @@ table and column or the limit that refused the batch. A batch over 2000 rows is
 accepted only if every row shares one `rev`; a body over 4 MiB is a `413`
 (not logged yet).
 
-**No Navdata panel on the maps.** The server has no replica (`GET /api/navdata/status`
-returns `present: false`): the MCDU client has not uploaded a snapshot, or the
-file is unreadable. Check the server log for `[Navdata]` lines and confirm
+**No Navdata panel on the maps.** The server has no replica for the source being
+shown (`GET /api/navdata/status` returns `present: false`): the MCDU client has
+not uploaded a snapshot (and no Little Navmap import is selected), or the file
+is unreadable. Little Navmap cannot be selected before something is imported;
+if a selected import file goes missing, the map shows simulator data instead
+(`sourceFallback: 'lnm-unavailable'`), so the panel is missing only when
+there is no simulator replica either. Check the server log for `[Navdata]` lines and confirm
 `NAVDATA_DB_PATH` points into a writable directory. In Docker, the
 `./navdata` **directory** must exist and be mounted (a file bind-mount cannot be
 swapped).
@@ -201,7 +208,8 @@ swapped).
 **The sidecar keeps getting `409 NAVDATA_SNAPSHOT_MISMATCH`.** The server holds a
 different epoch (or none, for example after deleting `navdata.db`): the sidecar
 resends a full snapshot. If it loops, check `/api/navdata/status` for
-`snapshotId`.
+`snapshotId` — with the simulator source shown (`source: 'mcdu'`); while Little
+Navmap data is shown, `snapshotId` is the import's, not `navdata.db`'s.
 
 **`409 NAVDATA_SCHEMA_UNSUPPORTED`.** The two repositories are on different
 navdata schema versions; update whichever is older. Also raised when a replica's
@@ -217,7 +225,37 @@ back.
 **A planned route is not expanded, or shows "custom procedure … not a simulator
 procedure".** Custom departures/approaches are drawn from the runway once
 airport detail has been fetched — use *Fetch detail*. Procedures and airways
-appear only once the sidecar has fetched them for that airport or fix.
+appear only once the sidecar has fetched them for that airport or fix. With a
+Little Navmap import shown, every airport already has its detail; a procedure
+that is still missing is not in the imported file.
+
+**A Little Navmap import is refused or fails.** The Settings tile shows the
+message; the code is in `GET /api/navdata/lnm-import` (`job.error.code`) or the
+refused request:
+
+- `507 LNM_INSUFFICIENT_STORAGE` / `LNM_INSUFFICIENT_MEMORY` — free at least the
+  upload size plus 1.25 GiB in the navdata directory, or 1 GiB of memory.
+- `500 LNM_SPOOL_FAILED` — the upload could not be written into the navdata
+  directory (check its permissions; the server log names the error code).
+- `413 LNM_TOO_LARGE` — over 2 GiB; or a reverse proxy in front of the server
+  answered `413` itself (raise its body limit, or put the file in the import
+  folder and import it from there).
+- `411 LNM_LENGTH_REQUIRED` — a proxy stripped `Content-Length`.
+- `LNM_UPLOAD_ABORTED` — the page was closed or the connection dropped before
+  the upload finished (also what a body still arriving after 1 h ends as).
+- `LNM_NOT_ATOOLS`, `LNM_UNSUPPORTED_SOURCE`, `LNM_EMPTY` — not a Little Navmap
+  database, a `data_source` other than `NAVIGRAPH`/`MSFS`/`MSFS24`, or no
+  airports in it.
+- `LNM_INTERRUPTED` — the server stopped during the import; start it again.
+
+**The file I put in the import folder is not listed.** Only regular files
+directly in `dirname(NAVDATA_DB_PATH)` whose name ends in `.sqlite` and does not
+start with `.` are listed (a symlink is not); in Docker that folder is
+`./navdata` next to `docker-compose.yml`. Click *Refresh* after copying it.
+
+**"Expired AIRAC — not for navigation".** The imported Navigraph dataset's
+valid-through date has passed. Import a current file; the old one keeps working
+for the map, but the warning stays.
 
 ## Where else to look
 

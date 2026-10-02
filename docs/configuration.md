@@ -1,6 +1,11 @@
 # Configuration
 
 All configuration is via environment variables — there is no config file.
+(A few operator choices are stored in `flights.db` and changed on the Settings
+page instead — the SimBrief pilot ID, the SayIntentions API key and which
+navdata source the maps show, in
+[`app_setting`](data-model.md#app_secret--app_setting), and the ingest and MCP
+tokens, in [their own tables](data-model.md#ingest_tokens--mcp_tokens).)
 The server reads security-relevant variables in exactly one place,
 `src/config.ts` (`loadConfig()`), and fails fast on a bad value: any
 `ConfigError` is printed to stderr and the process exits before opening the
@@ -71,7 +76,7 @@ applies; see [api.md § Settings](api.md#settings--srcroutessettingsts).
 | Variable | Default | Description |
 |---|---|---|
 | `FLIGHTS_DB_PATH` | `./flights.db` (relative to CWD) | SQLite database file path. |
-| `NAVDATA_DB_PATH` | `./navdata.db` (relative to CWD) | Path of the navdata replica ([navdata.md](navdata.md)). A separate SQLite file from `flights.db`; safe to delete (the MCDU sidecar re-sends it). Its directory must be writable, because a snapshot is staged beside it and swapped in by rename — in Docker, mount the *directory*, not the file. |
+| `NAVDATA_DB_PATH` | `./navdata.db` (relative to CWD) | Path of the simulator navdata replica ([navdata.md](navdata.md)). A separate SQLite file from `flights.db`; safe to delete (the MCDU sidecar re-sends it). The same path plus `.lnm` is the Little Navmap import's replica, which only a new import rebuilds, and the directory holding them is the folder a server-side Little Navmap import reads from. The directory must be writable, because snapshots, imports and upload spools are staged beside the replicas and swapped in by rename — in Docker, mount the *directory*, not the file. |
 | `EXPORT_BASE_URL` | `http(s)://127.0.0.1:${PORT}` (scheme follows TLS config) | Base URL the headless PDF renderer (Puppeteer) navigates to internally. Override only for advanced/dev setups (e.g. pointing exports at a Vite dev server). |
 | `TRAFFIC_ENABLED` | on | Server-side opt-out for AI-traffic ingestion. `0`/`false`/`off`/`no` disables; anything else (including unset) leaves it on. **Independent of the MCDU client's own `trafficEnabled`** — both sides must be configured, setting one doesn't imply the other. |
 | `POSITION_REPORT_INTERVAL_MIN` | `10` | Minutes between automatic ACARS position reports while flying a linked leg. `0` disables. Values between 0 and 0.5 are clamped to 0.5 (30s); unparseable or negative values fall back to the default. |
@@ -117,7 +122,8 @@ these variables from its own environment, so a stray exported `PORT` or
 `docker-compose.yml` passes these through from the shell/`.env` — none are
 baked into the image: `INGEST_TOKEN`, `MCP_TOKEN`, `TLS_CERT_FILE`,
 `TLS_KEY_FILE`, `ALLOW_PLAINTEXT_HTTP`, `SESSION_SECRET`. Compose also sets `NAVDATA_DB_PATH=/app/navdata/navdata.db` and
-mounts `./navdata:/app/navdata`. See
+mounts `./navdata:/app/navdata`, so `./navdata` on the host is also the folder
+to drop a Little Navmap `.sqlite` into for a server-side import. See
 [setup.md](setup.md#docker) and [operations.md](operations.md).
 
 ## Validating your configuration

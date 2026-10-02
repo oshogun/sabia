@@ -50,7 +50,7 @@ Express + TypeScript, single process, single SQLite database
   (`/mcp`, its own bearer-token credential, off until an MCP token is created on the Settings page or `MCP_TOKEN` is set)
   exposing the logbook as 18 tools to a remote MCP client such as Claude
   Desktop/Code. See [api.md § MCP server](api.md#mcp-server--srcmcp).
-- Keep a replica of MSFS navigation data pushed by the MCDU client (`src/navdata/`, a separate SQLite file) and answer map queries and route-expansion requests from it. See [navdata.md](navdata.md).
+- Keep a replica of MSFS navigation data pushed by the MCDU client (`src/navdata/`, a separate SQLite file, `navdata.db`), optionally build a second replica from an imported Little Navmap database (`src/navdata/lnm/`, run in a worker thread, `navdata.db.lnm`), and answer map queries and route-expansion requests from whichever source is selected in Settings. See [navdata.md](navdata.md).
 - Generate PDF (via a self-navigated headless Chromium instance) and KML
   exports.
 - Integrate with three external HTTP services: SimBrief (OFP import),
@@ -150,7 +150,11 @@ from the server is not supported. The Node.js agent that used to live in
 
 1. `loadConfig()` — any invalid environment variable exits the process here,
    before anything else runs.
-2. `initDb()` — opens the SQLite file, applies schema/migrations.
+2. `initDb()` — opens the SQLite file, applies schema/migrations. Then the
+   navdata directory is created if missing and the navdata replicas are opened
+   (deleting leftover temporary import files; a failure is logged, never fatal) and the stored navdata source
+   (`app_setting.navdata_source`) is applied, with a warning when Little
+   Navmap is selected but its file is missing.
 3. Refuse to start if no operator account exists yet (`npm run set-password`
    creates one — there is no HTTP-based setup flow). Then log which ingest
    credential is in force: a warning when none exists at all (the server
@@ -161,7 +165,11 @@ from the server is not supported. The Node.js agent that used to live in
    loading in the background (non-blocking).
 6. Construct `FlightManager` and the Express app (`createServer`).
 7. Listen — HTTP or HTTPS depending on TLS config, on one port. There is no
-   second listener redirecting HTTP to HTTPS.
+   second listener redirecting HTTP to HTTPS. The server is created with
+   `headersTimeout` 60 s and no whole-request timeout; instead every request
+   gets a 300 s deadline for its body (the socket is closed if the body is still
+   arriving), which only an authenticated Little Navmap upload extends to 1 h
+   (`src/bodyDeadline.ts`).
 
 ### Request lifecycle (`src/server.ts`)
 
@@ -183,15 +191,17 @@ Middleware order is deliberate, and reordering it changes behaviour:
 7. `/api/auth/*` — public, mounted before the auth gate.
 8. `requireAuth` — the single gate for everything else under `/api`: passes
    with a valid session **or** a validly-scoped ingest token.
-9. Feature routers (flights, trips, settings, planned legs, exports, acars,
-   ground sessions).
+9. Feature routers (flights, trips, settings, planned legs, navdata queries,
+   route geometry, the Little Navmap import, exports, acars, ground sessions).
 10. SPA catch-all (`GET *` → `client/dist/index.html`) for client-side
     routing.
 11. A final error handler normalizing upload and malformed-JSON errors.
 
 ### Shutdown
 
-`SIGINT`/`SIGTERM` closes the HTTP(S) listener, then the database (which
+`SIGINT`/`SIGTERM` first cancels a running Little Navmap import (the job ends
+`LNM_INTERRUPTED` and its temporary files are removed), then closes the
+HTTP(S) listener, both navdata replicas, and the database (which
 checkpoints WAL back into the main file, so a hard kill without this step
 can strand recent writes in `flights.db-wal`), with a 3-second fallback timer
 in case a lingering connection blocks the graceful close.

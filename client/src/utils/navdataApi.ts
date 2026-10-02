@@ -116,6 +116,19 @@ export class LnmUploadNetworkError extends Error {
   }
 }
 
+/** The server answered an upload with a refusal: its message, the HTTP status, and its error code when it sent one. */
+export class LnmUploadRefusedError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string | null) {
+    super(message);
+    this.name = 'LnmUploadRefusedError';
+  }
+}
+
+/** The server's code for an upload attempt it has already received once; a browser's automatic resend of a cut upload gets it. */
+export const LNM_UPLOAD_REPEATED = 'LNM_UPLOAD_REPEATED';
+
+const UPLOAD_ATTEMPT_HEADER = 'X-Upload-Attempt';
+
 function abortError(): DOMException {
   return new DOMException('The upload was aborted', 'AbortError');
 }
@@ -125,9 +138,14 @@ function abortError(): DOMException {
  * how many bytes of a request body have gone out, so this uses XMLHttpRequest;
  * `onProgress` gets the bytes sent and the total. No Content-Type is set: the
  * browser adds the multipart boundary, and the Content-Length the server
- * requires. Aborting `signal` closes the request and rejects with an
- * AbortError; a dropped connection rejects with LnmUploadNetworkError; any
- * other refusal rejects with the server's own message.
+ * requires. Every call sends a new random attempt id in X-Upload-Attempt. A
+ * browser that resends the request after its connection was cut sends the
+ * same id again, and the server refuses a second request with an id it has
+ * already accepted (LNM_UPLOAD_REPEATED) instead of starting another import.
+ * Aborting `signal` closes the request and rejects with an AbortError; a
+ * dropped connection rejects with LnmUploadNetworkError; any other refusal
+ * rejects with an LnmUploadRefusedError that carries the server's message,
+ * status and code.
  */
 export function uploadLnmDatabase(
   file: File,
@@ -149,18 +167,24 @@ export function uploadLnmDatabase(
       finish();
     };
 
+    // Not crypto.randomUUID: it exists only in secure contexts, and the server can be served over plain HTTP on a LAN.
+    const idBytes = crypto.getRandomValues(new Uint8Array(16));
+    const attemptId = Array.from(idBytes, b => b.toString(16).padStart(2, '0')).join('');
+
     xhr.open('POST', '/api/navdata/lnm-import/upload');
+    xhr.setRequestHeader(UPLOAD_ATTEMPT_HEADER, attemptId);
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) onProgress(e.loaded, e.total);
     };
     xhr.onload = () => settle(() => {
-      let body: { error?: unknown; job?: unknown } | null = null;
+      let body: { error?: unknown; code?: unknown; job?: unknown } | null = null;
       try {
-        body = JSON.parse(xhr.responseText) as { error?: unknown; job?: unknown } | null;
+        body = JSON.parse(xhr.responseText) as { error?: unknown; code?: unknown; job?: unknown } | null;
       } catch {
         body = null;
       }
       const message = typeof body?.error === 'string' && body.error !== '' ? body.error : null;
+      const code = typeof body?.code === 'string' && body.code !== '' ? body.code : null;
       if (xhr.status === 401) {
         reject(reportUnauthorized(message ?? undefined));
       } else if (xhr.status === 0) {
@@ -168,7 +192,7 @@ export function uploadLnmDatabase(
       } else if (xhr.status >= 200 && xhr.status < 300 && body && typeof body.job === 'object') {
         resolve(body as unknown as LnmImportJobResponse);
       } else {
-        reject(new Error(message ?? `Upload failed (HTTP ${xhr.status})`));
+        reject(new LnmUploadRefusedError(message ?? `Upload failed (HTTP ${xhr.status})`, xhr.status, code));
       }
     });
     xhr.onerror = () => settle(() => reject(new LnmUploadNetworkError()));

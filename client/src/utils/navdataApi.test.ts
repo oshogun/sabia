@@ -5,8 +5,8 @@ import {
 } from '../test/navdataFixtures';
 import { setUnauthorizedHandler, UnauthorizedError } from './api';
 import {
-  cancelLnmImport, fetchLnmImport, fetchLnmImportFiles, fetchNavdataSource, LnmUploadNetworkError, paddedBbox,
-  saveNavdataSource, startLnmPathImport, uploadLnmDatabase, validityText,
+  cancelLnmImport, fetchLnmImport, fetchLnmImportFiles, fetchNavdataSource, LNM_UPLOAD_REPEATED, LnmUploadNetworkError,
+  LnmUploadRefusedError, paddedBbox, saveNavdataSource, startLnmPathImport, uploadLnmDatabase, validityText,
 } from './navdataApi';
 
 const view = (west: number, south: number, east: number, north: number) => ({ west, south, east, north });
@@ -161,6 +161,26 @@ describe('import helpers', () => {
   });
 });
 
+/** Records the order in which the upload calls open, setRequestHeader and send. */
+class OrderedXhr extends FakeXhr {
+  calls: string[] = [];
+
+  open(method: string, url: string) {
+    this.calls.push('open');
+    super.open(method, url);
+  }
+
+  setRequestHeader(name: string, value: string) {
+    this.calls.push('setRequestHeader');
+    super.setRequestHeader(name, value);
+  }
+
+  send(body: unknown) {
+    this.calls.push('send');
+    super.send(body);
+  }
+}
+
 describe('uploadLnmDatabase', () => {
   const file = new File(['x'], 'lnm_test.sqlite');
 
@@ -169,14 +189,33 @@ describe('uploadLnmDatabase', () => {
     vi.stubGlobal('XMLHttpRequest', FakeXhr);
   });
 
-  it('posts the file as multipart form data in the lnmDatabase field, with no Content-Type of its own', () => {
+  it('posts the file as multipart form data in the lnmDatabase field, with an attempt id and no Content-Type of its own', () => {
     void uploadLnmDatabase(file, () => {});
 
     const [xhr] = FakeXhr.instances;
     expect(xhr.method).toBe('POST');
     expect(xhr.url).toBe('/api/navdata/lnm-import/upload');
-    expect(xhr.headers).toEqual({});
+    expect(Object.keys(xhr.headers)).toEqual(['X-Upload-Attempt']);
+    expect(xhr.headers['X-Upload-Attempt']).toMatch(/^[0-9a-f]{32}$/);
     expect((xhr.body as FormData).get('lnmDatabase')).toBe(file);
+  });
+
+  it('sends a different attempt id with every call', () => {
+    void uploadLnmDatabase(file, () => {});
+    void uploadLnmDatabase(file, () => {});
+
+    const [first, second] = FakeXhr.instances.map(x => x.headers['X-Upload-Attempt']);
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
+    expect(second).toMatch(/^[0-9a-f]{32}$/);
+    expect(first).not.toBe(second);
+  });
+
+  it('sets the attempt id after the request is opened and before it is sent', () => {
+    vi.stubGlobal('XMLHttpRequest', OrderedXhr);
+    void uploadLnmDatabase(file, () => {});
+
+    const [xhr] = FakeXhr.instances as OrderedXhr[];
+    expect(xhr.calls).toEqual(['open', 'setRequestHeader', 'send']);
   });
 
   it('reports the bytes sent as they go out and resolves with the job', async () => {
@@ -203,6 +242,49 @@ describe('uploadLnmDatabase', () => {
     const p = uploadLnmDatabase(file, () => {});
     FakeXhr.instances[0].respond(413, { error: 'File exceeds 2 GiB', code: 'LNM_TOO_LARGE' });
     await expect(p).rejects.toThrow('File exceeds 2 GiB');
+  });
+
+  it('rejects a refusal with its status and the code the server gave it', async () => {
+    const message = 'This upload was already received once; start a new upload to send the file again';
+    const p = uploadLnmDatabase(file, () => {});
+    FakeXhr.instances[0].respond(409, { error: message, code: LNM_UPLOAD_REPEATED });
+
+    const err = await p.catch(e => e);
+    expect(err).toBeInstanceOf(LnmUploadRefusedError);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe('LNM_UPLOAD_REPEATED');
+    expect(err.message).toBe(message);
+  });
+
+  it('carries no code when the refusal body has none', async () => {
+    const cases: [number, unknown][] = [
+      [502, '<html>bad gateway</html>'],
+      [500, { error: 'worker not reachable' }],
+      [500, { error: 'worker not reachable', code: '' }],
+      [500, { error: 'worker not reachable', code: 7 }],
+    ];
+    for (const [status, body] of cases) {
+      FakeXhr.instances = [];
+      const p = uploadLnmDatabase(file, () => {});
+      FakeXhr.instances[0].respond(status, body);
+
+      const err = await p.catch(e => e);
+      expect(err).toBeInstanceOf(LnmUploadRefusedError);
+      expect(err.status).toBe(status);
+      expect(err.code).toBeNull();
+    }
+  });
+
+  it('refuses a success answer that holds no job, with the status', async () => {
+    const p = uploadLnmDatabase(file, () => {});
+    FakeXhr.instances[0].respond(200, {});
+
+    const err = await p.catch(e => e);
+    expect(err).toBeInstanceOf(LnmUploadRefusedError);
+    expect(err.status).toBe(200);
+    expect(err.code).toBeNull();
+    expect(err.message).toBe('Upload failed (HTTP 200)');
   });
 
   it('names the status when the refusal has no message', async () => {

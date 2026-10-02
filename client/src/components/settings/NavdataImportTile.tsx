@@ -4,7 +4,8 @@ import {
 } from '@carbon/react';
 import { UnauthorizedError } from '../../utils/api';
 import {
-  cancelLnmImport, fetchLnmImport, fetchLnmImportFiles, LnmUploadNetworkError, startLnmPathImport, uploadLnmDatabase,
+  cancelLnmImport, fetchLnmImport, fetchLnmImportFiles, LNM_UPLOAD_REPEATED, LnmUploadNetworkError, LnmUploadRefusedError,
+  startLnmPathImport, uploadLnmDatabase,
 } from '../../utils/navdataApi';
 import type { LnmImportFilesResponse, LnmImportJob, LnmStage, NavdataSource } from '../../types';
 
@@ -12,12 +13,6 @@ const DISMISSED_KEY = 'sabia.lnmImport.dismissedJob';
 const POLL_MS = 1000;
 /** A finished import is announced to a tile that did not watch it only while it is this recent. */
 const RECENT_MS = 10 * 60_000;
-/**
- * A browser resends an upload whose connection the server dropped. The server drops it when the import is
- * cancelled, so the resend can start a second upload that this page then closes, and the server records it
- * as aborted. Within this long after a cancel, such an aborted job is shown as the cancel it came from.
- */
-const CANCEL_AFTERMATH_MS = 15_000;
 const GIB = 2 ** 30;
 const MIB = 2 ** 20;
 
@@ -59,6 +54,17 @@ function writeDismissed(id: string): void {
   }
 }
 
+/** An upload in flight: the request's abort controller, and whether this page asked to cancel it. */
+interface UploadAttempt {
+  controller: AbortController;
+  /**
+   * Set when Cancel is clicked, before anything is awaited. However the request then ends (dropped, refused, resent
+   * and refused, aborted), the cancel is the reason, so the end is not a failure. It stays set when the cancel's own
+   * request fails; the upload is dropped in that case too.
+   */
+  cancelRequested: boolean;
+}
+
 /** An upload or start request the server refused or that never finished, shown until closed. */
 interface LocalFailure {
   title: string;
@@ -91,9 +97,7 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
   const [localFailure, setLocalFailure] = useState<LocalFailure | null>(null);
 
   const mounted = useRef(false);
-  const uploadAbort = useRef<AbortController | null>(null);
-  const cancellingRef = useRef(false);
-  const lastCancelAt = useRef<number | null>(null);
+  const uploadAttempt = useRef<UploadAttempt | null>(null);
   const jobRef = useRef<LnmImportJob | null>(null);
   /** Ids of jobs this tile saw receiving or running, or was handed by its own request. */
   const watched = useRef(new Set<string>());
@@ -103,27 +107,18 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
   const onImportedRef = useRef(onImported);
   onImportedRef.current = onImported;
 
-  const setCancellingBoth = useCallback((value: boolean) => {
-    cancellingRef.current = value;
-    setCancelling(value);
-  }, []);
-
-  const applyJob = useCallback((received: LnmImportJob | null) => {
-    const cancelAge = lastCancelAt.current === null ? Infinity : Date.now() - lastCancelAt.current;
-    const next = received && received.state === 'failed' && received.error?.code === 'LNM_UPLOAD_ABORTED' && cancelAge < CANCEL_AFTERMATH_MS
-      ? { ...received, state: 'cancelled' as const, error: null }
-      : received;
+  const applyJob = useCallback((next: LnmImportJob | null) => {
     jobRef.current = next;
     setJob(next);
     if (next === null) {
-      setCancellingBoth(false);
+      setCancelling(false);
       return;
     }
     if (next.state === 'receiving' || next.state === 'running') {
       watched.current.add(next.id);
       return;
     }
-    setCancellingBoth(false);
+    setCancelling(false);
     const wasWatched = watched.current.has(next.id);
     const recent = next.finishedAt !== null && Date.now() - next.finishedAt < RECENT_MS;
     if (readDismissed() !== next.id && !noticeCleared.current.has(next.id) && (wasWatched || recent)) {
@@ -133,7 +128,7 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
       importedReported.current.add(next.id);
       onImportedRef.current();
     }
-  }, [setCancellingBoth]);
+  }, []);
 
   const refreshJob = useCallback(async () => {
     try {
@@ -143,10 +138,10 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
       setJobError('');
     } catch (err) {
       if (!mounted.current || err instanceof UnauthorizedError) return;
-      setCancellingBoth(false);
+      setCancelling(false);
       setJobError(messageOf(err));
     }
-  }, [applyJob, setCancellingBoth]);
+  }, [applyJob]);
 
   const loadFiles = useCallback(async (signal?: AbortSignal) => {
     setFilesLoading(true);
@@ -181,7 +176,7 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
       mounted.current = false;
       controller.abort();
       // Leaving the page drops an upload in flight; the server ends that job as aborted.
-      uploadAbort.current?.abort();
+      uploadAttempt.current?.controller.abort();
     };
   }, [applyJob, loadFiles]);
 
@@ -222,22 +217,29 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
     if (!file || tooLarge || busy) return;
     clearNotices();
     const priorJobId = jobRef.current?.id ?? null;
-    const controller = new AbortController();
-    uploadAbort.current = controller;
+    const attempt: UploadAttempt = { controller: new AbortController(), cancelRequested: false };
+    uploadAttempt.current = attempt;
     setUploading({ loaded: 0, total: file.size });
     try {
       const { job: started } = await uploadLnmDatabase(
         file,
         (loaded, total) => { if (mounted.current) setUploading({ loaded, total }); },
-        controller.signal
+        attempt.controller.signal
       );
       if (!mounted.current) return;
       setFile(null);
       applyJob(started);
     } catch (err) {
       if (!mounted.current || err instanceof UnauthorizedError) return;
-      // A cancel closes the request on purpose, so how it ends is not a failure to report.
-      if (isAbortError(err) || (cancellingRef.current && err instanceof LnmUploadNetworkError)) return;
+      // A cancel closes the request on purpose, and the browser may resend it; however the request then ends
+      // (dropped, refused as busy, refused as already received) is part of the cancel, not a failure to report.
+      if (attempt.cancelRequested || isAbortError(err)) return;
+      // The server refuses a resend of an upload it already received. How that upload ended (cancelled from
+      // another session, failed when its connection dropped, or still receiving) is in the job, so show that.
+      if (err instanceof LnmUploadRefusedError && err.code === LNM_UPLOAD_REPEATED) {
+        void refreshJob();
+        return;
+      }
       setLocalFailure({
         title: err instanceof LnmUploadNetworkError ? 'Upload failed' : 'Import failed',
         message: messageOf(err),
@@ -245,7 +247,7 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
       });
       void refreshJob();
     } finally {
-      if (uploadAbort.current === controller) uploadAbort.current = null;
+      if (uploadAttempt.current === attempt) uploadAttempt.current = null;
       if (mounted.current) setUploading(null);
     }
   }
@@ -270,8 +272,8 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
 
   /** Stops the import. While an upload is open the server is told first, so the job ends cancelled rather than failed, and then the request is dropped. */
   async function cancelImport() {
-    lastCancelAt.current = Date.now();
-    setCancellingBoth(true);
+    if (uploadAttempt.current) uploadAttempt.current.cancelRequested = true;
+    setCancelling(true);
     setCancelError('');
     try {
       const { job: current } = await cancelLnmImport();
@@ -279,10 +281,10 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
     } catch (err) {
       if (mounted.current && !(err instanceof UnauthorizedError)) {
         setCancelError(messageOf(err));
-        if (uploadAbort.current === null) setCancellingBoth(false);
+        if (uploadAttempt.current === null) setCancelling(false);
       }
     } finally {
-      uploadAbort.current?.abort();
+      uploadAttempt.current?.controller.abort();
     }
     if (mounted.current) await refreshJob();
   }
@@ -302,9 +304,14 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
   const tooLarge = file !== null && files !== null && file.size > files.maxUploadBytes;
   const lowDisk = file !== null && files !== null && !tooLarge && files.availableBytes !== null
     && files.availableBytes < file.size + files.reserveBytes;
+  // A request that ended while the server reports a cancelled job other than the one that was current before
+  // the request started (cancelled from another page or session) ended because of that cancel, not on its own.
+  const shownFailure = localFailure && !(job && job.state === 'cancelled' && job.id !== localFailure.priorJobId)
+    ? localFailure
+    : null;
   // The failed job that belongs to the failure being shown: its message replaces the generic one,
   // and the job is not announced a second time.
-  const failureJob = localFailure && job && job.state === 'failed' && job.error && job.id !== localFailure.priorJobId
+  const failureJob = shownFailure && job && job.state === 'failed' && job.error && job.id !== shownFailure.priorJobId
     ? job
     : null;
   const announced = job !== null && job.id === announcedId && !isBusy(job) && failureJob === null ? job : null;
@@ -434,11 +441,11 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
         {cancelError && (
           <InlineNotification kind="error" lowContrast hideCloseButton title="Could not cancel the import" subtitle={cancelError} />
         )}
-        {localFailure && (
+        {shownFailure && (
           <InlineNotification
             kind="error" lowContrast style={{ maxInlineSize: 'none' }}
-            title={localFailure.title}
-            subtitle={failureJob?.error?.message ?? localFailure.message}
+            title={shownFailure.title}
+            subtitle={failureJob?.error?.message ?? shownFailure.message}
             onClose={() => closeLocalFailure(failureJob)}
           />
         )}

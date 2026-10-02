@@ -12,6 +12,11 @@ const PATH_URL = '/api/navdata/lnm-import/path';
 const DISMISSED_KEY = 'sabia.lnmImport.dismissedJob';
 const NOT_RUNNING: ResponseTuple = [409, { error: 'No Little Navmap import is running', code: 'LNM_NOT_RUNNING' }];
 const POLL_WAIT = { timeout: 4000 };
+const REPEATED_MESSAGE = 'This upload was already received once; start a new upload to send the file again';
+const BUSY_MESSAGE = 'Another Little Navmap import is already running';
+const ABORTED_MESSAGE = 'Upload stopped: the page was closed or the connection dropped';
+const REPEATED: ResponseTuple = [409, { error: REPEATED_MESSAGE, code: 'LNM_UPLOAD_REPEATED' }];
+const BUSY: ResponseTuple = [409, { error: BUSY_MESSAGE, code: 'LNM_IMPORT_BUSY' }];
 
 type Handler = ResponseTuple | ((init: RequestInit | undefined) => ResponseTuple | Promise<ResponseTuple>);
 
@@ -131,7 +136,8 @@ describe('NavdataImportTile upload', () => {
     expect(xhr.method).toBe('POST');
     expect(xhr.url).toBe('/api/navdata/lnm-import/upload');
     expect((xhr.body as FormData).get('lnmDatabase')).toBeInstanceOf(File);
-    expect(xhr.headers).toEqual({});
+    expect(Object.keys(xhr.headers)).toEqual(['X-Upload-Attempt']);
+    expect(xhr.headers['X-Upload-Attempt']).toMatch(/^[0-9a-f]{32}$/);
 
     act(() => xhr.progress(1_500_000, 3_000_000));
     const bar = await screen.findByRole('progressbar', { name: 'Uploading' });
@@ -325,24 +331,145 @@ describe('NavdataImportTile upload', () => {
     expect(screen.queryByText('Import failed')).toBeNull();
   });
 
-  it('shows as the cancel it came from an upload the browser resent and this page then closed', async () => {
+  it.each([
+    ['refused as an upload it already received', REPEATED, REPEATED_MESSAGE],
+    ['refused as busy', BUSY, BUSY_MESSAGE],
+  ])('ends on the cancel when the resent upload is %s before the cancel is answered', async (_name, refusal, message) => {
     const user = userEvent.setup();
-    const abortedMessage = 'Upload stopped: the page was closed or the connection dropped';
+    const answer = deferred<ResponseTuple>();
+    const served = serve({ del: answer.handler });
+    renderTile();
+
+    const xhr = await pickAndUpload(user, sqliteFile());
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    act(() => xhr.respond(...refusal));
+    await settle();
+    expect(screen.queryByText('Import failed')).toBeNull();
+    expect(screen.queryByText(/Upload failed/)).toBeNull();
+    expect(screen.queryByText(message)).toBeNull();
+
+    served.job = importJob({ state: 'receiving', stage: null, fraction: 0 });
+    await act(async () => { answer.resolve([202, { job: served.job }]); });
+    served.job = importJob({ state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+
+    expect(await screen.findByText('Import cancelled.', {}, POLL_WAIT)).toBeInTheDocument();
+    expect(screen.queryByText('Import failed')).toBeNull();
+    expect(screen.queryByText(/Upload failed/)).toBeNull();
+    expect(screen.queryByText(message)).toBeNull();
+  });
+
+  it('keeps the cancel when the refusal reaches the upload after the tile already shows it', async () => {
+    const user = userEvent.setup();
     const served = serve({
       del: () => {
-        served.job = importJob({ id: 'job-resent', state: 'failed', stage: null, fraction: 0, finishedAt: Date.now(),
-          error: { code: 'LNM_UPLOAD_ABORTED', message: abortedMessage } });
-        return [202, { job: importJob({ id: 'job-first', state: 'receiving', stage: null, fraction: 0 }) }];
+        served.job = importJob({ state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+        return [202, { job: served.job }];
       },
     });
     renderTile();
 
-    await pickAndUpload(user, sqliteFile());
+    const xhr = await pickAndUpload(user, sqliteFile());
+    // The page's abort does not settle the request, so its answer arrives after the cancel is shown.
+    xhr.abort = () => {};
     await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+
+    await settle();
+    const readsBefore = requests('GET', JOB_URL).length;
+    act(() => xhr.respond(...BUSY));
+    await settle();
+
+    expect(screen.getByText('Import cancelled.')).toBeInTheDocument();
+    expect(screen.queryByText('Import failed')).toBeNull();
+    expect(screen.queryByText(BUSY_MESSAGE)).toBeNull();
+    // A refusal that counted as a failure would read the job again; one that belongs to the cancel does not.
+    expect(requests('GET', JOB_URL)).toHaveLength(readsBefore);
+  });
+
+  it('shows the cancel when another session cancelled the upload and the browser resent it', async () => {
+    const user = userEvent.setup();
+    const served = serve();
+    renderTile();
+
+    const xhr = await pickAndUpload(user, sqliteFile());
+    served.job = importJob({ id: 'job-other', state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+    act(() => xhr.respond(...REPEATED));
 
     expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+    await settle();
     expect(screen.queryByText('Import failed')).toBeNull();
-    expect(screen.queryByText(abortedMessage)).toBeNull();
+    expect(screen.queryByText(REPEATED_MESSAGE)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Upload and import' })).toBeEnabled();
+  });
+
+  it('shows the cancel when another session cancelled the upload and the connection dropped', async () => {
+    const user = userEvent.setup();
+    const served = serve();
+    renderTile();
+
+    const xhr = await pickAndUpload(user, sqliteFile());
+    served.job = importJob({ id: 'job-other', state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+    act(() => xhr.fail());
+
+    expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText('Upload failed — connection closed')).toBeNull();
+    expect(screen.queryByText(/Upload failed/)).toBeNull();
+    expect(screen.queryByText('Import failed')).toBeNull();
+  });
+
+  it('shows the server\'s reason when the resend after a lost connection is refused and no cancel was asked for', async () => {
+    const user = userEvent.setup();
+    const served = serve();
+    renderTile();
+
+    const xhr = await pickAndUpload(user, sqliteFile());
+    served.job = importJob({
+      id: 'job-lost', state: 'failed', stage: null, fraction: 0, finishedAt: Date.now(),
+      error: { code: 'LNM_UPLOAD_ABORTED', message: ABORTED_MESSAGE },
+    });
+    act(() => xhr.respond(...REPEATED));
+
+    expect(await screen.findByText(ABORTED_MESSAGE)).toBeInTheDocument();
+    await settle();
+    expect(screen.getAllByText('Import failed')).toHaveLength(1);
+    expect(screen.getAllByText(ABORTED_MESSAGE)).toHaveLength(1);
+    expect(screen.queryByText(REPEATED_MESSAGE)).toBeNull();
+    expect(screen.queryByText('Import cancelled.')).toBeNull();
+  });
+
+  it('shows the upload as still running when the resend is refused before the server noticed the lost connection', async () => {
+    const user = userEvent.setup();
+    const served = serve();
+    renderTile();
+
+    const xhr = await pickAndUpload(user, sqliteFile());
+    served.job = importJob({ id: 'job-first', state: 'receiving', stage: null, fraction: 0 });
+    act(() => xhr.respond(...REPEATED));
+
+    expect(await screen.findByRole('progressbar', { name: 'Uploading (another session)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.queryByText('Import failed')).toBeNull();
+    expect(screen.queryByText(REPEATED_MESSAGE)).toBeNull();
+  });
+
+  it('still shows a refusal of a new upload after an earlier upload was cancelled', async () => {
+    const user = userEvent.setup();
+    const served = serve({
+      del: () => {
+        served.job = importJob({ id: 'job-1', state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+        return [202, { job: served.job }];
+      },
+    });
+    renderTile();
+    await pickAndUpload(user, sqliteFile());
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+    const second = await pickAndUpload(user, sqliteFile());
+    act(() => second.respond(507, { error: 'Not enough disk space', code: 'LNM_INSUFFICIENT_STORAGE' }));
+    expect(await screen.findByText('Not enough disk space')).toBeInTheDocument();
+    await settle();
+    expect(screen.getByText('Import failed')).toBeInTheDocument();
   });
 
   it('keeps an aborted upload as a failure when no cancel was asked for', async () => {
@@ -560,6 +687,17 @@ describe('NavdataImportTile finished jobs', () => {
     served.job = importJob({ id: 'job-2', state: 'cancelled', finishedAt: Date.now() - 1000 });
     renderTile();
     expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+  });
+
+  it('announces a cancelled job to a page opened a minute after the cancel, and never as a failure', async () => {
+    const served = serve();
+    served.job = importJob({ state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() - 60_000 });
+    renderTile();
+
+    expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText('Import failed')).toBeNull();
+    expect(screen.queryByText(/Upload failed/)).toBeNull();
   });
 
   it('does not announce a dismissed job again, now or after the tile is mounted again', async () => {

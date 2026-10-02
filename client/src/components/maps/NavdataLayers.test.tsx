@@ -583,12 +583,13 @@ describe('waypoint markers', () => {
   });
 
   it('keeps the dense fallback a canvas CircleMarker for navaids, not a per-node icon', async () => {
-    stubCanvasContext();
+    const ctx = stubCanvasContext();
     const dense = Array.from({ length: 151 }, (_, i) => navaid({ ident: `N${i}`, lat: 10 + i * 0.001 }));
     const { container } = renderNavdata({ navaids: dense }, { navaids: true });
     await new Promise(r => setTimeout(r, 50));
     expect(container.querySelector('.leaflet-marker-icon')).toBeNull();
     expect(container.querySelector('[data-navaid-symbol]')).toBeNull();
+    expect(ctx.strokeStyle).toBe('#33b1ff');
   });
 
 });

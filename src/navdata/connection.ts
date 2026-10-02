@@ -157,13 +157,28 @@ export function lnmUploadSpoolPath(): string {
 }
 
 /**
- * Startup: clears leftover incoming and upload files of both replicas and opens
- * each replica that exists. Nothing else in the directory is touched (the
- * operator's own .sqlite files live there).
+ * Creates the directory both replicas live in, because nothing else does on a
+ * native install. A directory that cannot be created is logged and left for the
+ * operations that need it to report: startup never fails on it.
+ */
+function ensureNavdataDir(dir: string): void {
+  try {
+    if (fs.mkdirSync(dir, { recursive: true })) console.log(`navdata: created the navdata directory ${path.basename(dir)}`);
+  } catch (err) {
+    console.warn(`navdata: cannot create the navdata directory ${path.basename(dir)}: ${errorLabel(err)}`);
+  }
+}
+
+/**
+ * Startup: creates the navdata directory if it is missing, clears leftover
+ * incoming and upload files of both replicas and opens each replica that
+ * exists. Nothing else in the directory is touched (the operator's own .sqlite
+ * files live there).
  */
 export function openNavdata(): void {
   const mcdu = resolveNavdataPath();
   const lnm = resolveLnmNavdataPath();
+  ensureNavdataDir(path.dirname(mcdu));
   unlinkStaleIncoming(mcdu);
   unlinkStaleIncoming(lnm);
   unlinkByPrefix(path.dirname(lnm), path.basename(lnm) + UPLOAD_INFIX);

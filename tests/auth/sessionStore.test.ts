@@ -160,9 +160,9 @@ describe('SqliteSessionStore.touch', () => {
     get(store, 'old');
     sessionDestroyAllExcept('current');
 
+    touch(store, 'old', base - 1);
     touch(store, 'old', base + 1);
     touch(store, 'old', base + 2 * HOUR);
-    touch(store, 'old', base - 1);
     touch(new SqliteSessionStore(MAX_AGE), 'old', base + 3 * HOUR);
 
     expect(sessionGet('old')).toBeNull();

@@ -57,6 +57,44 @@ describe('navdata connection', () => {
     expect(fs.readdirSync(d)).toEqual([]);
   });
 
+  it('creates a missing navdata directory, logging once, and then opens and sweeps in it as usual', () => {
+    const d = scratch();
+    const dir = path.join(d, 'not', 'yet', 'there');
+    process.env.NAVDATA_DB_PATH = path.join(dir, 'navdata.db');
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    openNavdata();
+    expect(fs.statSync(dir).isDirectory()).toBe(true);
+    expect(getNavDb()).toBeNull();
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0][0]).toBe(`navdata: created the navdata directory ${path.basename(dir)}`);
+    expect(String(log.mock.calls[0][0])).not.toContain(d);
+
+    build(resolveNavdataPath(), 'epoch-1');
+    fs.writeFileSync(path.join(dir, 'navdata.db.incoming-1-2'), 'x');
+    openNavdata();
+    expect(snapshotOf()).toBe('epoch-1');
+    expect(fs.readdirSync(dir).filter(n => n.includes('.incoming-'))).toEqual([]);
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps starting when the navdata directory cannot be created, and logs the reason code', () => {
+    const d = scratch();
+    const dir = path.join(d, 'denied');
+    process.env.NAVDATA_DB_PATH = path.join(dir, 'navdata.db');
+    vi.spyOn(fs, 'mkdirSync').mockImplementation(() => {
+      throw Object.assign(new Error(`EACCES: permission denied, mkdir '${dir}'`), { code: 'EACCES', syscall: 'mkdir' });
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(() => openNavdata()).not.toThrow();
+    expect(getNavDb()).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toBe(`navdata: cannot create the navdata directory ${path.basename(dir)}: EACCES`);
+    expect(String(warn.mock.calls[0][0])).not.toContain(d);
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
   it('swaps in a new epoch: old handle closed and stale -wal/-shm gone before the rename', () => {
     const d = scratch();
     build(resolveNavdataPath(), 'epoch-1');

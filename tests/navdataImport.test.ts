@@ -12,7 +12,7 @@ import fs from 'fs';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import path from 'path';
-import { PassThrough } from 'stream';
+import { PassThrough, Writable } from 'stream';
 import { createHash } from 'crypto';
 import Database from 'better-sqlite3';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -378,6 +378,24 @@ describe('server-side path import', () => {
     const r = await reply(await fetch(`${base}/api/navdata/lnm-import/files`));
     expect(r.body).toMatchObject({ files: [], availableBytes: null });
   });
+
+  it('creates a missing import directory on first use: the listing is empty, and a path import is a plain 404', async () => {
+    const sub = path.join(dir, 'fresh');
+    process.env.NAVDATA_DB_PATH = path.join(sub, 'navdata.db');
+    await start();
+    expect(exists(sub)).toBe(false);
+
+    const listed = await reply(await fetch(`${base}/api/navdata/lnm-import/files`));
+    expect(listed.status).toBe(200);
+    expect(listed.body).toMatchObject({ dir: sub, files: [], availableBytes: 100 * GIB });
+    expect(fs.statSync(sub).isDirectory()).toBe(true);
+
+    fs.rmdirSync(sub);
+    expect(await postPath('little.sqlite')).toEqual({
+      status: 404, body: { error: 'No such file in the import directory', code: 'LNM_FILE_NOT_FOUND' },
+    });
+    expect(fs.statSync(sub).isDirectory()).toBe(true);
+  });
 });
 
 // ── Prechecks ────────────────────────────────────────────────────────────────
@@ -600,9 +618,91 @@ describe('upload', () => {
     expect(leftovers()).toEqual([]);
   });
 
+  it('creates a missing import directory before spooling, so a first upload on a fresh install succeeds', async () => {
+    const sub = path.join(dir, 'fresh');
+    process.env.NAVDATA_DB_PATH = path.join(sub, 'navdata.db');
+    await start();
+    expect(exists(sub)).toBe(false);
+
+    expect((await upload(goodBytes)).status).toBe(202);
+    expect(await settled()).toMatchObject({ state: 'succeeded', error: null });
+    expect(getLnmNavDb()).not.toBeNull();
+    expect(exists(path.join(sub, 'navdata.db.lnm'))).toBe(true);
+    expect(fs.readdirSync(sub).filter(n => n.includes('.upload-') || n.includes('.incoming-'))).toEqual([]);
+  });
+
   it('lets a new upload start once the previous one has failed', async () => {
     await start();
     expect((await upload('not sqlite at all, but long enough to be a file')).status).toBe(400);
+    expect((await upload(goodBytes)).status).toBe(202);
+    expect((await settled()).state).toBe('succeeded');
+  });
+});
+
+// ── An upload the disk cannot take ───────────────────────────────────────────
+
+describe('a spool write that fails', () => {
+  /**
+   * Makes every write to a spool file fail with the given errno on its first
+   * chunk. The file exists by then, as it does when a disk fills mid-write, so
+   * the test can show it is removed. The message embeds the path, as a real one does.
+   */
+  function failSpoolWrites(code: string): { created: () => boolean } {
+    const real = fs.createWriteStream;
+    let created = false;
+    vi.spyOn(fs, 'createWriteStream').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+      if (!String(file).includes('.upload-')) return (real as (...a: unknown[]) => fs.WriteStream)(file, ...rest);
+      return new Writable({
+        construct(callback) {
+          fs.writeFileSync(file, '');
+          created = true;
+          callback();
+        },
+        write(_chunk, _encoding, callback) {
+          callback(Object.assign(new Error(`${code}: write failed, '${String(file)}'`), { code, syscall: 'write' }));
+        },
+      });
+    }) as unknown as typeof fs.createWriteStream);
+    return { created: () => created };
+  }
+
+  it.each(['ENOSPC', 'EDQUOT'])('answers 507 LNM_INSUFFICIENT_STORAGE for %s, records the same code on the job and removes the spool', async code => {
+    const spool = failSpoolWrites(code);
+    await start();
+    const r = await upload(goodBytes);
+    expect(r).toEqual({ status: 507, body: { error: 'Not enough disk space to receive the upload', code: 'LNM_INSUFFICIENT_STORAGE' } });
+    expect(spool.created()).toBe(true);
+    expect(await getJob()).toMatchObject({ state: 'failed', error: { code: r.body.code, message: r.body.error } });
+    expect(leftovers()).toEqual([]);
+    expect(exists(resolveLnmNavdataPath())).toBe(false);
+  });
+
+  it.each(['EIO', 'EACCES', 'EROFS'])('answers 500 LNM_SPOOL_FAILED for %s, records the same code on the job, removes the spool and shows no path', async code => {
+    const spool = failSpoolWrites(code);
+    await start();
+    const r = await upload(goodBytes);
+    expect(r).toEqual({ status: 500, body: { error: 'The server could not store the upload', code: 'LNM_SPOOL_FAILED' } });
+    expect(spool.created()).toBe(true);
+    const job = await getJob();
+    expect(job).toMatchObject({ state: 'failed', error: { code: r.body.code, message: r.body.error } });
+    expect(JSON.stringify(job)).not.toContain(dir);
+    expect(leftovers()).toEqual([]);
+  });
+
+  it('answers 500 LNM_SPOOL_FAILED, with nothing injected, when the import directory cannot exist', async () => {
+    placeFile('blocker', 'a file where the directory should be');
+    process.env.NAVDATA_DB_PATH = path.join(dir, 'blocker', 'navdata.db');
+    await start();
+    const r = await upload(goodBytes);
+    expect(r).toEqual({ status: 500, body: { error: 'The server could not store the upload', code: 'LNM_SPOOL_FAILED' } });
+    expect(await getJob()).toMatchObject({ state: 'failed', error: { code: 'LNM_SPOOL_FAILED' } });
+  });
+
+  it('frees the slot: the next upload is accepted once the disk takes writes again', async () => {
+    failSpoolWrites('ENOSPC');
+    await start();
+    expect((await upload(goodBytes)).status).toBe(507);
+    vi.restoreAllMocks();
     expect((await upload(goodBytes)).status).toBe(202);
     expect((await settled()).state).toBe('succeeded');
   });

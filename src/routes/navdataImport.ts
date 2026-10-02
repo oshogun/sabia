@@ -35,6 +35,8 @@ const BAD_UPLOAD_MESSAGE = `Send exactly one file in the field ${UPLOAD_FIELD} a
 const ABORTED_MESSAGE = 'Upload stopped: the page was closed or the connection dropped';
 const WORKER_STOPPED_MESSAGE = 'import worker stopped unexpectedly';
 const SWAP_FAILED_MESSAGE = 'could not replace the Little Navmap data';
+const SPOOL_FULL_MESSAGE = 'Not enough disk space to receive the upload';
+const SPOOL_FAILED_MESSAGE = 'The server could not store the upload';
 const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
 
 export interface NavdataImportOptions {
@@ -135,6 +137,18 @@ function hasSqliteHeader(file: string): boolean {
   } finally {
     if (fd !== null) fs.closeSync(fd);
   }
+}
+
+/**
+ * The errno name (ENOSPC, EACCES, ...) of a filesystem error, or null for any
+ * other error: a malformed multipart body arrives as a plain Error with no code,
+ * multer's own limits as a MulterError, and Node's non-filesystem codes contain
+ * an underscore.
+ */
+function filesystemErrorCode(err: unknown): string | null {
+  if (!(err instanceof Error) || err instanceof MulterError) return null;
+  const code = (err as NodeJS.ErrnoException).code;
+  return typeof code === 'string' && /^E[A-Z0-9]+$/.test(code) ? code : null;
 }
 
 /** The Content-Length header as a byte count, or null when it is missing or not a plain non-negative integer. */
@@ -454,6 +468,19 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
     res.status(status).json({ error, code });
   };
 
+  /**
+   * Nothing else creates the import directory on a native install, so the first
+   * use does. A directory that cannot be created is not reported here: the
+   * listing, the file lookup or the spool write that needs it reports its own error.
+   */
+  const ensureImportDir = (): void => {
+    try {
+      fs.mkdirSync(navdataImportDir(), { recursive: true });
+    } catch {
+      // Reported by the operation that needed the directory.
+    }
+  };
+
   const newJob = (origin: 'upload' | 'path', sourceFileName: string, sourceBytes: number): ActiveJob => ({
     job: {
       id: randomBytes(6).toString('hex'), origin, sourceFileName, sourceBytes,
@@ -471,6 +498,7 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
   });
 
   router.get('/navdata/lnm-import/files', (_req, res) => {
+    ensureImportDir();
     const dir = navdataImportDir();
     const files: LnmImportFilesResponse['files'] = [];
     let names: string[] = [];
@@ -510,6 +538,7 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
       refuse(res, 409, 'LNM_IMPORT_BUSY', 'Another Little Navmap import is already running');
       return;
     }
+    ensureImportDir();
     const full = path.join(navdataImportDir(), fileName);
     let st: fs.Stats;
     try {
@@ -562,8 +591,14 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
       res.status(status).json({ error: message, code });
     };
     if (err) {
+      const fsCode = filesystemErrorCode(err);
       if (err instanceof MulterError && err.code === 'LIMIT_FILE_SIZE') {
         reject(413, 'LNM_TOO_LARGE', `File exceeds ${describeBytes(maxUploadBytes)}`);
+      } else if (fsCode) {
+        // The error's own text embeds the spool path, so only its code is logged and the answer is fixed text.
+        console.error(`${LOG}: the upload could not be written to disk: ${fsCode}`);
+        if (fsCode === 'ENOSPC' || fsCode === 'EDQUOT') reject(507, 'LNM_INSUFFICIENT_STORAGE', SPOOL_FULL_MESSAGE);
+        else reject(500, 'LNM_SPOOL_FAILED', SPOOL_FAILED_MESSAGE);
       } else {
         reject(400, 'LNM_BAD_REQUEST', BAD_UPLOAD_MESSAGE);
       }
@@ -598,6 +633,7 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
       refuse(res, 413, 'LNM_TOO_LARGE', `File exceeds ${describeBytes(maxUploadBytes)}`);
       return;
     }
+    ensureImportDir();
     const refusal = checkResources(length);
     if (refusal) {
       res.status(refusal.status).json(refusal.body);

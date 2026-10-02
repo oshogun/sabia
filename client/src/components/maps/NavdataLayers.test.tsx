@@ -508,7 +508,7 @@ describe('waypoint markers', () => {
   }
 
   function navaid(over: Partial<FeatureNavaid> = {}): FeatureNavaid {
-    return { kind: 'V', ident: 'ZZVR', region: 'ZZ', lat: 10, lon: 20, frequencyHz: null, name: null, navType: null, isDme: null, ...over };
+    return { kind: 'V', ident: 'ZZVR', region: 'ZZ', lat: 10, lon: 20, frequencyHz: null, name: null, navType: null, isDme: null, isNav: null, isTacan: null, magvar: null, ...over };
   }
 
   function renderNavdata(data: Partial<FeaturesResponse>, visible: Partial<NavdataVisibility>) {
@@ -551,15 +551,44 @@ describe('waypoint markers', () => {
     expect(ctx.strokeStyle).toBe('#be95ff');
   });
 
-  it('leaves navaids on their own sky-blue dot-and-label styling, unaffected by the waypoint change', () => {
+  it('draws a default navaid as the basic sky-blue circle, not a dot, with the usual label styling', () => {
     const { container } = renderNavdata({ navaids: [navaid({ ident: 'ZZVR' })] }, { navaids: true });
     expect(container.querySelector('svg polygon')).toBeNull();
-    const dot = container.querySelector<HTMLElement>('span[style*="border-radius:50%"]');
-    expect(dot).not.toBeNull();
-    expect(dot!.getAttribute('style')).toContain('background:#33b1ff');
+    const root = container.querySelector('[data-navaid-symbol="basic"]');
+    expect(root).not.toBeNull();
+    expect(root!.querySelector('svg circle')!.getAttribute('stroke')).toBe('#33b1ff');
+    expect(container.querySelector('span[style*="border-radius:50%"]')).toBeNull();
     const label = screen.getByText('ZZVR');
     const style = label.getAttribute('style') ?? '';
     expect(style).toContain('color:#f4f4f4');
     expect(style).toContain('text-shadow:0 0 3px #161616');
   });
+
+  it('draws a VOR/DME with a compass rose turned by minus its west variation', () => {
+    const { container } = renderNavdata(
+      { navaids: [navaid({ isNav: true, isTacan: false, isDme: true, magvar: 20, frequencyHz: 116500000 })] },
+      { navaids: true },
+    );
+    const root = container.querySelector('[data-navaid-symbol="vordme"]');
+    expect(root!.getAttribute('data-navaid-rose')).toBe('340.0');
+    expect(screen.getByText('116.50')).toBeInTheDocument();
+  });
+
+  it('draws no rose when more than 40 rose-eligible stations are in view', () => {
+    const vors = Array.from({ length: 41 }, (_, i) =>
+      navaid({ ident: `V${i}`, lat: 10 + i * 0.001, isNav: true, isTacan: false, isDme: false, magvar: 20 }));
+    const { container } = renderNavdata({ navaids: vors }, { navaids: true });
+    expect(container.querySelectorAll('[data-navaid-symbol="vor"]')).toHaveLength(41);
+    expect(container.querySelector('[data-navaid-rose]:not([data-navaid-rose="none"])')).toBeNull();
+  });
+
+  it('keeps the dense fallback a canvas CircleMarker for navaids, not a per-node icon', async () => {
+    stubCanvasContext();
+    const dense = Array.from({ length: 151 }, (_, i) => navaid({ ident: `N${i}`, lat: 10 + i * 0.001 }));
+    const { container } = renderNavdata({ navaids: dense }, { navaids: true });
+    await new Promise(r => setTimeout(r, 50));
+    expect(container.querySelector('.leaflet-marker-icon')).toBeNull();
+    expect(container.querySelector('[data-navaid-symbol]')).toBeNull();
+  });
+
 });

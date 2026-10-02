@@ -1009,6 +1009,12 @@ export interface FeatureAirport {
 export interface FeatureNavaid {
   kind: 'V' | 'N'; ident: string; region: string; lat: number; lon: number;
   frequencyHz: number | null; name: string | null; navType: number | null; isDme: boolean | null;
+  /** The station has a navigation (VOR) function. null = not known (index-only row, and every NDB). */
+  isNav: boolean | null;
+  /** The station has a TACAN function. null = not known (index-only row, and every NDB). */
+  isTacan: boolean | null;
+  /** Magnetic variation, degrees WEST-positive, [0, 360), as stored. null = not known. */
+  magvar: number | null;
 }
 export interface FeatureWaypoint {
   key: string; ident: string; region: string; lat: number; lon: number; terminal: boolean | null;

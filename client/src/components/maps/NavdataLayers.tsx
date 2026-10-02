@@ -4,6 +4,8 @@ import L from 'leaflet';
 import { unwrapLonChain } from '../../utils/geo';
 import type { AirportTier, FeatureAirport, FeaturesResponse } from '../../types';
 import { navdataPalette as P } from './navdata/navdataPalette';
+import { navaidFrequencyLabel, navaidGlyph, navaidRoseEligible } from './navdata/navaidGlyph';
+import { NAVAID_ICON_PX, ROSE_LIMIT, navaidIconHtml } from './navdata/navaidIcon';
 
 export const NAVDATA_PANE = 'navdata';
 export const NAVDATA_MARKER_PANE = 'navdata-markers';
@@ -87,23 +89,11 @@ function runwayEnds(
   ];
 }
 
-function labelIcon(text: string, color: string) {
-  return L.divIcon({
-    className: '',
-    iconAnchor: [4, 4],
-    html:
-      `<div style="display:flex;align-items:center;gap:3px;white-space:nowrap;pointer-events:none">` +
-      `<span style="width:8px;height:8px;border-radius:50%;background:${color};border:1px solid ${P.ring};box-shadow:0 0 3px ${P.shadow}"></span>` +
-      `<span style="font:600 10px system-ui;color:${P.label};text-shadow:0 0 3px ${P.halo},0 0 3px ${P.halo}">${text}</span></div>`,
-  });
-}
-
 /**
  * An enroute waypoint: a small hollow (stroke-only) triangle, apex up, instead
- * of the filled dot `labelIcon()` draws — the sectional-chart symbol for a
- * plain named fix, distinct from a navaid's own dot-and-circle. The label
- * text keeps the same dark halo as `labelIcon()`; on the inverted (dark) tiles
- * the light purple reads against it.
+ * of a filled dot — the sectional-chart symbol for a plain named fix,
+ * distinct from the navaid symbols. The label text has a dark halo; on the
+ * inverted (dark) tiles the light purple reads against it.
  */
 function waypointIcon(text: string) {
   return L.divIcon({
@@ -407,6 +397,7 @@ export function NavdataLayers({ data, anchor, visible }: LayersProps) {
   const map = useMap();
   const renderer = navdataRenderer(map);
   const labelled = data.waypoints.length + data.navaids.length <= LABEL_LIMIT;
+  const roseAllowed = data.navaids.filter(navaidRoseEligible).length <= ROSE_LIMIT;
 
   const labelledAirportIdents = useMemo(() => {
     if (!visible.airports || data.airports.length === 0) return new Set<string>();
@@ -489,7 +480,18 @@ export function NavdataLayers({ data, anchor, visible }: LayersProps) {
           const pos = unwrapPoint(anchor, n.lat, n.lon);
           const key = `${n.kind}-${n.ident}-${n.region}-${n.lat}-${n.lon}`;
           return labelled ? (
-            <Marker key={key} position={pos} icon={labelIcon(escapeHtml(n.ident), NAVAID_COLOR)} pane={NAVDATA_MARKER_PANE} interactive={false} />
+            <Marker
+              key={key}
+              position={pos}
+              icon={L.divIcon({
+                className: '',
+                iconSize: [NAVAID_ICON_PX, NAVAID_ICON_PX],
+                iconAnchor: [NAVAID_ICON_PX / 2, NAVAID_ICON_PX / 2],
+                html: navaidIconHtml(navaidGlyph(n, roseAllowed), escapeHtml(n.ident), navaidFrequencyLabel(n)),
+              })}
+              pane={NAVDATA_MARKER_PANE}
+              interactive={false}
+            />
           ) : (
             <CircleMarker
               renderer={renderer}

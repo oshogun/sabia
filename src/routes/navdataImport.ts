@@ -39,6 +39,15 @@ const SPOOL_FULL_MESSAGE = 'Not enough disk space to receive the upload';
 const SPOOL_FAILED_MESSAGE = 'The server could not store the upload';
 const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
 
+/** Names one upload attempt, so that the browser's automatic resend of a cut upload can be told apart from a new upload. */
+const LNM_UPLOAD_ATTEMPT_HEADER = 'x-upload-attempt';
+const UPLOAD_ATTEMPT_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+const BAD_ATTEMPT_MESSAGE = 'X-Upload-Attempt must be 16 to 128 letters, digits, - or _';
+const REPEATED_UPLOAD_MESSAGE = 'This upload was already received once; start a new upload to send the file again';
+
+/** How many accepted upload attempts the server remembers. */
+export const LNM_REMEMBERED_UPLOAD_ATTEMPTS = 64;
+
 export interface NavdataImportOptions {
   /** How an import runs; tests substitute an in-process or fake runner. Default: a worker thread. */
   runner?: LnmImportRunner;
@@ -53,6 +62,8 @@ export interface NavdataImportOptions {
   openForSync?: (file: string) => Promise<SyncHandle>;
   /** Milliseconds between write-outs while the build runs; tests shorten it. */
   syncIntervalMs?: number;
+  /** Defaults to LNM_REMEMBERED_UPLOAD_ATTEMPTS; tests lower it to reach the eviction with a few uploads. Not below 1. */
+  rememberedUploadAttempts?: number;
 }
 
 /** What the write-out of the replica being built needs from an open file. */
@@ -296,11 +307,23 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
   const uploadLnmDatabase = createUploadLnmDatabase(maxUploadBytes);
   const openForSync = opts.openForSync ?? ((file: string): Promise<SyncHandle> => fs.promises.open(file, 'r+'));
   const syncIntervalMs = opts.syncIntervalMs ?? BUILD_SYNC_INTERVAL_MS;
+  const rememberedCap = opts.rememberedUploadAttempts ?? LNM_REMEMBERED_UPLOAD_ATTEMPTS;
 
   let current: ActiveJob | null = null;
   let spoolSequence = 0;
+  /** Attempt ids of the uploads that claimed a job, oldest first, whatever became of the job. */
+  const acceptedAttempts = new Set<string>();
 
   const isBusy = (): boolean => current !== null && (current.job.state === 'receiving' || current.job.state === 'running');
+
+  /** Callers pass only an id that is not in the set yet, so it joins at the end and the first value is the oldest. */
+  const rememberAttempt = (id: string): void => {
+    acceptedAttempts.add(id);
+    while (acceptedAttempts.size > rememberedCap) {
+      const oldest = acceptedAttempts.values().next().value as string;
+      acceptedAttempts.delete(oldest);
+    }
+  };
 
   // ── Ending a job ─────────────────────────────────────────────────────────
 
@@ -620,6 +643,18 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
   };
 
   router.post('/navdata/lnm-import/upload', (req, res) => {
+    const attempt: unknown = req.headers[LNM_UPLOAD_ATTEMPT_HEADER];
+    if (attempt !== undefined && !(typeof attempt === 'string' && UPLOAD_ATTEMPT_PATTERN.test(attempt))) {
+      refuse(res, 400, 'LNM_BAD_REQUEST', BAD_ATTEMPT_MESSAGE);
+      return;
+    }
+    // A browser resends an upload whose connection was cut. The resend must neither start a second job nor be
+    // reported as busy, whatever state the first attempt's job is in, so this runs before the busy check.
+    if (typeof attempt === 'string' && acceptedAttempts.has(attempt)) {
+      console.log(`${LOG}: refused a repeated upload attempt`);
+      refuse(res, 409, 'LNM_UPLOAD_REPEATED', REPEATED_UPLOAD_MESSAGE);
+      return;
+    }
     if (isBusy()) {
       refuse(res, 409, 'LNM_IMPORT_BUSY', 'Another Little Navmap import is already running');
       return;
@@ -645,6 +680,7 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
     a.spoolPath = `${lnmUploadSpoolPath()}-${++spoolSequence}`;
     a.uploadReq = req;
     current = a;
+    if (typeof attempt === 'string') rememberAttempt(attempt);
     setLnmSpoolPath(req, a.spoolPath);
     // Only this request, only now that it is authenticated and accepted, may take up to an hour.
     extendBodyDeadline(req, NAVDATA_UPLOAD_REQUEST_TIMEOUT_MS);

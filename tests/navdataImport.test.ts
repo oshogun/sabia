@@ -190,13 +190,16 @@ function form(parts: { name: string; value: Buffer | string; filename?: string }
   return f;
 }
 
-const postForm = async (body: FormData) =>
+/** Request headers for an upload: a plain object, or a Headers when a name has to be sent twice. */
+type UploadHeaders = Record<string, string> | Headers;
+
+const postForm = async (body: FormData, headers?: UploadHeaders) =>
   reply<{ job: LnmImportJob } & Record<string, unknown>>(
-    await fetch(`${base}/api/navdata/lnm-import/upload`, { method: 'POST', body }),
+    await fetch(`${base}/api/navdata/lnm-import/upload`, { method: 'POST', body, headers }),
   );
 
-const upload = (bytes: Buffer | string, filename = 'good.sqlite') =>
-  postForm(form([{ name: 'lnmDatabase', value: bytes, filename }]));
+const upload = (bytes: Buffer | string, filename = 'good.sqlite', headers?: UploadHeaders) =>
+  postForm(form([{ name: 'lnmDatabase', value: bytes, filename }]), headers);
 
 async function until<T>(read: () => Promise<T | null | undefined | false> | T | null | undefined | false, what: string, ms = 15_000): Promise<T> {
   const deadline = Date.now() + ms;
@@ -215,11 +218,11 @@ const settled = (): Promise<LnmImportJob> =>
   }, 'the job to end');
 
 /** A multipart upload that stops after `sent` bytes of a body that promised more; the caller ends it. */
-function partialUpload(sent: number): { req: http.ClientRequest; closed: Promise<void> } {
+function partialUpload(sent: number, headers: Record<string, string> = {}): { req: http.ClientRequest; closed: Promise<void> } {
   const boundary = 'PARTIALBOUNDARY';
   const req = http.request({
     host: '127.0.0.1', port: Number(new URL(base).port), path: '/api/navdata/lnm-import/upload', method: 'POST',
-    headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(sent + 100_000) },
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(sent + 100_000), ...headers },
   });
   const closed = new Promise<void>(resolve => {
     req.on('error', () => resolve());
@@ -855,6 +858,211 @@ describe('one import at a time', () => {
     expect(await getJob()).toBeNull();
     await postPath('little.sqlite');
     expect((await settled()).id).toBe((await getJob())?.id);
+  });
+});
+
+// ── A resend of an upload the server already took ────────────────────────────
+
+describe('a repeated upload attempt', () => {
+  const ATTEMPT = 'attempt-0123456789abcdef';
+  const A = 'attempt-aaaaaaaaaaaaaaaa';
+  const B = 'attempt-bbbbbbbbbbbbbbbb';
+  const C = 'attempt-cccccccccccccccc';
+  const NOT_SQLITE = 'definitely not a database, just a few words in a file';
+  const attemptHeader = (id: string): Record<string, string> => ({ 'X-Upload-Attempt': id });
+  const REPEATED = {
+    status: 409,
+    body: { error: 'This upload was already received once; start a new upload to send the file again', code: 'LNM_UPLOAD_REPEATED' },
+  };
+  const BUSY = { status: 409, body: { error: 'Another Little Navmap import is already running', code: 'LNM_IMPORT_BUSY' } };
+  const BAD_ATTEMPT = {
+    status: 400,
+    body: { error: 'X-Upload-Attempt must be 16 to 128 letters, digits, - or _', code: 'LNM_BAD_REQUEST' },
+  };
+  const NOT_SQLITE_REPLY = { status: 400, body: { error: 'The file is not a SQLite database', code: 'LNM_NOT_SQLITE' } };
+
+  async function receiving(): Promise<void> {
+    await until(async () => (await getJob())?.state === 'receiving' && leftovers().length > 0, 'a receiving upload');
+  }
+
+  it('refuses the resend of a cancelled upload with 409 LNM_UPLOAD_REPEATED, and the cancelled job stays the one reported', async () => {
+    await start();
+    const { closed } = partialUpload(8000, attemptHeader(ATTEMPT));
+    await receiving();
+    expect((await del()).status).toBe(202);
+    await closed;
+    const first = await settled();
+    expect(first).toMatchObject({ state: 'cancelled', error: null });
+
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader(ATTEMPT))).toEqual(REPEATED);
+    const after = await getJob();
+    expect(after?.id).toBe(first.id);
+    expect(after?.state).toBe('cancelled');
+    await until(() => leftovers().length === 0, 'the spool to be removed');
+  });
+
+  it('refuses the resend with 409 LNM_UPLOAD_REPEATED, not LNM_IMPORT_BUSY, while the first attempt is still receiving', async () => {
+    await start();
+    const { req, closed } = partialUpload(8000, attemptHeader(ATTEMPT));
+    await receiving();
+    const before = await getJob();
+
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader(ATTEMPT))).toEqual(REPEATED);
+    const during = await getJob();
+    expect(during?.id).toBe(before?.id);
+    expect(during?.state).toBe('receiving');
+
+    req.destroy();
+    await closed;
+    const job = await settled();
+    expect(job).toMatchObject({ id: before?.id, state: 'failed', error: { code: 'LNM_UPLOAD_ABORTED', message: ABORTED } });
+    await until(() => leftovers().length === 0, 'the spool to be removed');
+  });
+
+  it('answers a repeated id with LNM_UPLOAD_REPEATED and a new id with LNM_IMPORT_BUSY while another job runs', async () => {
+    placeFile('little.sqlite', goodBytes);
+    const { runner, runs } = fakeRunner();
+    await start({ runner });
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(ATTEMPT))).toEqual(NOT_SQLITE_REPLY);
+    expect((await postPath('little.sqlite')).status).toBe(202);
+    expect(runs).toHaveLength(1);
+    const pathJob = await getJob();
+    expect(pathJob).toMatchObject({ origin: 'path', state: 'running' });
+
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader(ATTEMPT))).toEqual(REPEATED);
+    expect(runs).toHaveLength(1);
+    expect(await getJob()).toEqual(pathJob);
+
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader('another-attempt-000001'))).toEqual(BUSY);
+    expect(await getJob()).toEqual(pathJob);
+
+    runs[0].post({ type: 'error', code: 'LNM_BUILD_FAILED', message: 'import failed in stage airports' });
+    runs[0].exit();
+    expect((await getJob())?.state).toBe('failed');
+  });
+
+  it('accepts an upload with no header as before, and two different ids one after the other', async () => {
+    await start();
+    const ids: string[] = [];
+    for (const headers of [undefined, attemptHeader(A), attemptHeader(B)]) {
+      const accepted = await upload(goodBytes, 'good.sqlite', headers);
+      expect(accepted.status).toBe(202);
+      const job = await settled();
+      expect(job.state).toBe('succeeded');
+      expect(job.id).toBe(accepted.body.job.id);
+      expect(JSON.stringify(job)).not.toContain('attempt-');
+      ids.push(job.id);
+    }
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('never refuses an upload with no header, however many have come before it', async () => {
+    await start();
+    for (let i = 0; i < 3; i++) {
+      expect(await upload(NOT_SQLITE, 'notes.sqlite')).toEqual(NOT_SQLITE_REPLY);
+    }
+  });
+
+  it('accepts an id of exactly 16 and exactly 128 characters', async () => {
+    await start();
+    for (const id of ['a'.repeat(16), 'Z_-9'.repeat(32)]) {
+      expect(id.length === 16 || id.length === 128).toBe(true);
+      expect((await upload(goodBytes, 'good.sqlite', attemptHeader(id))).status).toBe(202);
+      expect((await settled()).state).toBe('succeeded');
+    }
+  });
+
+  it.each([
+    ['empty', ''],
+    ['5 characters', 'short'],
+    ['15 characters', 'a'.repeat(15)],
+    ['129 characters', 'x'.repeat(129)],
+    ['a character outside A-Za-z0-9_-', 'bad id with spaces!!'],
+    ['two copies of the header', new Headers([['X-Upload-Attempt', A], ['X-Upload-Attempt', B]])],
+  ])('answers 400 LNM_BAD_REQUEST for a header that is %s, creates no job and remembers nothing', async (_what, value) => {
+    await start();
+    const headers: UploadHeaders = value instanceof Headers ? value : { 'X-Upload-Attempt': value };
+    expect(await upload(goodBytes, 'good.sqlite', headers)).toEqual(BAD_ATTEMPT);
+    expect(await getJob()).toBeNull();
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader(A))).toMatchObject({ status: 202 });
+    await settled();
+  });
+
+  it('checks the header before the busy check: a malformed one is a 400 while a job runs', async () => {
+    placeFile('little.sqlite', goodBytes);
+    const { runner, runs } = fakeRunner();
+    await start({ runner });
+    expect((await postPath('little.sqlite')).status).toBe(202);
+    const pathJob = await getJob();
+
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader('short'))).toEqual(BAD_ATTEMPT);
+    expect(await getJob()).toEqual(pathJob);
+    expect(runs).toHaveLength(1);
+
+    runs[0].post({ type: 'error', code: 'LNM_BUILD_FAILED', message: 'import failed in stage airports' });
+    runs[0].exit();
+  });
+
+  it('does not remember an id that a precheck refused', async () => {
+    let memory = 0;
+    await start({ availableMemory: () => memory });
+    expect(await upload(goodBytes, 'good.sqlite', attemptHeader(A))).toMatchObject({
+      status: 507, body: { code: 'LNM_INSUFFICIENT_MEMORY' },
+    });
+    expect(await getJob()).toBeNull();
+
+    memory = 100 * GIB;
+    expect((await upload(goodBytes, 'good.sqlite', attemptHeader(A))).status).toBe(202);
+    expect((await settled()).state).toBe('succeeded');
+  });
+
+  it('remembers the newest ids up to its cap, oldest first out, and a refusal changes nothing', async () => {
+    await start({ rememberedUploadAttempts: 2 });
+    for (const id of [A, B, C]) {
+      expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(id))).toEqual(NOT_SQLITE_REPLY);
+    }
+    const last = await getJob();
+
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(B))).toEqual(REPEATED);
+    expect(await getJob()).toEqual(last);
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(C))).toEqual(REPEATED);
+    expect(await getJob()).toEqual(last);
+
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(A))).toEqual(NOT_SQLITE_REPLY);
+    expect((await getJob())?.id).not.toBe(last?.id);
+  });
+
+  it('a refusal does not move the refused id to the newest place', async () => {
+    await start({ rememberedUploadAttempts: 2 });
+    for (const id of [A, B, C]) {
+      expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(id))).toEqual(NOT_SQLITE_REPLY);
+    }
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(B))).toEqual(REPEATED);
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(A))).toEqual(NOT_SQLITE_REPLY);
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(C))).toEqual(REPEATED);
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(B))).toEqual(NOT_SQLITE_REPLY);
+  });
+
+  it('keeps the last 64 ids by default', async () => {
+    await start();
+    const ids = Array.from({ length: 65 }, (_, i) => `attempt-${String(i).padStart(16, '0')}`);
+    for (const id of ids) {
+      expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(id))).toEqual(NOT_SQLITE_REPLY);
+    }
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(ids[1]))).toEqual(REPEATED);
+    expect(await upload(NOT_SQLITE, 'notes.sqlite', attemptHeader(ids[0]))).toEqual(NOT_SQLITE_REPLY);
+  });
+
+  it('ends a connection dropped mid-upload with no cancel as failed LNM_UPLOAD_ABORTED, with or without a header', async () => {
+    await start();
+    for (const headers of [{}, attemptHeader(ATTEMPT)]) {
+      const { req, closed } = partialUpload(8000, headers);
+      await receiving();
+      req.destroy();
+      await closed;
+      expect(await settled()).toMatchObject({ state: 'failed', error: { code: 'LNM_UPLOAD_ABORTED', message: ABORTED } });
+      await until(() => leftovers().length === 0, 'the spool to be removed');
+    }
   });
 });
 

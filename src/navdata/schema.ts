@@ -16,9 +16,9 @@ export const NAVDATA_DDL = `-- ────────────────�
 --
 -- Paste it verbatim into both. Do not hand-edit one side. The server repo
 -- already lives with this hazard between src/types.ts and client/src/types.ts,
--- and it bites in exactly the same way: a column added on one side is not a
+-- and it fails in exactly the same way: a column added on one side is not a
 -- compile error on the other, it is a row that silently stops syncing.
--- NAVDATA_SCHEMA_VERSION below is the tripwire: bump it on any change here,
+-- NAVDATA_SCHEMA_VERSION below is the check for this: bump it on any change here,
 -- and both sides reject a peer whose version differs.
 --
 -- Requires SQLite 3.37 or newer (STRICT tables). The sidecar gets this from
@@ -435,7 +435,7 @@ CREATE INDEX IF NOT EXISTS nav_procedure_rev     ON nav_procedure (rev);
 -- Every leg list in the tree hangs off one of these, INCLUDING the procedure's
 -- own common legs.
 --
--- Measured and load-bearing: a SID/STAR's common legs hang straight off
+-- Measured; do not change without re-measuring: a SID/STAR's common legs hang straight off
 -- DEPARTURE/ARRIVAL, not off a transition. With APPROACH_LEG only under the
 -- transitions, EGLL's STARs gave ARRIVAL=18 and ZERO legs; adding APPROACH_LEG
 -- as a direct child of ARRIVAL gives APPROACH_LEG=79 ARRIVAL=18. Those common

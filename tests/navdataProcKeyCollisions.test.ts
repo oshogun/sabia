@@ -5,8 +5,8 @@ import path from 'path';
 import { assignProcKeys, type ProcKeyRecord } from '../src/navdata/keys';
 
 const FILE = path.join(__dirname, 'fixtures', 'navdata', 'approach-collision-vectors.json');
-const SHA256 = '23a1416997bbc65a4bf0de053fafe7837953e01c0d55dd60c5e9b1c1397e39df';
-const BYTES = 13796;
+const SHA256 = '8fa9a62a223fb619218387578029d0e25e8e2f6b40295580b5e23b6225a236cd';
+const BYTES = 13816;
 
 interface Vector {
   name: string;

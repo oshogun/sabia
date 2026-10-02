@@ -42,9 +42,9 @@ describe('NAVDATA_DDL', () => {
 
   it('is the sidecar canonical schema, byte for byte', () => {
     const bytes = Buffer.from(NAVDATA_DDL, 'utf8');
-    expect(bytes.length).toBe(32331);
+    expect(bytes.length).toBe(32356);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(
-      '443a1600ca0292f5f622090b8a6e86b7de6962b56a6d1cde2fd37350dfa5e69c',
+      '4720fc0cae7ce84ed7057efcccb558d9319f1bc55a7832e557162052dd306eb2',
     );
   });
 });

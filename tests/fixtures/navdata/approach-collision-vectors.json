@@ -236,7 +236,7 @@
     },
     {
       "name": "ZZAE 36 — a genuinely identical pair falls through to arrival order",
-      "note": "The ONLY vector where reversing the input changes which record holds the base key, and that is correct: nothing in the data distinguishes them, so arrival order is the honest answer and is the final tiebreak. Both are kept, because 'identical on every member the API exposes' is not the same as 'the same approach'. orderIndependent is false here, and this is the only vector for which it may be.",
+      "note": "The ONLY vector where reversing the input changes which record holds the base key, and that is correct: nothing in the data distinguishes them, so arrival order is the only thing left to order them by, and is the final tiebreak. Both are kept, because 'identical on every member the API exposes' is not the same as 'the same approach'. orderIndependent is false here, and this is the only vector for which it may be.",
       "baseKey": "ZZAE|APPROACH|2-36|36|0|0",
       "orderIndependent": false,
       "records": [

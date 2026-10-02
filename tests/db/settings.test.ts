@@ -12,6 +12,7 @@ import {
   setSetting,
   sessionGet,
   sessionSet,
+  sessionTouch,
   sessionDestroy,
   sessionSweep,
   sessionDestroyAllExcept,
@@ -193,5 +194,39 @@ describe('session store', () => {
 
   it('sessionDestroyAllExcept returns 0 on an empty session table', () => {
     expect(sessionDestroyAllExcept('nonexistent')).toBe(0);
+  });
+
+  it('sessionTouch sets expires_at, keeps the data as it was, and returns 1', () => {
+    sessionSet('sid-1', '{"user":"pilot"}', 1000);
+
+    expect(sessionTouch('sid-1', 5000)).toBe(1);
+    expect(sessionGet('sid-1')).toEqual({ data: '{"user":"pilot"}', expires_at: 5000 });
+  });
+
+  it('sessionTouch lowers expires_at when given an earlier value, and returns 1', () => {
+    sessionSet('sid-1', '{}', 5000);
+
+    expect(sessionTouch('sid-1', 4999)).toBe(1);
+    expect(sessionGet('sid-1')).toEqual({ data: '{}', expires_at: 4999 });
+  });
+
+  it('sessionTouch on an unknown sid returns 0 and inserts nothing', () => {
+    expect(sessionTouch('missing', 5000)).toBe(0);
+    expect(sessionGet('missing')).toBeNull();
+  });
+
+  it('sessionTouch does not bring back a session that sessionDestroy or sessionDestroyAllExcept deleted', () => {
+    sessionSet('keep-me', '{}', 1000);
+    sessionSet('logged-out', '{}', 1000);
+    sessionSet('other', '{}', 1000);
+    sessionDestroy('logged-out');
+    sessionDestroyAllExcept('keep-me');
+
+    expect(sessionTouch('logged-out', 5000)).toBe(0);
+    expect(sessionTouch('other', 5000)).toBe(0);
+    expect(sessionTouch('other', 500)).toBe(0);
+    expect(sessionGet('logged-out')).toBeNull();
+    expect(sessionGet('other')).toBeNull();
+    expect(sessionGet('keep-me')).toEqual({ data: '{}', expires_at: 1000 });
   });
 });

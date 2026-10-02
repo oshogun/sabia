@@ -100,6 +100,16 @@ export function sessionSet(sid: string, data: string, expiresAt: number): void {
   `).run(sid, data, expiresAt);
 }
 
+/**
+ * Sets an existing session's expires_at to `expiresAt`, later or earlier than
+ * the stored value. Never inserts: a session deleted by a logout or a password
+ * change stays deleted, whatever a request still in flight for it does. Returns
+ * the number of rows changed, 0 or 1.
+ */
+export function sessionTouch(sid: string, expiresAt: number): number {
+  return getDb().prepare('UPDATE auth_session SET expires_at = ? WHERE sid = ?').run(expiresAt, sid).changes;
+}
+
 export function sessionDestroy(sid: string): void {
   getDb().prepare('DELETE FROM auth_session WHERE sid = ?').run(sid);
 }

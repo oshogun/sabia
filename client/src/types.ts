@@ -904,6 +904,55 @@ export interface NavdataStatusResponse {
   dataset: NavdataDataset | null;
 }
 
+export type LnmStage =
+  | 'validating' | 'indexing' | 'airports' | 'navaids' | 'waypoints' | 'airways'
+  | 'procedures' | 'finalising' | 'coverage' | 'verifying' | 'swapping';
+export type LnmImportState = 'receiving' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+/** The union lives in src/navdata/lnm/types.ts; the client only displays the message. */
+export type LnmImportErrorCode = string;
+
+export interface LnmImportCounts {
+  airports: number; runways: number; frequencies: number; navaids: number; waypoints: number;
+  airwayLegs: number; procedures: number; transitions: number; legs: number; coverageCells: number;
+}
+
+/** The current or last Little Navmap import since the server started (GET /api/navdata/lnm-import). */
+export interface LnmImportJob {
+  /** Opaque. */
+  id: string;
+  origin: 'upload' | 'path';
+  /** Basename only. */
+  sourceFileName: string;
+  sourceBytes: number;
+  /** 'receiving' = the upload body is still arriving (upload only). */
+  state: LnmImportState;
+  /** null while receiving. */
+  stage: LnmStage | null;
+  /** 0..1; 0 while receiving. */
+  fraction: number;
+  /** Epoch ms the request was accepted. */
+  startedAt: number;
+  finishedAt: number | null;
+  /** Set iff state is 'failed'. */
+  error: { code: LnmImportErrorCode; message: string } | null;
+  /** Set iff state is 'succeeded'. */
+  result: { dataset: NavdataDataset; counts: LnmImportCounts; warnings: number } | null;
+}
+
+export interface LnmImportJobResponse { job: LnmImportJob | null }
+
+/** GET /api/navdata/lnm-import/files: the import folder's .sqlite files and the limits an upload is checked against. */
+export interface LnmImportFilesResponse {
+  /** Absolute, as the server sees it. */
+  dir: string;
+  files: { name: string; sizeBytes: number; modifiedAt: number }[];
+  maxUploadBytes: number;
+  /** null when the free space cannot be read. */
+  availableBytes: number | null;
+  /** An upload of n bytes needs n + reserveBytes free. */
+  reserveBytes: number;
+}
+
 /** Surface class of the airport's LONGEST runway. Never inferred when unknown. */
 export type AirportSurface = 'paved' | 'water' | 'soft';
 

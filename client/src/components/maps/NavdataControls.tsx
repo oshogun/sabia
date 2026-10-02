@@ -90,8 +90,9 @@ export function NavdataControls({ status, visible, onToggle, features, anchor }:
   const notes = data ? KINDS.filter(k => visible[k.kind]).map(k => ({ ...k, note: kindNote(k.kind, data) })) : [];
   const truncated = anyOn && data?.truncated === true;
 
+  // An imported database has every airport's detail already, so there is nothing to fetch.
   const indexOnly =
-    visible.airports && data && !data.gated.includes('airports')
+    status.source !== 'lnm' && visible.airports && data && !data.gated.includes('airports')
       ? data.airports
           .filter(a => !a.hasDetail && AIRPORT_IDENT.test(a.ident))
           .sort((a, b) => dist(a, anchor) - dist(b, anchor))
@@ -189,7 +190,7 @@ function ActiveNavdata({ status }: { status: NavdataStatusResponse }) {
   const map = useMap();
   const [visible, setVisible] = useState<NavdataVisibility>(NONE_VISIBLE);
   const kinds = KINDS.filter(k => visible[k.kind]).map(k => k.kind);
-  const features = useNavdataFeatures(map, kinds, kinds.length > 0);
+  const features = useNavdataFeatures(map, kinds, kinds.length > 0, status.snapshotId);
 
   return (
     <>

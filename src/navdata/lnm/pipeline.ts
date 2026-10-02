@@ -46,6 +46,15 @@ const PROGRESS_INTERVAL_MS = 250;
 /** SQLite's page cache per connection, in KiB (64 MiB). Explicit so the native memory of the worker is bounded and known. */
 const CACHE_SIZE_KIB = 65_536;
 
+/**
+ * Bytes the incoming file may grow by before the worker writes it out to disk.
+ * The build runs with synchronous OFF, so its pages would otherwise pile up in
+ * the OS cache, up to hundreds of MB, and every other write on the same
+ * filesystem (the simulator's ingest, a session's hourly expiry save) would
+ * wait for the filesystem journal to commit them before it could finish.
+ */
+export const INCOMING_FLUSH_BYTES = 32 * 1024 ** 2;
+
 const LOG = '[Navdata] LNM import';
 
 export type LnmProgressMessage = Extract<LnmWorkerMessage, { type: 'progress' }>;
@@ -60,6 +69,10 @@ export interface LnmPipelineOptions {
   converters?: readonly LnmConverter[];
   /** Epoch ms. Stage timing, the completion time and the progress rate limit all read it. */
   clock?: () => number;
+  /** Bytes the incoming file may grow by between two write-outs. Defaults to INCOMING_FLUSH_BYTES; a test lowers it. */
+  flushThresholdBytes?: number;
+  /** Writes the incoming file's data out to disk through an open descriptor. Defaults to fs.fdatasyncSync; a test counts the calls. */
+  syncIncoming?: (fd: number) => void;
 }
 
 /** Thrown at the first check after a cancel; the runners swallow it, it is never an import failure. */
@@ -142,7 +155,8 @@ export function openSource(sourcePath: string): Database.Database {
 /**
  * Creates the incoming replica. DELETE rather than WAL: a build of several
  * hundred MB in WAL would grow a WAL of the same order between checkpoints, and
- * the file is discarded on any failure, so synchronous OFF costs nothing.
+ * the file is discarded on any failure, so synchronous OFF costs nothing. The
+ * finished file is switched to WAL before it is handed back (switchToWal).
  * temp_store keeps the finalising COUNT(DISTINCT) and foreign_key_check out of
  * the OS temp directory.
  */
@@ -170,6 +184,62 @@ function closeQuietly(db: Database.Database | null): void {
     db?.close();
   } catch {
     // The failure that got us here is the one worth reporting.
+  }
+}
+
+/** Writes the incoming replica out to disk. Each call blocks only the thread it runs on, the worker. */
+interface IncomingFlusher {
+  /** Writes the file out if it has grown by the threshold since the last write-out. */
+  flushIfDue(): void;
+  /** Writes the file out now, whatever its growth. */
+  flush(): void;
+  close(): void;
+}
+
+/**
+ * The commits happen inside the converters, which only report progress, so this
+ * is asked at every progress call and at every stage end: the size of the file
+ * is what it measures. A write-out while a transaction is open is harmless; it
+ * only persists what SQLite has already handed to the OS.
+ *
+ * One descriptor is opened here and kept until close(), which the pipeline calls
+ * after the connection is closed: closing any descriptor of a file drops the
+ * process's locks on it, and the connection holds some. A failed write-out
+ * propagates: the file on disk cannot be trusted after it.
+ */
+function openIncomingFlusher(incomingPath: string, thresholdBytes: number, sync: (fd: number) => void): IncomingFlusher {
+  const fd = fs.openSync(incomingPath, 'r+');
+  let flushedSize = fs.fstatSync(fd).size;
+  const flush = (): void => {
+    const size = fs.fstatSync(fd).size;
+    sync(fd);
+    flushedSize = size;
+  };
+  return {
+    flushIfDue(): void {
+      if (fs.fstatSync(fd).size - flushedSize >= thresholdBytes) flush();
+    },
+    flush,
+    close(): void {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // Nothing is written through this descriptor, so there is nothing to lose.
+      }
+    },
+  };
+}
+
+/**
+ * Switches the finished replica to WAL, the mode every reader opens it in. The
+ * switch rewrites the file header in a small transaction of its own. Made here,
+ * on the worker's synchronous OFF connection, it syncs nothing; left to the
+ * server's first open after the swap, it would run on the main thread with
+ * four syncs, each waiting for whatever else the disk is writing.
+ */
+function switchToWal(out: Database.Database): void {
+  if (out.pragma('journal_mode = WAL', { simple: true }) !== 'wal') {
+    throw new LnmImportError('LNM_VERIFY_FAILED', 'verification failed: the replica could not be switched to WAL');
   }
 }
 
@@ -259,6 +329,8 @@ export function runLnmPipeline(
 ): LnmImportResult {
   const clock = options.clock ?? Date.now;
   const converters = options.converters ?? CONVERTERS;
+  const flushThresholdBytes = options.flushThresholdBytes ?? INCOMING_FLUSH_BYTES;
+  const syncIncoming = options.syncIncoming ?? fs.fdatasyncSync;
   const startedAt = clock();
   // Only ever the name: a path would put a directory of the uploader's machine into the replica and the logs.
   const sourceFileName = path.basename(req.sourceFileName);
@@ -268,6 +340,7 @@ export function runLnmPipeline(
   let lastEmitAt = 0;
   let lastTotal = 1;
   let endSent = false;
+  let flusher: IncomingFlusher | null = null;
 
   const checkCancelled = (): void => {
     if (options.isCancelled?.()) throw new LnmCancelledError();
@@ -286,6 +359,7 @@ export function runLnmPipeline(
   };
   const progress = (done: number, total: number): void => {
     checkCancelled();
+    flusher?.flushIfDue();
     // A stage with nothing to do is complete, not 0 of 0.
     const t = Math.max(total, 1);
     const d = total <= 0 ? 1 : Math.min(Math.max(done, 0), t);
@@ -293,6 +367,7 @@ export function runLnmPipeline(
     if ((d >= t && !endSent) || (d < t && clock() - lastEmitAt >= PROGRESS_INTERVAL_MS)) emit(d, t);
   };
   const end = (): void => {
+    flusher?.flushIfDue();
     if (!endSent) emit(lastTotal, lastTotal);
   };
   const warn = (message: string): void => {
@@ -315,6 +390,7 @@ export function runLnmPipeline(
     const { flavour, provider, metadata } = detected;
     console.log(`${LOG}: ${sourceFileName} is ${provider} data`);
     out = openIncoming(req.incomingPath);
+    flusher = openIncomingFlusher(req.incomingPath, flushThresholdBytes, syncIncoming);
     end();
 
     begin('indexing');
@@ -332,6 +408,8 @@ export function runLnmPipeline(
 
     begin('finalising');
     finaliseCounters(out, progress);
+    // The counters are rewritten in place: the file does not grow while they dirty its pages.
+    flusher.flush();
     end();
 
     begin('coverage');
@@ -342,11 +420,19 @@ export function runLnmPipeline(
       provider, metadata, sourceFileName, sourceBytes: req.sourceBytes,
       startedAt: req.now, completedAt,
     });
+    // The last rows are in: what is still unwritten goes out now, before verification reads the file back.
+    flusher.flush();
     end();
 
     begin('verifying');
     verifyReplica(out, snapshotId);
     const counts = countRows(out);
+    switchToWal(out);
+    // Closed before the last write-out: closing a WAL connection removes its -wal and -shm files, and whatever
+    // the close still writes is then on disk before the build reports done.
+    out.close();
+    out = null;
+    flusher.flush();
     end();
 
     const durationMs = clock() - startedAt;
@@ -355,6 +441,7 @@ export function runLnmPipeline(
     return { snapshotId, dataset, counts, warnings, durationMs };
   } finally {
     closeQuietly(out);
+    flusher?.close();
     closeQuietly(src);
     if (!finished) removeIncomingFiles(req.incomingPath);
   }

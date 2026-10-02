@@ -17,9 +17,16 @@ export interface NavdataFeaturesState {
  * Features for the current view of `map`. Every pan or zoom restarts a 300 ms
  * debounce; a request still in flight when the next one starts is aborted, so
  * at most one is ever live. A mid-swap 503 keeps what is on screen and is
- * retried once after the server's Retry-After.
+ * retried once after the server's Retry-After. When `reloadKey` changes the
+ * current view is requested again, keeping what is on screen until the answer
+ * arrives; leaving it out never reloads.
  */
-export function useNavdataFeatures(map: L.Map, kinds: NavdataKind[], enabled: boolean): NavdataFeaturesState {
+export function useNavdataFeatures(
+  map: L.Map,
+  kinds: NavdataKind[],
+  enabled: boolean,
+  reloadKey?: string | null
+): NavdataFeaturesState {
   const [state, setState] = useState<NavdataFeaturesState>({ data: null, anchor: null, loading: false, error: null });
   const kindsKey = kinds.join(',');
 
@@ -71,7 +78,7 @@ export function useNavdataFeatures(map: L.Map, kinds: NavdataKind[], enabled: bo
       clearTimeout(retryTimer);
       controller?.abort();
     };
-  }, [map, kindsKey, enabled]);
+  }, [map, kindsKey, enabled, reloadKey]);
 
   return state;
 }

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../test/renderWithProviders';
 import { mockFetchRoutes } from '../test/mockFetch';
 import type { ResponseTuple } from '../test/mockFetch';
-import { sourceResponse } from '../test/navdataFixtures';
+import { importFiles, importJob, sourceResponse, succeededJob } from '../test/navdataFixtures';
 import { Settings } from './Settings';
 
 const SESSION_ROUTE: ResponseTuple = [200, { authenticated: true, user: { username: 'e2e' } }];
@@ -14,6 +14,8 @@ const SET_SAYINTENTIONS: ResponseTuple = [200, { sayintentions_api_key_set: true
 const CLOSED_INGEST: ResponseTuple = [200, { tokens: [], mode: 'closed', env_token_set: false, unauthenticated_opt_out_set: false }];
 const DISABLED_MCP: ResponseTuple = [200, { tokens: [], mode: 'disabled', env_token_set: false }];
 const NAVDATA_SOURCE: ResponseTuple = [200, sourceResponse()];
+const NAVDATA_IMPORT_JOB: ResponseTuple = [200, { job: null }];
+const NAVDATA_IMPORT_FILES: ResponseTuple = [200, importFiles()];
 
 /**
  * Every ConfirmModal/TokenCreatedModal on the page is always in the DOM
@@ -31,6 +33,8 @@ describe('Settings', () => {
   it('loads and shows the saved SimBrief pilot ID and the SayIntentions status', async () => {
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': [200, { simbrief_user_id: 'e2e-simbrief-id' }],
       '/api/settings/sayintentions': SET_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
@@ -49,6 +53,8 @@ describe('Settings', () => {
     const puts: unknown[] = [];
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': {
         GET: UNSET_SIMBRIEF,
         PUT: init => {
@@ -78,6 +84,8 @@ describe('Settings', () => {
     const puts: unknown[] = [];
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': {
         GET: NO_SAYINTENTIONS,
@@ -113,6 +121,8 @@ describe('Settings', () => {
     const user = userEvent.setup();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': {
         GET: UNSET_SIMBRIEF,
         PUT: [500, { error: 'Database is locked' }],
@@ -135,6 +145,8 @@ describe('Settings', () => {
   it('shows the ingest closed banner with no tokens, and the env-ignored banner once one exists alongside INGEST_TOKEN', async () => {
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
@@ -152,6 +164,8 @@ describe('Settings', () => {
   it('shows the INGEST_TOKEN-ignored banner and the token row when a UI token coexists with the env var', async () => {
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': [200, {
@@ -178,6 +192,8 @@ describe('Settings', () => {
     let nextId = 1;
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/navdata-source': NAVDATA_SOURCE,
@@ -224,6 +240,8 @@ describe('Settings', () => {
     const user = userEvent.setup();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/navdata-source': NAVDATA_SOURCE,
@@ -260,6 +278,8 @@ describe('Settings', () => {
     ];
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
@@ -304,6 +324,8 @@ describe('Settings', () => {
     let passwordCalls = 0;
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
@@ -328,6 +350,8 @@ describe('Settings', () => {
     const user = userEvent.setup();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
@@ -352,6 +376,8 @@ describe('Settings', () => {
     const user = userEvent.setup();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/ingest-tokens': CLOSED_INGEST,
@@ -381,6 +407,8 @@ describe('Settings', () => {
     const puts: unknown[] = [];
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
       '/api/settings/simbrief': UNSET_SIMBRIEF,
       '/api/settings/sayintentions': NO_SAYINTENTIONS,
       '/api/settings/navdata-source': {
@@ -404,5 +432,59 @@ describe('Settings', () => {
     await user.click(lnm);
     await waitFor(() => expect(lnm).toBeChecked());
     expect(puts).toEqual([{ source: 'lnm' }]);
+  });
+
+  it('shows the import tile under the Navigation data tile, nested below its heading', async () => {
+    mockFetchRoutes({
+      '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': NAVDATA_IMPORT_JOB,
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
+      '/api/settings/simbrief': UNSET_SIMBRIEF,
+      '/api/settings/sayintentions': NO_SAYINTENTIONS,
+      '/api/settings/navdata-source': NAVDATA_SOURCE,
+      '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/mcp-tokens': DISABLED_MCP,
+    });
+
+    renderWithProviders(<Settings />);
+
+    expect(await screen.findByRole('heading', { level: 3, name: 'Import Little Navmap data' })).toBeInTheDocument();
+    const headings = screen.getAllByRole('heading').map(h => h.textContent);
+    expect(headings.indexOf('Import Little Navmap data')).toBe(headings.indexOf('Navigation data') + 1);
+    expect(await screen.findByRole('option', { name: 'lnm_test.sqlite — 5 MB' })).toBeInTheDocument();
+  });
+
+  it('reloads the Navigation data tile when an import this page watched succeeds, and tells the import tile the effective source', async () => {
+    let job = importJob({ state: 'running' });
+    let imported = false;
+    let sourceGets = 0;
+    mockFetchRoutes({
+      '/api/auth/session': SESSION_ROUTE,
+      '/api/navdata/lnm-import': () => [200, { job }],
+      '/api/navdata/lnm-import/files': NAVDATA_IMPORT_FILES,
+      '/api/settings/simbrief': UNSET_SIMBRIEF,
+      '/api/settings/sayintentions': NO_SAYINTENTIONS,
+      '/api/settings/navdata-source': () => {
+        sourceGets++;
+        return [200, imported
+          ? sourceResponse({ selected: 'lnm', effective: 'lnm' })
+          : sourceResponse({ lnm: { present: false, dataset: null } })];
+      },
+      '/api/settings/ingest-tokens': CLOSED_INGEST,
+      '/api/settings/mcp-tokens': DISABLED_MCP,
+    });
+
+    renderWithProviders(<Settings />);
+    expect(await screen.findByRole('radio', { name: 'Little Navmap import' })).toBeDisabled();
+    await screen.findByRole('progressbar', { name: 'Importing — Airports and runways' });
+    expect(sourceGets).toBe(1);
+
+    imported = true;
+    job = succeededJob();
+
+    expect(await screen.findByText('The map now shows this data.', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(sourceGets).toBe(2);
+    expect(screen.getByRole('radio', { name: 'Little Navmap import' })).toBeEnabled();
+    expect(screen.getByRole('radio', { name: 'Little Navmap import' })).toBeChecked();
   });
 });

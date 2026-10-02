@@ -13,8 +13,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { main } from '../src/inspect-lnm-import';
 import { createWorkerRunner, inProcessRunner, WORKER_MAX_OLD_GENERATION_MB, type WorkerHandle } from '../src/navdata/lnm';
 import {
-  LnmCancelledError, openIncoming, openSource, removeIncomingFiles, runLnmPipeline, runLnmPipelineToMessages,
-  toLnmWorkerError, verifyReplica, type LnmProgressMessage,
+  INCOMING_FLUSH_BYTES, LnmCancelledError, openIncoming, openSource, removeIncomingFiles, runLnmPipeline,
+  runLnmPipelineToMessages, toLnmWorkerError, verifyReplica, type LnmProgressMessage,
 } from '../src/navdata/lnm/pipeline';
 import { navaidsConverter } from '../src/navdata/lnm/navaids';
 import {
@@ -59,6 +59,13 @@ function logged(): string[] {
 const leftovers = (incoming: string): string[] =>
   ['', '-journal', '-wal', '-shm'].map(s => incoming + s).filter(f => fs.existsSync(f)).map(f => path.basename(f));
 
+/** Bytes 18 and 19 of a SQLite file's header: 2 and 2 in WAL mode, 1 and 1 in a rollback-journal mode. */
+function journalHeader(fd: number): number[] {
+  const head = Buffer.alloc(2);
+  fs.readSync(fd, head, 0, 2, 18);
+  return [...head];
+}
+
 interface Built {
   dir: string;
   source: string;
@@ -66,6 +73,8 @@ interface Built {
   messages: LnmWorkerMessage[];
   result: LnmImportResult;
   logs: string[];
+  /** The directory as the build left it, read before anything opened the replica. */
+  filesAtDone: string[];
 }
 
 /** Imports a fixture through the in-process runner, as the server's job would, and moves the replica to its final name. */
@@ -85,9 +94,10 @@ async function importFixture(spec: LnmFixtureSpec): Promise<Built> {
   }
   const last = messages[messages.length - 1];
   if (last?.type !== 'done') throw new Error(`the fixture import did not finish: ${JSON.stringify(last)}`);
+  const filesAtDone = fs.readdirSync(dir).sort();
   const replica = path.join(dir, 'replica.db');
   fs.renameSync(incoming, replica);
-  return { dir, source, replica, messages, result: last.result, logs };
+  return { dir, source, replica, messages, result: last.result, logs, filesAtDone };
 }
 
 /**
@@ -186,9 +196,15 @@ describe.each(FLAVOURS)('importing the $name fixture', flavour => {
     expect(db.prepare('SELECT source_file_name FROM lnm_dataset').pluck().get()).toBe(path.basename(built.source));
   });
 
-  it('leaves a rollback-journal file with no siblings beside it', () => {
-    expect(db.pragma('journal_mode', { simple: true })).toBe('delete');
-    expect(fs.readdirSync(built.dir).sort()).toEqual([path.basename(built.source), 'replica.db'].sort());
+  it('leaves a WAL-mode file with no siblings beside it', () => {
+    expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
+    expect(built.filesAtDone).toEqual([path.basename(built.source), 'replica.db.incoming-1'].sort());
+    const fd = fs.openSync(built.replica, 'r');
+    try {
+      expect(journalHeader(fd)).toEqual([2, 2]);
+    } finally {
+      fs.closeSync(fd);
+    }
   });
 
   it('is complete for readStatus: detail on every airport, a full coverage grid, nothing absent', () => {
@@ -278,8 +294,8 @@ describe.each(FLAVOURS)('importing the $name fixture', flavour => {
     expect(r.approach.arcs).toHaveLength(1);
     expect(r.approach.arcs[0]).toMatchObject({ fromIndex: 0, toIndex: 1, turn: 'L' });
     expect(Number.isFinite(r.approach.arcs[0].centerLat) && Number.isFinite(r.approach.arcs[0].centerLon)).toBe(true);
-    // the Navigraph leg carries the VOR's own position; the MSFS preset names the VOR without a region, so a localiser of the same ident can win there
-    if (flavour.provider === 'NAVIGRAPH') expect(r.approach.arcs[0]).toMatchObject({ centerLat: 12.5, centerLon: -166 });
+    // both presets name the VOR with its region, so the arc centre is the VOR and not a localiser of the same ident
+    expect(r.approach.arcs[0]).toMatchObject({ centerLat: 12.5, centerLon: -166 });
     for (const p of [...r.sid.points, ...r.star.points, ...r.approach.points]) {
       expect(Number.isFinite(p.lat) && Number.isFinite(p.lon)).toBe(true);
     }
@@ -478,6 +494,159 @@ describe('progress messages', () => {
       converters: [reporting, stopping], onStats: (stage, s) => got.push([stage, s]),
     })).toThrow();
     expect(got).toEqual([['airports', stats]]);
+  });
+});
+
+// ── Write-out of the incoming file ───────────────────────────────────────────
+
+describe('write-out of the incoming replica', () => {
+  const MIB = 1024 ** 2;
+
+  /**
+   * A converter that commits `count` transactions, each adding about `bytes` to the
+   * file, and reports progress after each one, the way the real converters do.
+   */
+  function growing(count: number, bytes: number, hooks: { start: () => void; step: () => void }): LnmConverter {
+    return {
+      stage: 'airports',
+      run(ctx) {
+        hooks.start();
+        ctx.out.exec('CREATE TABLE growth (data BLOB)');
+        const insert = ctx.out.prepare('INSERT INTO growth VALUES (?)');
+        const blob = Buffer.alloc(bytes, 0x5a);
+        const commit = ctx.out.transaction(() => { insert.run(blob); });
+        for (let i = 1; i <= count; i++) {
+          commit();
+          ctx.progress(i, count);
+          hooks.step();
+        }
+        return { written: {}, skipped: {} };
+      },
+    };
+  }
+  const stopping: LnmConverter = { stage: 'navaids', run: () => { throw new Error('stop here'); } };
+
+  /** Runs `growing` against a fresh incoming file and returns the file size at each write-out and after each commit. */
+  function runGrowing(count: number, bytes: number, options: { flushThresholdBytes?: number; flush: boolean }) {
+    const dir = freshDir();
+    const source = buildLnmFixture(dir, navigraph());
+    const incoming = path.join(dir, 'w.incoming');
+    const sizeNow = (): number => fs.statSync(incoming).size;
+    const synced: number[] = [];
+    const unwritten: number[] = [];
+    let baseline = -1;
+    const writer = growing(count, bytes, {
+      start: () => { baseline = sizeNow(); },
+      step: () => { unwritten.push(sizeNow() - (synced.length > 0 ? synced[synced.length - 1] : baseline)); },
+    });
+    expect(() => runLnmPipeline(request(source, incoming), () => {}, {
+      converters: [writer, stopping],
+      flushThresholdBytes: options.flushThresholdBytes,
+      syncIncoming: fd => {
+        synced.push(fs.fstatSync(fd).size);
+        if (options.flush) fs.fdatasyncSync(fd);
+      },
+    })).toThrow('stop here');
+    return { synced, unwritten, baseline };
+  }
+
+  it('happens each time the file has grown by the threshold, so the unwritten growth stays below it', () => {
+    const threshold = MIB;
+    const { synced, unwritten, baseline } = runGrowing(64, 64 * 1024, { flushThresholdBytes: threshold, flush: true });
+    // 64 commits of about 68 KiB: one write-out per 16 commits
+    expect(synced.length).toBeGreaterThanOrEqual(3);
+    // checked after every commit's progress call
+    expect(unwritten).toHaveLength(64);
+    expect(Math.max(...unwritten)).toBeLessThan(threshold);
+    // and never earlier than the threshold says
+    synced.forEach((size, i) => {
+      expect(size - (i === 0 ? baseline : synced[i - 1])).toBeGreaterThanOrEqual(threshold);
+    });
+  });
+
+  it('is every 32 MiB of growth unless the caller says otherwise', () => {
+    expect(INCOMING_FLUSH_BYTES).toBe(32 * MIB);
+    const { synced, baseline } = runGrowing(36, MIB, { flush: false });
+    expect(synced).toHaveLength(1);
+    expect(synced[0] - baseline).toBeGreaterThanOrEqual(32 * MIB);
+    expect(synced[0] - baseline).toBeLessThan(33 * MIB);
+  });
+
+  it('covers the whole build: the last one comes after the last write and before done, on a descriptor closed afterwards', () => {
+    const dir = freshDir();
+    const source = buildLnmFixture(dir, navigraph());
+    const incoming = path.join(dir, 'w.incoming');
+    const events: string[] = [];
+    const synced: number[] = [];
+    let fd = -1;
+    runLnmPipelineToMessages(request(source, incoming), m => events.push(m.type), {
+      flushThresholdBytes: 4 * MIB,
+      syncIncoming: f => {
+        fd = f;
+        events.push('sync');
+        synced.push(fs.fstatSync(f).size);
+        fs.fdatasyncSync(f);
+      },
+    });
+    expect(events[events.length - 1]).toBe('done');
+    expect(events.lastIndexOf('sync')).toBeLessThan(events.indexOf('done'));
+    // the replica is about 36 MB: a write-out per 4 MiB of coverage grid plus the three unconditional ones
+    expect(synced.length).toBeGreaterThanOrEqual(5);
+    expect(synced[synced.length - 1]).toBe(fs.statSync(incoming).size);
+    expect(() => fs.fstatSync(fd)).toThrow(/EBADF/);
+  }, 30_000);
+
+  it('makes the last one after the switch to WAL and the close: nothing is left to write and no -wal or -shm remains', () => {
+    const dir = freshDir();
+    const source = buildLnmFixture(dir, navigraph());
+    const incoming = path.join(dir, 'w.incoming');
+    const events: string[] = [];
+    const seen: { header: number[]; files: string[] }[] = [];
+    runLnmPipelineToMessages(request(source, incoming), m => events.push(m.type), {
+      flushThresholdBytes: 64 * MIB,
+      syncIncoming: fd => {
+        events.push('sync');
+        seen.push({ header: journalHeader(fd), files: leftovers(incoming) });
+        fs.fdatasyncSync(fd);
+      },
+    });
+    expect(events[events.length - 1]).toBe('done');
+    expect(events.lastIndexOf('sync')).toBeLessThan(events.indexOf('done'));
+    // every earlier write-out happens while the build still runs in rollback-journal mode
+    expect(seen.slice(0, -1).map(s => s.header)).toEqual(seen.slice(0, -1).map(() => [1, 1]));
+    expect(seen[seen.length - 1]).toEqual({ header: [2, 2], files: ['w.incoming'] });
+    expect(leftovers(incoming)).toEqual(['w.incoming']);
+    const db = new Database(incoming, { readonly: true });
+    try {
+      expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
+    } finally {
+      db.close();
+    }
+  }, 30_000);
+
+  it.each([
+    ['ENOSPC', 'LNM_DISK_FULL', 'disk full in stage finalising'],
+    ['EIO', 'LNM_BUILD_FAILED', 'import failed in stage finalising'],
+  ])('fails the import when the write-out fails with %s, and leaves no file behind', (code, errorCode, message) => {
+    const dir = freshDir();
+    const source = buildLnmFixture(dir, navigraph());
+    const incoming = path.join(dir, 'w.incoming');
+    const messages: LnmWorkerMessage[] = [];
+    let fd = -1;
+    // a threshold the fixture never reaches: the first write-out is the unconditional one after the counters
+    runLnmPipelineToMessages(request(source, incoming), m => messages.push(m), {
+      flushThresholdBytes: 64 * MIB,
+      syncIncoming: f => {
+        fd = f;
+        throw Object.assign(new Error(`${code}: write-out failed for ${incoming}`), { code });
+      },
+    });
+    expect(messages[messages.length - 1]).toEqual({ type: 'error', code: errorCode, message });
+    expect(messages.filter(m => m.type === 'done')).toEqual([]);
+    expect(JSON.stringify(messages)).not.toContain(dir);
+    expect(logged().join('\n')).not.toContain(dir);
+    expect(leftovers(incoming)).toEqual([]);
+    expect(() => fs.fstatSync(fd)).toThrow(/EBADF/);
   });
 });
 
@@ -880,6 +1049,7 @@ describe('inspect-lnm-import', () => {
     expect(printed).toMatch(/airportOwned\.transition\s+0\n/);
     expect(lines(console.error)).toEqual([]);
     expect(fs.readFileSync(source).equals(before)).toBe(true);
+    // the output is a WAL database; the inspector's read-only reports remove the -wal and -shm they create
     expect(fs.readdirSync(dir).sort()).toEqual(['inspect-msfs.sqlite', 'out.db']);
 
     const db = new Database(out, { readonly: true });

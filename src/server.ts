@@ -22,6 +22,7 @@ import {
 } from './routes/uploads';
 import { createNavdataSyncRouter } from './routes/navdataSync';
 import { createNavdataRouter } from './routes/navdata';
+import { createNavdataImportRouter } from './routes/navdataImport';
 import { createRouteGeometryRouter } from './routes/navdataRouteGeometry';
 import { createFlightsRouter } from './routes/flights';
 import { createTripsRouter } from './routes/trips';
@@ -231,6 +232,11 @@ export function createServer(flightManager: FlightManager): express.Express {
   app.use('/api', createNavdataRouter(sidecarState, requestDemand));
   app.use('/api', createRouteGeometryRouter());
 
+  // The Little Navmap import: upload, server-side path, progress and cancel.
+  // Session only, like every route here; the ingest token is never accepted.
+  // Its multer errors are answered inside the route, not by the handler below.
+  app.use('/api', createNavdataImportRouter());
+
   // ── PDF and KML export ────────────────────────────────────────────────────
   // Mounted before the SPA catch-all so these routes are not swallowed by it.
 
@@ -310,7 +316,8 @@ export function createServer(flightManager: FlightManager): express.Express {
          req.path.endsWith('/acars-messages') ||
          req.path.endsWith('/acars-messages/wx') ||
          req.path === '/api/ground-sessions' ||
-         req.path === '/api/ground-sessions/current')) {
+         req.path === '/api/ground-sessions/current' ||
+         req.path === '/api/navdata/lnm-import/path')) {
       res.status(400).json({ error: 'Invalid request body', code: 'INVALID_BODY' });
       return;
     }

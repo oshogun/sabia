@@ -13,6 +13,8 @@ import { initAirports } from './airports';
 import { ensureFlightPlansDir } from './flightPlans';
 import { FlightManager } from './flightManager';
 import { createServer } from './server';
+import { armBodyDeadline } from './bodyDeadline';
+import { cancelLnmImportForShutdown } from './routes/navdataImport';
 import { warmAssets } from './staticAssets';
 
 // Configuration is read and validated before anything else — before the
@@ -108,17 +110,26 @@ const app = createServer(flightManager);
 
 // One port, one protocol: HTTPS when TLS is configured, plaintext HTTP
 // otherwise. There is no second listener redirecting HTTP to HTTPS.
+//
+// requestTimeout 0 turns off Node's server-wide limit on how long a request body
+// may take, which would cut off the hour-long Little Navmap upload; the
+// per-request deadline in bodyDeadline.ts puts the 300 s limit back on every
+// other request. headersTimeout is set explicitly because Node derives its
+// default from requestTimeout, and 0 would also turn off the header timeout.
+const timeouts = { requestTimeout: 0, headersTimeout: 60_000 };
 let server: http.Server | https.Server;
 if (config.tls.enabled) {
   const key = fs.readFileSync(config.tls.keyFile);
   const cert = fs.readFileSync(config.tls.certFile);
   server = https.createServer(
-    { key, cert, passphrase: config.tls.passphrase ?? undefined },
+    { key, cert, passphrase: config.tls.passphrase ?? undefined, ...timeouts },
     app
   );
 } else {
-  server = http.createServer(app);
+  server = http.createServer(timeouts, app);
 }
+// Before Express, so the deadline covers every route and no middleware order changes.
+server.prependListener('request', armBodyDeadline);
 
 server.listen(config.port, config.bindHost, () => {
   const scheme = config.tls.enabled ? 'https' : 'http';
@@ -135,6 +146,9 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    // First, so an upload in flight does not hold server.close() open and the
+    // build's files are gone before either exit path runs.
+    cancelLnmImportForShutdown();
     console.log(`\n[Shutdown] ${signal} — closing database...`);
     server.close(() => {
       closeNavDb();

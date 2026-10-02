@@ -16,6 +16,18 @@ client/playwright-report/
 client/test-results/
 navdata.db*
 /navdata/
+# Little Navmap databases the operator drops next to the replica to import
+# (Navigraph-licensed), plus the SQLite side files an open copy can leave.
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+# The server-path import accepts any letter case in the extension (.SQLITE,
+# .Sqlite), so these patterns match every case combination.
+*.[sS][qQ][lL][iI][tT][eE]
+*.[sS][qQ][lL][iI][tT][eE]-journal
+*.[sS][qQ][lL][iI][tT][eE]-wal
+*.[sS][qQ][lL][iI][tT][eE]-shm
 
 # Run artifacts from the agentic workflow are not source code
 .claude/runs/

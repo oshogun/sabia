@@ -368,8 +368,14 @@ function requestLabel(s: RequestState): string {
   return 'Not available';
 }
 
-/** Mounts inside a MapContainer. Renders nothing when there is no airport to fetch. */
+/**
+ * Mounts inside a MapContainer. Renders nothing when there is no airport to
+ * fetch, and nothing while the imported Little Navmap database is the source:
+ * it already carries every airport's detail. The status is only polled while
+ * there is something to offer.
+ */
 export function FetchDetailPrompt({ targets }: { targets: DetailTarget[] }) {
+  const status = useNavdataStatus(targets.length > 0);
   const ref = useRef<HTMLDivElement>(null);
   const [requests, setRequests] = useState<Record<string, RequestState>>({});
 
@@ -380,7 +386,7 @@ export function FetchDetailPrompt({ targets }: { targets: DetailTarget[] }) {
     }
   });
 
-  if (targets.length === 0) return null;
+  if (targets.length === 0 || status?.source === 'lnm') return null;
 
   async function fetchDetail(ident: string) {
     setRequests(r => ({ ...r, [ident]: { phase: 'pending' } }));
@@ -441,6 +447,9 @@ const NO_GEOMETRIES: Record<number, RouteGeometryResponse> = {};
 export function useRouteGeometry(legIds: number[]): RouteGeometryState {
   const status = useNavdataStatus();
   const present = status?.present === true;
+  // Differs between the two replicas and changes with every new simulator
+  // snapshot, so a switch of source made elsewhere redraws the geometry.
+  const snapshotId = status?.snapshotId ?? null;
   const key = legIds.join(',');
   const [state, setState] = useState<RouteGeometryState>({ geometries: NO_GEOMETRIES, loading: false });
 
@@ -470,7 +479,7 @@ export function useRouteGeometry(legIds: number[]): RouteGeometryState {
       cancelled = true;
       controller.abort();
     };
-  }, [present, key]);
+  }, [present, key, snapshotId]);
 
   return state;
 }

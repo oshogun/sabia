@@ -47,6 +47,15 @@ const fingerprint = (file: string): string => {
 
 // ── Reading the built replica ────────────────────────────────────────────────
 
+/**
+ * The replica is a WAL database, and a read-only connection to one creates its -wal and -shm beside it and
+ * cannot remove them when it closes. Nothing else has the output open, so they are deleted once the handle
+ * is closed, leaving the one file the inspector was asked to write.
+ */
+function removeSidecars(out: string): void {
+  for (const suffix of ['-wal', '-shm']) fs.rmSync(`${out}${suffix}`, { force: true });
+}
+
 function completeness(out: string): string[] {
   const db = new Database(out, { readonly: true, fileMustExist: true });
   try {
@@ -75,6 +84,7 @@ function completeness(out: string): string[] {
     ];
   } finally {
     db.close();
+    removeSidecars(out);
   }
 }
 
@@ -91,6 +101,7 @@ function describeDataset(out: string): string[] {
     ];
   } finally {
     db.close();
+    removeSidecars(out);
   }
 }
 

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NavdataControls, NavdataOverlay, kindNote, type NavdataControlsProps } from './NavdataControls';
 import { FlightMap } from './FlightMap';
+import { NAVDATA_DEBOUNCE_MS } from '../../hooks/useNavdataFeatures';
 import { mockFetchRoutes } from '../../test/mockFetch';
 import {
   absentStatus, cov, currentLnmDataset, emptyFeatures, expiredLnmDataset, expiredNoCycleDataset, lnmStatus, presentStatus,
@@ -200,6 +201,20 @@ describe('NavdataControls', () => {
     }));
     expect(screen.queryByRole('button', { name: 'Fetch detail' })).toBeNull();
   });
+
+  it('offers no fetch detail while the imported Little Navmap data is the source, and still does for the simulator', () => {
+    const indexOnly = emptyFeatures({
+      airports: [{ ident: 'ZZAA', lat: 1, lon: 1, name: null, hasDetail: false, runways: null, procedures: null, longestRunwayM: null, surface: null, towered: null, longestRunwayHeadingDeg: null, tier: null }],
+    });
+    const lnm = renderControls(indexOnly, { status: lnmStatus(currentLnmDataset) });
+    expect(screen.queryByRole('button', { name: 'Fetch detail' })).toBeNull();
+    expect(screen.queryByText('ZZAA')).toBeNull();
+    expect(screen.getByText(/Little Navmap · /)).toBeInTheDocument();
+    lnm.unmount();
+
+    renderControls(indexOnly, { status: presentStatus });
+    expect(screen.getByRole('button', { name: 'Fetch detail' })).toBeInTheDocument();
+  });
 });
 
 const track: FlightPoint[] = [0, 1].map(i => ({
@@ -308,5 +323,47 @@ describe('NavdataOverlay', () => {
     );
     await waitFor(() => expect(screen.getByText('Navdata')).toBeInTheDocument());
     expect(container.querySelector('.leaflet-navdata-pane')).not.toBeNull();
+  });
+  it('asks for the features again when the status poll reports a new snapshot, once', async () => {
+    stubCanvasContext();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let snapshotId = 'snap-a';
+      const featureCalls: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url === '/api/navdata/status') return new Response(JSON.stringify({ ...presentStatus, snapshotId }), { status: 200 });
+        if (url.startsWith('/api/navdata/features')) {
+          featureCalls.push(url);
+          return new Response(JSON.stringify(emptyFeatures()), { status: 200 });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }));
+
+      render(
+        <FlightMap points={track}>
+          <NavdataOverlay />
+        </FlightMap>
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      fireEvent.click(screen.getByLabelText('Airports'));
+      await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+      expect(featureCalls).toHaveLength(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+      expect(featureCalls).toHaveLength(1);
+
+      snapshotId = 'snap-b';
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+      expect(featureCalls).toHaveLength(2);
+
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+      expect(featureCalls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

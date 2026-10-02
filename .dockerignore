@@ -12,3 +12,19 @@ navdata.db-shm
 navdata.db-wal
 navdata.db.incoming-*
 navdata/
+# Little Navmap replica, its incoming/upload files and SQLite side files.
+navdata.db.lnm*
+# Patterns here match from the context root, so **/ is needed to match
+# dropped Little Navmap databases (Navigraph-licensed) in subdirectories.
+**/*.sqlite
+**/*.sqlite-journal
+**/*.sqlite-wal
+**/*.sqlite-shm
+# Same patterns for every letter case of the extension (.SQLITE, .Sqlite),
+# which the server-path import accepts.
+**/*.[sS][qQ][lL][iI][tT][eE]
+**/*.[sS][qQ][lL][iI][tT][eE]-journal
+**/*.[sS][qQ][lL][iI][tT][eE]-wal
+**/*.[sS][qQ][lL][iI][tT][eE]-shm
+# Agent run clones and scratch directories can hold licensed copies.
+.claude/

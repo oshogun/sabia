@@ -137,4 +137,72 @@ describe('useNavdataFeatures', () => {
     expect(result.current.error).toBe('boom');
     expect(result.current.data).not.toBeNull();
   });
+  it('requests the view again when the reload key changes, keeping the data on screen until the answer arrives', async () => {
+    const calls = stubFetch();
+    const { map } = fakeMap();
+    const { result, rerender } = renderHook(
+      ({ reloadKey }: { reloadKey: string | null }) => useNavdataFeatures(map, ['airports'], true, reloadKey),
+      { initialProps: { reloadKey: 'snap-a' } }
+    );
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+    await act(async () => calls[0].resolve(ok()));
+    const before = result.current.data;
+    expect(before).not.toBeNull();
+    expect(calls).toHaveLength(1);
+
+    rerender({ reloadKey: 'snap-b' });
+    expect(result.current.data).toBe(before);
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toContain('/api/navdata/features?bbox=');
+    await act(async () => calls[1].resolve(ok()));
+    expect(result.current.data).not.toBe(before);
+    expect(result.current.data).not.toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(calls).toHaveLength(2);
+  });
+
+  it('does not request again when the reload key stays the same or is left out', async () => {
+    const calls = stubFetch();
+    const { map } = fakeMap();
+    const keyed = renderHook(
+      ({ reloadKey }: { reloadKey: string | null }) => useNavdataFeatures(map, ['airports'], true, reloadKey),
+      { initialProps: { reloadKey: 'snap-a' } }
+    );
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+    await act(async () => calls[0].resolve(ok()));
+    keyed.rerender({ reloadKey: 'snap-a' });
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS * 3));
+    expect(calls).toHaveLength(1);
+    keyed.unmount();
+
+    const bare = renderHook(({ n }: { n: number }) => { void n; return useNavdataFeatures(map, ['airports'], true); }, { initialProps: { n: 0 } });
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+    await act(async () => calls[1].resolve(ok()));
+    bare.rerender({ n: 1 });
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS * 3));
+    expect(calls).toHaveLength(2);
+  });
+
+  it('aborts a request still in flight when the reload key changes, and ignores its answer', async () => {
+    const calls = stubFetch();
+    const { map } = fakeMap();
+    const { result, rerender } = renderHook(
+      ({ reloadKey }: { reloadKey: string | null }) => useNavdataFeatures(map, ['airports'], true, reloadKey),
+      { initialProps: { reloadKey: 'snap-a' } }
+    );
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+    expect(calls).toHaveLength(1);
+
+    rerender({ reloadKey: 'snap-b' });
+    expect(calls[0].signal.aborted).toBe(true);
+    await act(async () => calls[0].resolve(ok()));
+    expect(result.current.data).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(NAVDATA_DEBOUNCE_MS));
+    expect(calls).toHaveLength(2);
+    expect(calls.filter(c => !c.signal.aborted)).toHaveLength(1);
+  });
 });

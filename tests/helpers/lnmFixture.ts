@@ -589,7 +589,7 @@ function presetRows(flavour: Flavour): AtoolsRows {
   const recommended = (ident: string, kind: 'V' | 'W' | 'I'): AtoolsRow => ({
     recommended_fix_type: kind === 'I' ? pick(null, 'L') : kind,
     recommended_fix_ident: ident,
-    recommended_fix_region: nav ? 'ZZ' : null,
+    recommended_fix_region: nav || kind === 'V' ? 'ZZ' : null,
     recommended_fix_lonx: nav && kind === 'V' ? lon(ident) : null,
     recommended_fix_laty: nav && kind === 'V' ? lat(ident) : null,
   });

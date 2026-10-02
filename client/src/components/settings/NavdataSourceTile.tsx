@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { InlineNotification, RadioButton, RadioButtonGroup, SkeletonText, Stack, Tile } from '@carbon/react';
 import { UnauthorizedError } from '../../utils/api';
 import { fetchNavdataSource, saveNavdataSource, validityText } from '../../utils/navdataApi';
@@ -10,6 +10,8 @@ const HELPER_INDENT = { marginInlineStart: '1.875rem' };
 export interface NavdataSourceTileProps {
   /** Reload the choice and both datasets whenever this changes (an import finished elsewhere on the page). */
   navdataRefreshKey?: number;
+  /** Called with every answer the tile shows: after a load, and after a successful switch. */
+  onLoaded?: (response: NavdataSourceResponse) => void;
 }
 
 function expiredSubtitle(d: NavdataDataset): string {
@@ -18,7 +20,7 @@ function expiredSubtitle(d: NavdataDataset): string {
 }
 
 /** Which navigation data the map reads: the simulator's replica or an imported Little Navmap database. */
-export function NavdataSourceTile({ navdataRefreshKey = 0 }: NavdataSourceTileProps) {
+export function NavdataSourceTile({ navdataRefreshKey = 0, onLoaded }: NavdataSourceTileProps) {
   const [data, setData] = useState<NavdataSourceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -28,12 +30,21 @@ export function NavdataSourceTile({ navdataRefreshKey = 0 }: NavdataSourceTilePr
   // failed save would leave the radio on the rejected value. Bumping the key remounts it on the
   // value the server still has.
   const [groupKey, setGroupKey] = useState(0);
+  // Read when an answer arrives, so a parent passing a new function each render does not reload the tile.
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
   useEffect(() => {
     let cancelled = false;
     setLoadError('');
+    // The previous answer is hidden while a reload (after an import) is pending.
+    setLoading(true);
     fetchNavdataSource()
-      .then(r => { if (!cancelled) setData(r); })
+      .then(r => {
+        if (cancelled) return;
+        setData(r);
+        onLoadedRef.current?.(r);
+      })
       .catch(err => {
         if (cancelled || err instanceof UnauthorizedError) return;
         setLoadError((err as Error).message);
@@ -48,6 +59,7 @@ export function NavdataSourceTile({ navdataRefreshKey = 0 }: NavdataSourceTilePr
     try {
       const r = await saveNavdataSource(source);
       setData(r);
+      onLoadedRef.current?.(r);
       if (r.selected !== source) setGroupKey(k => k + 1);
     } catch (err) {
       if (err instanceof UnauthorizedError) return;
@@ -69,7 +81,7 @@ export function NavdataSourceTile({ navdataRefreshKey = 0 }: NavdataSourceTilePr
         </p>
         {loading && <SkeletonText />}
         {loadError && <InlineNotification kind="error" lowContrast hideCloseButton title="Could not load navigation data" subtitle={loadError} />}
-        {data && (
+        {data && !loading && (
           <>
             <RadioButtonGroup
               key={groupKey}

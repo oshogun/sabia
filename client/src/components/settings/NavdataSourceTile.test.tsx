@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { mockFetchRoutes, deferred, type ResponseTuple } from '../../test/mockFetch';
@@ -217,5 +217,51 @@ describe('NavdataSourceTile', () => {
     rerender(<NavdataSourceTile navdataRefreshKey={1} />);
 
     await waitFor(() => expect(screen.getByRole('radio', { name: 'Little Navmap import' })).toBeEnabled());
+  });
+  it('hides the previous answer behind the loading placeholder while a reload is pending', async () => {
+    const second = deferred<ResponseTuple>();
+    let gets = 0;
+    mockFetchRoutes({ [URL]: () => (++gets === 1 ? [200, sourceResponse({ lnm: { present: false, dataset: null } })] : second.handler()) });
+    const { container, rerender } = render(<NavdataSourceTile navdataRefreshKey={0} />);
+    expect(await screen.findByRole('radio', { name: 'Little Navmap import' })).toBeDisabled();
+
+    rerender(<NavdataSourceTile navdataRefreshKey={1} />);
+
+    await waitFor(() => expect(container.querySelector('.cds--skeleton__text')).not.toBeNull());
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByText('Import a Little Navmap database below first')).toBeNull();
+
+    second.resolve([200, sourceResponse()]);
+    expect(await screen.findByRole('radio', { name: 'Little Navmap import' })).toBeEnabled();
+    expect(container.querySelector('.cds--skeleton__text')).toBeNull();
+  });
+
+  it('reports every answer it shows: the loaded one, then the one that follows a switch', async () => {
+    const user = userEvent.setup();
+    const onLoaded = vi.fn();
+    serve(sourceResponse(), () => [200, sourceResponse({ selected: 'lnm', effective: 'lnm' })]);
+    render(<NavdataSourceTile onLoaded={onLoaded} />);
+
+    await screen.findByRole('radio', { name: 'Little Navmap import' });
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+    expect(onLoaded.mock.calls[0][0].effective).toBe('mcdu');
+
+    await user.click(screen.getByRole('radio', { name: 'Little Navmap import' }));
+
+    await waitFor(() => expect(onLoaded).toHaveBeenCalledTimes(2));
+    expect(onLoaded.mock.calls[1][0].effective).toBe('lnm');
+  });
+
+  it('does not reload when the parent passes a new callback on every render', async () => {
+    let gets = 0;
+    mockFetchRoutes({ [URL]: () => { gets++; return [200, sourceResponse()]; } });
+    const { rerender } = render(<NavdataSourceTile onLoaded={() => {}} />);
+    await screen.findByRole('radio', { name: 'Little Navmap import' });
+
+    rerender(<NavdataSourceTile onLoaded={() => {}} />);
+    rerender(<NavdataSourceTile onLoaded={() => {}} />);
+
+    expect(gets).toBe(1);
+    expect(screen.getByRole('radio', { name: 'Little Navmap import' })).toBeInTheDocument();
   });
 });

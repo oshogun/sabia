@@ -1,6 +1,8 @@
-import { apiFetch } from './api';
+import { apiFetch, reportUnauthorized } from './api';
 import type {
   FeaturesResponse,
+  LnmImportFilesResponse,
+  LnmImportJobResponse,
   RouteGeometryResponse,
   NavdataRequestBody,
   NavdataDataset,
@@ -73,6 +75,111 @@ export function validityText(d: NavdataDataset): string {
   return d.validFrom !== null
     ? ` · valid ${d.validFrom} – ${d.validThrough}`
     : ` · valid until ${d.validThrough}`;
+}
+
+export async function fetchLnmImport(signal?: AbortSignal): Promise<LnmImportJobResponse> {
+  return apiFetch<LnmImportJobResponse>('/api/navdata/lnm-import', { signal });
+}
+
+export async function fetchLnmImportFiles(signal?: AbortSignal): Promise<LnmImportFilesResponse> {
+  return apiFetch<LnmImportFilesResponse>('/api/navdata/lnm-import/files', { signal });
+}
+
+/** Imports a .sqlite file that is already in the server's import folder. Answers with the job just started. */
+export async function startLnmPathImport(fileName: string): Promise<LnmImportJobResponse> {
+  return apiFetch<LnmImportJobResponse>('/api/navdata/lnm-import/path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName }),
+  });
+}
+
+/**
+ * Asks the server to stop the running import. Nothing running (409
+ * LNM_NOT_RUNNING) is not a failure: the job already ended, so this resolves
+ * with `{ job: null }` and the caller reads the job's real state afterwards.
+ */
+export async function cancelLnmImport(): Promise<LnmImportJobResponse> {
+  const res = await fetch('/api/navdata/lnm-import', { method: 'DELETE' });
+  if (res.ok) return res.json() as Promise<LnmImportJobResponse>;
+  const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error?: string; code?: string };
+  if (res.status === 401) throw reportUnauthorized(body.error || res.statusText);
+  if (res.status === 409 && body.code === 'LNM_NOT_RUNNING') return { job: null };
+  throw new Error(body.error || res.statusText);
+}
+
+/** The connection dropped (or never completed) while an upload was in flight; the server may still have recorded why. */
+export class LnmUploadNetworkError extends Error {
+  constructor() {
+    super('Upload failed — connection closed');
+    this.name = 'LnmUploadNetworkError';
+  }
+}
+
+function abortError(): DOMException {
+  return new DOMException('The upload was aborted', 'AbortError');
+}
+
+/**
+ * Uploads a Little Navmap database as multipart form data. fetch cannot report
+ * how many bytes of a request body have gone out, so this uses XMLHttpRequest;
+ * `onProgress` gets the bytes sent and the total. No Content-Type is set: the
+ * browser adds the multipart boundary, and the Content-Length the server
+ * requires. Aborting `signal` closes the request and rejects with an
+ * AbortError; a dropped connection rejects with LnmUploadNetworkError; any
+ * other refusal rejects with the server's own message.
+ */
+export function uploadLnmDatabase(
+  file: File,
+  onProgress: (loaded: number, total: number) => void,
+  signal?: AbortSignal
+): Promise<LnmImportJobResponse> {
+  return new Promise<LnmImportJobResponse>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const onSignalAbort = () => xhr.abort();
+    const settle = (finish: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onSignalAbort);
+      finish();
+    };
+
+    xhr.open('POST', '/api/navdata/lnm-import/upload');
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = () => settle(() => {
+      let body: { error?: unknown; job?: unknown } | null = null;
+      try {
+        body = JSON.parse(xhr.responseText) as { error?: unknown; job?: unknown } | null;
+      } catch {
+        body = null;
+      }
+      const message = typeof body?.error === 'string' && body.error !== '' ? body.error : null;
+      if (xhr.status === 401) {
+        reject(reportUnauthorized(message ?? undefined));
+      } else if (xhr.status === 0) {
+        reject(new LnmUploadNetworkError());
+      } else if (xhr.status >= 200 && xhr.status < 300 && body && typeof body.job === 'object') {
+        resolve(body as unknown as LnmImportJobResponse);
+      } else {
+        reject(new Error(message ?? `Upload failed (HTTP ${xhr.status})`));
+      }
+    });
+    xhr.onerror = () => settle(() => reject(new LnmUploadNetworkError()));
+    xhr.ontimeout = () => settle(() => reject(new LnmUploadNetworkError()));
+    xhr.onabort = () => settle(() => reject(abortError()));
+    signal?.addEventListener('abort', onSignalAbort, { once: true });
+
+    const form = new FormData();
+    form.append('lnmDatabase', file);
+    xhr.send(form);
+  });
 }
 
 export async function fetchNavdataFeatures(

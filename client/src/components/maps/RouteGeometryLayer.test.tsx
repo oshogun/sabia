@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { MapContainer } from 'react-leaflet';
 import {
   FetchDetailPrompt,
@@ -7,7 +7,10 @@ import {
   detailTargets,
   geometryHasChains,
   procedureNote,
+  useRouteGeometry,
 } from './RouteGeometryLayer';
+import { mockFetchRoutes } from '../../test/mockFetch';
+import { currentLnmDataset, lnmStatus, presentStatus } from '../../test/navdataFixtures';
 import type { GeometryChain, GeometryPoint, PlannedLegWithChildren, RouteGeometryResponse } from '../../types';
 
 const empty: GeometryChain = { source: null, synthetic: false, points: [], arcs: [] };
@@ -131,5 +134,69 @@ describe('fetch detail', () => {
     expect(container.querySelector('button')).toBeNull();
     rerender(<MapContainer><FetchDetailPrompt targets={[{ ident: 'ZZBB', why: 'x' }]} /></MapContainer>);
     expect(screen.getByRole('button', { name: 'Fetch detail' })).toBeInTheDocument();
+  });
+
+  it('renders nothing while the imported Little Navmap data is the source', async () => {
+    mockFetchRoutes({ '/api/navdata/status': [200, lnmStatus(currentLnmDataset)] });
+    const targets = [{ ident: 'ZZBB', why: 'x' }];
+    const { container } = render(<MapContainer><FetchDetailPrompt targets={targets} /></MapContainer>);
+
+    await waitFor(() => expect(container.querySelector('button')).toBeNull());
+    expect((globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the button for the simulator source once the status is known', async () => {
+    mockFetchRoutes({ '/api/navdata/status': [200, presentStatus] });
+    render(<MapContainer><FetchDetailPrompt targets={[{ ident: 'ZZBB', why: 'x' }]} /></MapContainer>);
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+    expect(screen.getByRole('button', { name: 'Fetch detail' })).toBeInTheDocument();
+  });
+
+  it('does not poll the status while there is nothing to offer', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    render(<MapContainer><FetchDetailPrompt targets={[]} /></MapContainer>);
+    await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('useRouteGeometry', () => {
+  it('requests the geometry again once when the status poll reports a new snapshot', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let snapshotId = 'snap-a';
+      const geometryCalls: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url === '/api/navdata/status') return new Response(JSON.stringify({ ...presentStatus, snapshotId }), { status: 200 });
+        if (url === '/api/planned-legs/7/route-geometry') {
+          geometryCalls.push(url);
+          return new Response(JSON.stringify(geometry()), { status: 200 });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      }));
+
+      const { result } = renderHook(() => useRouteGeometry([7]));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(geometryCalls).toHaveLength(1);
+      expect(result.current.geometries[7]?.legId).toBe(7);
+
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(geometryCalls).toHaveLength(1);
+
+      snapshotId = 'snap-b';
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(geometryCalls).toHaveLength(2);
+      expect(result.current.geometries[7]?.legId).toBe(7);
+
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(geometryCalls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

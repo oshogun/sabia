@@ -5,9 +5,10 @@ import {
   clearSayIntentionsKey, getSayIntentionsSettings, getSimbriefSettings, saveSayIntentionsKey, saveSimbriefSettings,
 } from '../api';
 import { UnauthorizedError } from '../utils/api';
-import type { SayIntentionsSettings } from '../types';
+import type { NavdataSourceResponse, SayIntentionsSettings } from '../types';
 import { IngestTokensTile } from '../components/settings/IngestTokensTile';
 import { McpTokensTile } from '../components/settings/McpTokensTile';
+import { NavdataImportTile } from '../components/settings/NavdataImportTile';
 import { NavdataSourceTile } from '../components/settings/NavdataSourceTile';
 import { ChangePasswordTile } from '../components/settings/ChangePasswordTile';
 
@@ -26,6 +27,11 @@ export function Settings() {
   const [siSaving, setSiSaving] = useState(false);
   const [siError, setSiError] = useState('');
   const [siOk, setSiOk] = useState('');
+
+  // The source tile owns the choice; the page keeps its last answer for the import tile and
+  // bumps the key to make the tile read it again after an import.
+  const [navdataSource, setNavdataSource] = useState<NavdataSourceResponse | null>(null);
+  const [navdataRefreshKey, setNavdataRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,7 +162,11 @@ export function Settings() {
           </Form>
         </Tile>
 
-        <NavdataSourceTile />
+        <NavdataSourceTile navdataRefreshKey={navdataRefreshKey} onLoaded={setNavdataSource} />
+        <NavdataImportTile
+          effectiveSource={navdataSource?.effective ?? null}
+          onImported={() => setNavdataRefreshKey(k => k + 1)}
+        />
         <IngestTokensTile />
         <McpTokensTile />
         <ChangePasswordTile />

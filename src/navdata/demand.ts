@@ -324,10 +324,11 @@ export function resetGapCursor(): void {
 }
 
 /**
- * The memo is valid only for the exact replica it was built from: the same open
- * handle (a swapped-in file is a new one), the same header (snapshot, revision,
- * timestamp) and the same count of header writes, since a batch or a same-epoch
- * snapshot can change rows under an unchanged snapshot id and revision.
+ * The memo is valid only for the exact replica it was built from: the same
+ * open handle (a swapped-in file is a new one), the same header (snapshot,
+ * revision, timestamp) and the same count of header writes to that handle,
+ * since a batch or a same-epoch snapshot can change rows under an unchanged
+ * snapshot id and revision.
  */
 function currentGapState(nav: Database.Database): GapState {
   const meta = nav.prepare('SELECT snapshot_id, rev, updated_at FROM nav_meta WHERE id = 1').get() as
@@ -336,7 +337,7 @@ function currentGapState(nav: Database.Database): GapState {
   const snapshotId = meta?.snapshot_id ?? '';
   const rev = meta?.rev ?? -1;
   const updatedAt = meta?.updated_at ?? -1;
-  const generation = navdataWriteGeneration();
+  const generation = navdataWriteGeneration(nav);
   const s = gapState;
   if (s.handle !== nav || s.generation !== generation || s.updatedAt !== updatedAt || s.snapshotId !== snapshotId || s.rev !== rev) {
     gapState = { ...freshGapState(s.offset), handle: nav, generation, updatedAt, snapshotId, rev };

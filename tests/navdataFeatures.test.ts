@@ -645,9 +645,28 @@ describe('coverage fast path on a uniformly full grid', () => {
       prepares(grid, body).filter(sql => sql.includes('FROM nav_coverage_cell GROUP BY kind')).length;
     coverageFor(grid, WORLD);
     expect(probes(() => { coverageFor(grid, WORLD); coverageFor(grid, BOXES.ordinary); })).toBe(0);
-    const before = navdataWriteGeneration();
+    const before = navdataWriteGeneration(grid);
     written(() => {});
-    expect(navdataWriteGeneration()).toBe(before + 1);
+    expect(navdataWriteGeneration(grid)).toBe(before + 1);
     expect(probes(() => { coverageFor(grid, WORLD); coverageFor(grid, BOXES.ordinary); })).toBe(1);
+  });
+
+  it('keeps the probe result when a different handle is written', () => {
+    const probes = (body: () => void): number =>
+      prepares(grid, body).filter(sql => sql.includes('FROM nav_coverage_cell GROUP BY kind')).length;
+    const other = new Database(':memory:');
+    applyNavdataSchema(other);
+    insert(other, 'nav_meta', { id: 1, schema_version: 2, snapshot_id: 'other', rev: 1, sim_id: '2024', bulk_completed_at: 5, created_at: 1, updated_at: 2 });
+    try {
+      coverageFor(grid, WORLD);
+      const gridBefore = navdataWriteGeneration(grid);
+      const otherBefore = navdataWriteGeneration(other);
+      setNavMetaRev(other, 2, 3);
+      expect(navdataWriteGeneration(other)).toBe(otherBefore + 1);
+      expect(navdataWriteGeneration(grid)).toBe(gridBefore);
+      expect(probes(() => { coverageFor(grid, WORLD); coverageFor(grid, BOXES.ordinary); })).toBe(0);
+    } finally {
+      other.close();
+    }
   });
 });

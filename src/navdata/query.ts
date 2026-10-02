@@ -112,19 +112,20 @@ function emptyCoverageKind(): FeatureCoverageKind {
 
 type CoverageKindCode = 'V' | 'N' | 'W';
 
-// What a complete replica (a Little Navmap import) looks like in nav_coverage_cell:
-// every cell of every kind, all harvested at one instant. The probe is one pass
-// over the table per handle and write generation; an import is never written to
-// after its swap, so it runs once there. A replica that is not uniformly full
-// (the sparse simulator replica) is remembered as null and always takes the
-// bbox query.
+// What a complete replica (a Little Navmap import) looks like in
+// nav_coverage_cell: every cell of every kind, all harvested at one instant.
+// The probe is one pass over the table per handle and write generation of
+// that handle (writes to another handle do not count); an import is never
+// written to after its swap, so it runs once there. A replica that is not
+// uniformly full (the sparse simulator replica) is remembered as null and
+// always takes the bbox query.
 const uniformCoverage = new WeakMap<
   Database.Database,
   { generation: number; harvestedAt: Record<CoverageKindCode, number> | null }
 >();
 
 function uniformFullCoverage(nav: Database.Database): Record<CoverageKindCode, number> | null {
-  const generation = navdataWriteGeneration();
+  const generation = navdataWriteGeneration(nav);
   const hit = uniformCoverage.get(nav);
   if (hit && hit.generation === generation) return hit.harvestedAt;
   const rows = nav.prepare(

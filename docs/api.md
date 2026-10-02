@@ -317,7 +317,7 @@ code: [navdata.md § Source and import endpoints](navdata.md#source-and-import-e
 | GET | `/api/navdata/lnm-import` | session | `{job}` — the running or last import (`null` after a restart) |
 | GET | `/api/navdata/lnm-import/files` | session | `.sqlite` files in the server's import folder, its path, the upload limit and free space |
 | POST | `/api/navdata/lnm-import/path` | session + same-origin | JSON `{fileName}` (bare name in the import folder); `202 {job}` |
-| POST | `/api/navdata/lnm-import/upload` | session + same-origin | Multipart, one part `lnmDatabase`, ≤ 2 GiB, `Content-Length` required; `202 {job}` after the body arrives. `411`, `413`, `400`, `409`, `507` refusals; `500 LNM_SPOOL_FAILED` if the file cannot be written |
+| POST | `/api/navdata/lnm-import/upload` | session + same-origin | Multipart, one part `lnmDatabase`, ≤ 2 GiB, `Content-Length` required; optional `X-Upload-Attempt` id (16–128 of `A-Za-z0-9_-`), a repeat of a recent one is `409 LNM_UPLOAD_REPEATED` with no new job; `202 {job}` after the body arrives. `411`, `413`, `400`, `409`, `507` refusals; `500 LNM_SPOOL_FAILED` if the file cannot be written ([details](navdata.md#source-and-import-endpoints-session)) |
 | DELETE | `/api/navdata/lnm-import` | session + same-origin | Cancel the running import; `202 {job}`, `409 LNM_NOT_RUNNING` when idle |
 
 ## Errors

@@ -186,13 +186,20 @@ does start a live server, deliberately isolated from the developer's own:
 - `npm run test:e2e` (from `client/`) runs Playwright against that instance;
   `npm run test:e2e:ui` opens Playwright's interactive UI mode for the same
   suite.
-- Covers the journeys named in `specs/frontend_testing.md`:
+- Covers the three journeys named in `specs/frontend_testing.md` —
   authentication, core data-visualization/interaction, and error/
   loading-state handling (`client/e2e/specs/auth.spec.ts`,
-  `data-viz.spec.ts`, `error-states.spec.ts`, `smoke.spec.ts`), the
-  flight replay panel (`flight-replay.spec.ts`), and the Carbon shell —
-  navigation tree, confirm dialogs, session expiry, PDF export
-  (`carbon-shell.spec.ts`).
+  `data-viz.spec.ts`, `error-states.spec.ts`, `smoke.spec.ts`) — plus the
+  flight replay panel (`flight-replay.spec.ts`), the Carbon shell
+  (navigation tree, confirm dialogs, session expiry, PDF export;
+  `carbon-shell.spec.ts`), and cancelling a Little Navmap upload from
+  Settings (`lnm-cancel-resend.spec.ts`). That spec throttles the upload and
+  adds latency through the Chrome DevTools Protocol, so that Cancel lands
+  mid-upload and Chromium resends the cut request. It checks that the page,
+  and the page after a reload, show *Import cancelled.*. Its assertions pass
+  whether or not a resend happened. The scratch server's log line `refused a
+  repeated upload attempt`, which appears in the `npm run test:e2e` output
+  (the config pipes the server's stdout), shows whether one did.
 - The server's PDF export starts Chrome, which puts a Unix socket in
   `TMPDIR`; keep `TMPDIR` short (the full socket path must stay under 108
   characters) or the PDF test fails with "Socket path too long".

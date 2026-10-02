@@ -64,8 +64,13 @@ selected source, everything else works exactly as before.
   background.
 - **Settings → Import Little Navmap data.** Upload a `.sqlite` file, or pick one
   already in the server's import folder, then follow the import's progress by
-  stage, with a *Cancel* button. A browser upload is cancelled if you leave the
-  page before it finishes; an import from the server folder keeps running.
+  stage, with a *Cancel* button. *Cancel* ends the import as *Import
+  cancelled.*, and a Settings page opened within ten minutes of that shows the
+  same, unless the notice was closed in that browser. Leaving the page before a
+  browser upload finishes stops the upload: the job ends `failed`
+  (`LNM_UPLOAD_ABORTED`), and a Settings page opened within ten minutes shows
+  *Import failed*. An import from the server folder keeps running when you
+  leave the page.
 
 ## Data provenance and licensing
 
@@ -266,17 +271,18 @@ Session login (`requireAuth`) only; the ingest token is never accepted. `PUT`,
 | GET | `/api/navdata/lnm-import` | `{ job }`: the running or last import (`null` after a restart). A job has `id`, `origin` (`upload`\|`path`), `sourceFileName`, `sourceBytes`, `state` (`receiving`, `running`, `succeeded`, `failed`, `cancelled`), `stage`, `fraction` (0–1), `startedAt`, `finishedAt`, `error { code, message }` and `result { dataset, counts, warnings }`. |
 | GET | `/api/navdata/lnm-import/files` | `{ dir, files: [{ name, sizeBytes, modifiedAt }], maxUploadBytes, availableBytes, reserveBytes }`: the `.sqlite` files in the import folder, the upload limit, free space (`null` if unmeasurable) and the space an import needs beyond the upload. |
 | POST | `/api/navdata/lnm-import/path` | JSON `{ fileName }`: a bare file name in the import folder (no directory part). `202 { job }`. |
-| POST | `/api/navdata/lnm-import/upload` | Multipart, exactly one part, field `lnmDatabase`, with a `Content-Length`. `202 { job }` once the whole file has arrived. |
+| POST | `/api/navdata/lnm-import/upload` | Multipart, exactly one part, field `lnmDatabase`, with a `Content-Length`. `202 { job }` once the whole file has arrived. Optional header `X-Upload-Attempt`: an id for this upload, 16–128 characters from `A-Z a-z 0-9 - _`. The Settings page sends a new random one with every upload. The server remembers the ids of the last 64 uploads that started a job, and refuses a request that repeats one (`409 LNM_UPLOAD_REPEATED`). This is how it recognises the browser's automatic resend of an upload whose connection was cut, as Chromium can do after *Cancel*. The ids are kept in memory, so a restart forgets them. Without the header the upload is handled as before. |
 | DELETE | `/api/navdata/lnm-import` | Cancel the running import. `202 { job }`; the job ends `cancelled` and the previous import stays in place. `409 LNM_NOT_RUNNING` when nothing runs. |
 
 Refusals answered on the request itself:
 
 | HTTP | Code | When |
 |---|---|---|
-| 400 | `LNM_BAD_REQUEST` | `fileName` is not a bare `.sqlite` name, the file is not a regular file or cannot be read, or the upload is not exactly one file in `lnmDatabase`. |
+| 400 | `LNM_BAD_REQUEST` | `fileName` is not a bare `.sqlite` name, the file is not a regular file or cannot be read, the upload is not exactly one file in `lnmDatabase`, or the upload's `X-Upload-Attempt` header is present but not 16–128 characters from `A-Z a-z 0-9 - _` (empty, or sent twice). |
 | 400 | `LNM_NOT_SQLITE` | The file does not start with the SQLite header. |
 | 404 | `LNM_FILE_NOT_FOUND` | No such file in the import folder. |
 | 409 | `LNM_IMPORT_BUSY` | Another import is running. |
+| 409 | `LNM_UPLOAD_REPEATED` | The upload's `X-Upload-Attempt` id already started a job. Checked before `LNM_IMPORT_BUSY`, and answered without reading the body. No job is created, and the job `GET /api/navdata/lnm-import` reports does not change. The Settings page does not show the refusal itself; it re-reads the current job and shows that job's state. |
 | 411 | `LNM_LENGTH_REQUIRED` | An upload without `Content-Length`. |
 | 413 | `LNM_TOO_LARGE` | An upload over 2 GiB. |
 | 507 | `LNM_INSUFFICIENT_STORAGE` | Less free space in the import folder than the upload plus 1.25 GiB (adds `requiredBytes`, `availableBytes`), or the disk filled up while the upload was being written (no extra fields). |

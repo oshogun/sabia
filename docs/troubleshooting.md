@@ -243,6 +243,17 @@ refused request:
 - `411 LNM_LENGTH_REQUIRED` — a proxy stripped `Content-Length`.
 - `LNM_UPLOAD_ABORTED` — the page was closed or the connection dropped before
   the upload finished (also what a body still arriving after 1 h ends as).
+  Upload the file again. The upload is not restarted for you: when Chromium
+  resends an upload whose connection dropped, the server refuses the resend
+  (`LNM_UPLOAD_REPEATED`, below). On an unreliable link, put the file in the
+  import folder and import it from there.
+- `409 LNM_UPLOAD_REPEATED` — the browser resent an upload the server had
+  already started a job for, usually after *Cancel* or a dropped connection.
+  The resend needs no action: no new job is created and the Settings page shows
+  the first job's result. That is *Import cancelled.* after *Cancel*; after a
+  dropped connection it is *Import failed* (`LNM_UPLOAD_ABORTED`, above), and
+  you upload the file again. If you call the endpoint yourself, send a new
+  `X-Upload-Attempt` id with every upload.
 - `LNM_NOT_ATOOLS`, `LNM_UNSUPPORTED_SOURCE`, `LNM_EMPTY` — not a Little Navmap
   database, a `data_source` other than `NAVIGRAPH`/`MSFS`/`MSFS24`, or no
   airports in it.

@@ -358,6 +358,64 @@ describe('NavdataImportTile upload', () => {
     expect(screen.queryByText(message)).toBeNull();
   });
 
+  it('keeps both import buttons disabled until the cancel is answered, though the cancelled upload has already ended', async () => {
+    const user = userEvent.setup();
+    const answer = deferred<ResponseTuple>();
+    const served = serve({ del: answer.handler });
+    renderTile();
+
+    const xhr = await pickAndUpload(user, sqliteFile());
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    act(() => xhr.respond(...REPEATED));
+    await settle();
+    // The request has ended and the server reports no job, so only the cancel still waiting disables the buttons.
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Upload and import' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeDisabled();
+
+    served.job = importJob({ state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+    await act(async () => { answer.resolve([202, { job: served.job }]); });
+
+    expect(await screen.findByText('Import cancelled.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload and import' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Import' })).toBeEnabled();
+    expect(FakeXhr.instances).toHaveLength(1);
+  });
+
+  it('does not drop a newer upload when an earlier cancel is answered after the buttons were enabled again', async () => {
+    const user = userEvent.setup();
+    const firstRead = deferred<ResponseTuple>();
+    const answer = deferred<ResponseTuple>();
+    let reads = 0;
+    const served = serve({
+      get: () => (reads++ === 0 ? firstRead.handler() : [200, { job: served.job }]),
+      del: answer.handler,
+    });
+    renderTile();
+
+    const first = await pickAndUpload(user, sqliteFile());
+    // The first read of the job arrives during the upload: the tile now polls, and a terminal job it reads clears the cancelling state.
+    served.job = importJob({ state: 'receiving', stage: null, fraction: 0 });
+    await act(async () => { firstRead.resolve([200, { job: served.job }]); });
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }));
+    act(() => first.respond(...REPEATED));
+    await settle();
+    expect(screen.getByRole('button', { name: 'Upload and import' })).toBeDisabled();
+
+    served.job = importJob({ state: 'cancelled', stage: null, fraction: 0, finishedAt: Date.now() });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Upload and import' })).toBeEnabled(), POLL_WAIT);
+    await user.click(screen.getByRole('button', { name: 'Upload and import' }));
+    expect(FakeXhr.instances).toHaveLength(2);
+    const second = FakeXhr.instances[1];
+
+    await act(async () => { answer.resolve([202, { job: served.job }]); });
+    await settle();
+
+    expect(second.aborted).toBe(false);
+    expect(screen.getByRole('progressbar', { name: 'Uploading' })).toBeInTheDocument();
+    expect(screen.queryByText('Import failed')).toBeNull();
+  });
+
   it('keeps the cancel when the refusal reaches the upload after the tile already shows it', async () => {
     const user = userEvent.setup();
     const served = serve({

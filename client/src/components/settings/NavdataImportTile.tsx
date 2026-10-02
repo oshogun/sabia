@@ -270,9 +270,15 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
     }
   }
 
-  /** Stops the import. While an upload is open the server is told first, so the job ends cancelled rather than failed, and then the request is dropped. */
+  /**
+   * Stops the import. While an upload is open the server is told first, so the job ends cancelled rather than failed,
+   * and then the request is dropped. The upload is read once, before the first await: a read of a terminal job can
+   * re-enable the upload buttons while the cancel is still waiting for its answer, and a newer upload started then
+   * must not be dropped by this cancel.
+   */
   async function cancelImport() {
-    if (uploadAttempt.current) uploadAttempt.current.cancelRequested = true;
+    const attempt = uploadAttempt.current;
+    if (attempt) attempt.cancelRequested = true;
     setCancelling(true);
     setCancelError('');
     try {
@@ -281,10 +287,10 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
     } catch (err) {
       if (mounted.current && !(err instanceof UnauthorizedError)) {
         setCancelError(messageOf(err));
-        if (uploadAttempt.current === null) setCancelling(false);
+        if (attempt === null || uploadAttempt.current !== attempt) setCancelling(false);
       }
     } finally {
-      uploadAttempt.current?.controller.abort();
+      attempt?.controller.abort();
     }
     if (mounted.current) await refreshJob();
   }
@@ -300,7 +306,9 @@ export function NavdataImportTile({ effectiveSource, onImported }: NavdataImport
     setAnnouncedId(null);
   }
 
-  const busy = uploading !== null || starting || jobBusy;
+  // The buttons that start an import stay disabled while a cancel waits for the server's answer: the cancel is meant
+  // for the import that is current now, not for one started before the answer arrives.
+  const busy = uploading !== null || starting || jobBusy || cancelling;
   const tooLarge = file !== null && files !== null && file.size > files.maxUploadBytes;
   const lowDisk = file !== null && files !== null && !tooLarge && files.availableBytes !== null
     && files.availableBytes < file.size + files.reserveBytes;

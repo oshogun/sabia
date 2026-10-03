@@ -2,7 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import fs from 'fs';
 import { checkIngestCredential } from '../auth/ingestAuth';
 import type { IngestConfig } from '../config';
-import { effectiveNavdataSource, isNavdataBusy, NavdataBusyError } from '../navdata/connection';
+import { effectiveNavdataSource, getNavDb, isNavdataBusy, NavdataBusyError } from '../navdata/connection';
 import { buildDemand, DemandSkipError, NAVDATA_DEMAND_CAP, parseDemandSkip } from '../navdata/demand';
 import { importNavdataSnapshot } from '../navdata/snapshot';
 import { parseSidecarStateReport, type SidecarStateStore } from '../navdata/sidecarState';
@@ -157,7 +157,7 @@ export function createNavdataSyncRouter(
       return;
     }
     try {
-      const ack = applyIncrementalBatch(req.body as IncrementalBatch);
+      const ack = applyIncrementalBatch(getNavDb(), req.body as IncrementalBatch);
       sidecarState.markRowsApplied();
       onDemandChanged();
       res.json(ack);

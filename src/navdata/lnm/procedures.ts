@@ -22,7 +22,7 @@ import { haversineNm } from '../../geo';
 import { approachTypeOf } from '../approachTypes';
 import { dest } from '../geometry';
 import { assignProcKeys, parseRunway, procKey, transKey, type ProcKeyRecord } from '../keys';
-import { runwayDesignation } from '../query';
+import { runwayDesignation } from '../runwayDesignation';
 import type { TransitionRole } from '../wire';
 import type { ConverterStats, LnmContext, LnmConverter, LnmFlavour, SourceIndex, SrcAirport, SrcIls } from './types';
 import { ftToM, nmToM, norm360, stripTrueSuffix, verticalAngleToReplica } from './units';

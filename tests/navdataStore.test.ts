@@ -674,7 +674,7 @@ describe('incremental batches', () => {
     openNavdata();
     await importNavdataSnapshot(writeSnapshot({ snapshotId: 'snapshot-1', rev: 7, rows: [] }));
 
-    const ack = applyIncrementalBatch(batch({
+    const ack = applyIncrementalBatch(getNavDb(), batch({
       rows: [
         row('runway', { rwy_key: 'ZZAA|9|0', airport_ident: 'ZZAA', length_m: 2000, rev: 8 }),
         row('airport', { ident: 'ZZAA', name: 'Zulu Alpha Field', rev: 8 }),
@@ -691,9 +691,9 @@ describe('incremental batches', () => {
     openNavdata();
     await importNavdataSnapshot(writeSnapshot({ snapshotId: 'snapshot-1', rev: 7 }));
 
-    expect(() => applyIncrementalBatch(batch({ snapshotId: 'snapshot-other' }))).toThrow(NavdataStoreError);
+    expect(() => applyIncrementalBatch(getNavDb(), batch({ snapshotId: 'snapshot-other' }))).toThrow(NavdataStoreError);
     try {
-      applyIncrementalBatch(batch({ snapshotId: 'snapshot-other' }));
+      applyIncrementalBatch(getNavDb(), batch({ snapshotId: 'snapshot-other' }));
     } catch (err) {
       expect(err).toMatchObject({
         code: 'NAVDATA_SNAPSHOT_MISMATCH', status: 409, serverSnapshotId: 'snapshot-1', serverRev: 7,
@@ -705,7 +705,7 @@ describe('incremental batches', () => {
     replicaDir();
     openNavdata();
     try {
-      applyIncrementalBatch(batch());
+      applyIncrementalBatch(getNavDb(), batch());
       throw new Error('expected a refusal');
     } catch (err) {
       expect(err).toMatchObject({
@@ -719,7 +719,7 @@ describe('incremental batches', () => {
     openNavdata();
     await importNavdataSnapshot(writeSnapshot({ snapshotId: 'snapshot-1', rev: 7 }));
 
-    expect(() => applyIncrementalBatch(batch({ schemaVersion: 1 }) as never))
+    expect(() => applyIncrementalBatch(getNavDb(), batch({ schemaVersion: 1 }) as never))
       .toThrow(expect.objectContaining({ code: 'NAVDATA_SCHEMA_UNSUPPORTED', serverSchemaVersion: 2 }));
   });
 
@@ -739,7 +739,7 @@ describe('incremental batches', () => {
 
     it('accepts a single-rev batch above the sender target and acks it whole', async () => {
       await ready();
-      const ack = applyIncrementalBatch(batch({ toRev: 9, rows: absentRows(2400, () => 9) }));
+      const ack = applyIncrementalBatch(getNavDb(), batch({ toRev: 9, rows: absentRows(2400, () => 9) }));
       expect(ack).toEqual({ ok: true, snapshotId: 'snapshot-1', rev: 9, applied: 2400 });
       expect(absentCount()).toBe(2400);
       expect(readNavMeta(getNavDb()!)).toMatchObject({ rev: 9 });
@@ -749,7 +749,7 @@ describe('incremental batches', () => {
       await ready();
       let err: unknown;
       try {
-        applyIncrementalBatch(batch({ rows: absentRows(2001, i => (i === 0 ? 8 : 9)) }));
+        applyIncrementalBatch(getNavDb(), batch({ rows: absentRows(2001, i => (i === 0 ? 8 : 9)) }));
       } catch (e) { err = e; }
       expect(err).toMatchObject({ code: 'NAVDATA_BAD_BATCH', status: 400 });
       expect((err as Error).message).toContain('spans more than one rev');
@@ -759,7 +759,7 @@ describe('incremental batches', () => {
 
     it('still accepts exactly the target rows across several revs', async () => {
       await ready();
-      const ack = applyIncrementalBatch(batch({ rows: absentRows(2000, i => 8 + (i % 3)) }));
+      const ack = applyIncrementalBatch(getNavDb(), batch({ rows: absentRows(2000, i => 8 + (i % 3)) }));
       expect(ack.applied).toBe(2000);
       expect(absentCount()).toBe(2000);
     });
@@ -770,11 +770,11 @@ describe('incremental batches', () => {
     // one test gets 30 s; the global 5 s testTimeout stays for everything else.
     it('accepts exactly the ceiling and refuses one row more', async () => {
       await ready();
-      const ack = applyIncrementalBatch(batch({ rows: absentRows(20000, () => 8) }));
+      const ack = applyIncrementalBatch(getNavDb(), batch({ rows: absentRows(20000, () => 8) }));
       expect(ack.applied).toBe(20000);
       let err: unknown;
       try {
-        applyIncrementalBatch(batch({ rows: absentRows(20001, () => 9) }));
+        applyIncrementalBatch(getNavDb(), batch({ rows: absentRows(20001, () => 9) }));
       } catch (e) { err = e; }
       expect(err).toMatchObject({ code: 'NAVDATA_BAD_BATCH', status: 400 });
       expect((err as Error).message).toBe('batch carries 20001 rows, more than 20000');
@@ -785,12 +785,12 @@ describe('incremental batches', () => {
       await ready();
       const rows = absentRows(2001, () => 8);
       delete rows[1000].r.rev;
-      expect(() => applyIncrementalBatch(batch({ rows })))
+      expect(() => applyIncrementalBatch(getNavDb(), batch({ rows })))
         .toThrow(expect.objectContaining({ code: 'NAVDATA_BAD_BATCH' }));
       expect(absentCount()).toBe(0);
       const small = absentRows(3, () => 8);
       delete small[1].r.rev;
-      expect(() => applyIncrementalBatch(batch({ rows: small })))
+      expect(() => applyIncrementalBatch(getNavDb(), batch({ rows: small })))
         .toThrow(expect.objectContaining({ message: expect.stringContaining('no integer rev') }));
     });
   });

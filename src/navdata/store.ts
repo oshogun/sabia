@@ -31,7 +31,6 @@ import {
   type SnapshotHeaderLine,
   type SnapshotId,
 } from './wire';
-import { getNavDb } from './connection';
 
 /** Rows the sender aims for in one incremental batch; a single-rev batch may exceed it. */
 export const NAVDATA_MAX_BATCH_ROWS = 2000;
@@ -530,12 +529,13 @@ function isSingleRev(rows: NavRow[]): boolean {
 }
 
 /**
- * Applies an incremental batch to the live replica. Every refusal carries the
- * code and status the sync route answers with; a revision is only meaningful
- * inside its own epoch, so a batch for another snapshot is refused rather than
- * merged.
+ * Applies an incremental batch to the live replica; the caller passes the
+ * simulator replica handle (null when the file is absent). Every refusal
+ * carries the code and status the sync route answers with; a revision is only
+ * meaningful inside its own epoch, so a batch for another snapshot is refused
+ * rather than merged.
  */
-export function applyIncrementalBatch(batch: IncrementalBatch, now: number = Date.now()): IncrementalAck {
+export function applyIncrementalBatch(db: Database.Database | null, batch: IncrementalBatch, now: number = Date.now()): IncrementalAck {
   if (!batch || typeof batch !== 'object') throw badBatch('batch is not an object');
   if (batch.v !== NAVDATA_WIRE_VERSION || batch.schemaVersion !== NAVDATA_SCHEMA_VERSION) {
     throw new NavdataStoreError(
@@ -545,7 +545,6 @@ export function applyIncrementalBatch(batch: IncrementalBatch, now: number = Dat
     );
   }
 
-  const db = getNavDb();
   const meta = db ? readNavMeta(db) : null;
   if (!db || !meta || meta.snapshot_id !== batch.snapshotId) {
     throw new NavdataStoreError(

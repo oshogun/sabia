@@ -12,7 +12,8 @@ import { requireSameOrigin } from '../src/auth/middleware';
 import { SidecarStateStore } from '../src/navdata/sidecarState';
 import { applyNavdataSchema } from '../src/navdata/schema';
 import { closeNavDb, openNavdata } from '../src/navdata/connection';
-import { runwayDesignation, totalCells, lonRanges, parseBbox } from '../src/navdata/query';
+import { runwayDesignation } from '../src/navdata/runwayDesignation';
+import { totalCells, lonRanges, parseBbox } from '../src/navdata/query';
 import {
   AIRPORT_VIEWPORT_BUDGET, airportTierFloor, chooseAirportTier, setAirportTiers,
 } from '../src/navdata/airportTiers';

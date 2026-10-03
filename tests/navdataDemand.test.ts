@@ -9,6 +9,7 @@ import { applyNavdataSchema } from '../src/navdata/schema';
 import { applyIncrementalBatch, applyNavRows } from '../src/navdata/store';
 import {
   closeNavDb,
+  getNavDb,
   incomingNavdataPath,
   openNavdata,
   resolveNavdataPath,
@@ -885,6 +886,7 @@ describe('airway gaps between planned waypoints', () => {
       expect(buildDemand(NOW).waypoints).toEqual([wants('ZZM1'), wants('ZZM2')]);
 
       applyIncrementalBatch(
+        getNavDb(),
         { v: NAVDATA_WIRE_VERSION, schemaVersion: NAVDATA_SCHEMA_VERSION, snapshotId: 'epoch-1', fromRev: 0, toRev: 0, rows: [navaid('ZZM1', 'ZZ', 'V', 'index')], more: false },
         1,
       );
@@ -1026,6 +1028,7 @@ describe('airway gaps between planned waypoints', () => {
       expect(buildDemand(NOW).waypoints).toEqual([wants('ZZM1'), wants('ZZM2')]);
 
       applyIncrementalBatch(
+        getNavDb(),
         { v: NAVDATA_WIRE_VERSION, schemaVersion: NAVDATA_SCHEMA_VERSION, snapshotId: 'epoch-1', fromRev: 0, toRev: 0, rows: change, more: false },
         1,
       );

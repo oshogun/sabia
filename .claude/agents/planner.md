@@ -84,13 +84,13 @@ planning, establish for yourself:
   first, then the thing that acts on its own.
 - **Isolate the risky parts** into pure modules with their own CLI inspectors, so
   they are falsifiable without the sim and without a test framework.
-- **`model_hint` is only for overriding a role's default model.** Implementer
-  roles (`backend_jr/sr`, `frontend_jr/sr`) default to `sonnet` and never
-  escalate to `opus`, no matter how complex the task — a hard implementation
-  task is a sign the Designer should narrow the contract further, not a reason
-  to spend a bigger model on it. The only downward hint there is `haiku`, for
-  a Jr task that is a narrow, fully specified mechanical edit with no
-  judgement in it. Reviewer defaults to `opus`; hint `sonnet` to downgrade it
+- **`model_hint` is only for overriding a role's default model.** Jr
+  implementers (`backend_jr`, `frontend_jr`) run on Sonnet 5.5 and Sr
+  implementers (`backend_sr`, `frontend_sr`) on Opus 5.5; a task that needs
+  opus is an Sr task, so pick the role instead of hinting `opus`. The only
+  hint for implementers is `haiku`, for a Jr task that is a narrow, fully
+  specified mechanical edit with no judgement in it. Reviewer defaults to
+  Opus 5.5; hint `sonnet` to downgrade it
   for a low-stakes phase (tier-2 work, a single-seam change) where a full opus
   review isn't worth the spend. Leave `model_hint` unset otherwise.
 - **Fewer, larger tasks.** Every task is a cold agent that re-reads its context,

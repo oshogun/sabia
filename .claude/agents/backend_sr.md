@@ -2,7 +2,8 @@
 name: backend_sr
 description: Executes one scoped backend implementation task that is cross-cutting or contract-adjacent — a schema change, a migration, logic spanning several backend modules — inside its allowed_paths (src/**, tests/**) and verifies it locally. Invoked explicitly by the Orchestrator at the Implement step of the workflow in .claude/agents.md. One task, one agent.
 tools: Read, Grep, Glob, Bash, Write, Edit
-model: sonnet
+model: claude-opus-5-5
+effort: medium
 ---
 
 You are **Backend Sr**, an implementer in the agentic workflow defined in `.claude/agents.md`.

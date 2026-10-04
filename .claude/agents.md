@@ -30,13 +30,13 @@ Planner Designer  Implementer            DevOps    Reviewer
 | --- | --- | --- |
 | **Orchestrator** | Owns the goal, splits it into tasks, picks the agent, enforces the loop, reports back to the user. | Task graph + final summary |
 | **Planner** (`sonnet`) | Turns a fuzzy goal into an ordered, dependency-aware task list with acceptance criteria. | `plan.json` (tasks, deps, DoD) |
-| **Designer** (`opus`) | Defines architecture, module boundaries, data models, API/UX contracts. No implementation. | Design doc + interface stubs |
-| **Backend Jr** (`sonnet`) | Single-seam backend implementation: one module, no new contract. Files: `src/**`, `tests/**`. | Diff + evidence |
-| **Backend Sr** (`sonnet`) | Cross-cutting or contract-adjacent backend implementation: schema changes, migrations, logic spanning several modules. Same files as Backend Jr. | Diff + evidence |
-| **Frontend Jr** (`sonnet`) | Single-seam frontend implementation: one component, no new contract. Files: `client/**`. | Diff + evidence |
-| **Frontend Sr** (`sonnet`) | Cross-cutting or contract-adjacent frontend implementation: new pages/routes, cross-component state, API-consuming changes. Same files as Frontend Jr. | Diff + evidence |
+| **Designer** (Opus 5.5, `xhigh`) | Defines architecture, module boundaries, data models, API/UX contracts. No implementation. | Design doc + interface stubs |
+| **Backend Jr** (Sonnet 5.5) | Single-seam backend implementation: one module, no new contract. Files: `src/**`, `tests/**`. | Diff + evidence |
+| **Backend Sr** (Opus 5.5, `medium`) | Cross-cutting or contract-adjacent backend implementation: schema changes, migrations, logic spanning several modules. Same files as Backend Jr. | Diff + evidence |
+| **Frontend Jr** (Sonnet 5.5) | Single-seam frontend implementation: one component, no new contract. Files: `client/**`. | Diff + evidence |
+| **Frontend Sr** (Opus 5.5, `medium`) | Cross-cutting or contract-adjacent frontend implementation: new pages/routes, cross-component state, API-consuming changes. Same files as Frontend Jr. | Diff + evidence |
 | **DevOps** (`sonnet`) | Build, packaging, CI/CD, environment, secrets, deployment, observability. | Pipeline changes + deploy status |
-| **Reviewer** (`opus`) | Reviews diffs against the design and acceptance criteria; checks security, regressions, style. | Verdict `approve` / `request_changes` + findings |
+| **Reviewer** (Opus 5.5, `xhigh`) | Reviews diffs against the design and acceptance criteria; checks security, regressions, style. | Verdict `approve` / `request_changes` + findings |
 
 Backend and frontend never share a task: a task's `allowed_paths` sit entirely
 in one domain, and the Planner (or the Orchestrator, for tier-2 work) picks the
@@ -199,20 +199,20 @@ For tier-3 work only — see Cost discipline rule 6.
   for six phase-3 test findings cost about 250k tokens and 33 minutes. Four
   of the six were test weakenings that the implementer's self-audit (see the
   implementer role files) now catches before hand-back.
-- **Implementation is always sonnet; judgement roles may spend opus.** Credits
-  are finite, and implementation is where the workflow spawns the most agents
-  (one per task, sometimes several per run) — so that's where the model floor
-  matters most. The judgement roles that run once per run and decide what the
-  implementers do, or that catch a bad diff before it merges, are the cheapest
-  place in the workflow to spend opus. The defaults in the role files reflect
-  this; override with the Agent tool's `model` parameter:
-  - `opus` — Designer and Reviewer by default. The Orchestrator (this
+- **Seniority picks the model; judgement roles get the most effort.** The
+  role files' frontmatter (`model:`, `effort:`) sets the defaults; override
+  the model with the Agent tool's `model` parameter:
+  - Opus 5.5 (`claude-opus-5-5`), effort `xhigh` — Designer and Reviewer. They
+    run once per run or gate every merge, and decide what the implementers do
+    or catch a bad diff before it merges. The Orchestrator (this
     conversation) may also run on opus; that's a model choice for the user's
     session, not something the workflow restricts.
-  - `sonnet` — Planner, and every implementer (Backend Jr/Sr, Frontend Jr/Sr),
-    and DevOps, always. Implementation never escalates to opus, regardless of
-    task complexity — a genuinely hard implementation task is a signal to have
-    Designer narrow the contract further, not to spend a bigger model on it.
+  - Opus 5.5 (`claude-opus-5-5`), effort `medium` — Backend Sr and Frontend
+    Sr: schema changes, migrations, new pages/routes, logic spanning several
+    modules.
+  - Sonnet 5.5 (`claude-sonnet-5-5`) — Backend Jr and Frontend Jr. A Jr task
+    that needs more judgement than planned goes to the Sr role of its domain.
+  - `sonnet` — Planner and DevOps.
   - `haiku` — override a Jr implementer down for a narrow, fully specified
     mechanical edit with no judgement in it.
   - Downgrade Designer or Reviewer to `sonnet` for a run too small to justify

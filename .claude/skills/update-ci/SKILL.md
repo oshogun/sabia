@@ -64,7 +64,7 @@ this is the condensed version:
   later major with no prebuilt `better-sqlite3` binary for its ABI:
   `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use` (reads `.nvmrc`) prefixed on
   everything, in the same command (shell state doesn't persist across Bash
-  calls). `actions/setup-node@v4` with `node-version-file: .nvmrc` already
+  calls). `actions/setup-node` with `node-version-file: .nvmrc` already
   does this correctly inside the workflow — the guard is only for your local
   dry run.
 - **Only one workflow file.** `.github/workflows/ci.yml` is the whole CI

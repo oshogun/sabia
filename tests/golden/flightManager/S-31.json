@@ -201,6 +201,14 @@
     ]
   },
   {
+    "t": "log",
+    "text": "[FlightManager] Flight #1 sim silent — holding up to 180s from the last frame"
+  },
+  {
+    "t": "log",
+    "text": "[FlightManager] Flight #1 hold expired after 180s without data — closing at the last frame"
+  },
+  {
     "t": "call",
     "fn": "airports.findNearestAirport",
     "args": [

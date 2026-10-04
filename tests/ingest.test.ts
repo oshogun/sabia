@@ -32,6 +32,7 @@ interface TestServerHandle {
     appState: { connected: boolean; lastFrame: { lat: number; lon: number } | null };
     onFrame: ReturnType<typeof vi.fn>;
     onSimDisconnect: ReturnType<typeof vi.fn>;
+    isHoldingFlight: ReturnType<typeof vi.fn>;
     setPaused: ReturnType<typeof vi.fn>;
     onCrash: ReturnType<typeof vi.fn>;
   };
@@ -49,12 +50,14 @@ function createTestServer(options: TestServerOptions = {}): Promise<TestServerHa
 
   const onFrame = vi.fn();
   const onSimDisconnect = vi.fn();
+  const isHoldingFlight = vi.fn(() => false);
   const setPaused = vi.fn();
   const onCrash = vi.fn();
   const flightManager = {
     appState: { connected: false, lastFrame: null },
     onFrame,
     onSimDisconnect,
+    isHoldingFlight,
     setPaused,
     onCrash,
   };
@@ -466,5 +469,63 @@ describe('onStatusChanged', () => {
 
       expect(onStatusChanged).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('events while a flight is held after the sim went silent', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-09T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['pause', { type: 'pause', flags: 4 }],
+    ['connected', { type: 'connected' }],
+  ])('a %s event does not mark the agent connected while holding', async (type, body) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const { baseUrl, flightManager, onStatusChanged } = await startServer();
+    flightManager.isHoldingFlight.mockReturnValue(true);
+
+    const response = await postJson(baseUrl, '/api/ingest/event', body);
+
+    expect(response.status).toBe(204);
+    expect(onStatusChanged).toHaveBeenCalledTimes(1);
+    expect(flightManager.appState.connected).toBe(false);
+    expect(log.mock.calls.some(([line]) => String(line).includes('[Ingest] Agent connected'))).toBe(false);
+    if (type === 'pause') expect(flightManager.setPaused).toHaveBeenCalledWith(true, 4);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(flightManager.onSimDisconnect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['pause', { type: 'pause', flags: 4 }],
+    ['connected', { type: 'connected' }],
+  ])('a %s event marks the agent connected when no flight is held', async (_type, body) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const { baseUrl, flightManager } = await startServer();
+
+    const response = await postJson(baseUrl, '/api/ingest/event', body);
+
+    expect(response.status).toBe(204);
+    expect(flightManager.appState.connected).toBe(true);
+    expect(log.mock.calls.some(([line]) => String(line).includes('[Ingest] Agent connected'))).toBe(true);
+  });
+
+  it('a disconnected event calls onSimDisconnect once', async () => {
+    const { baseUrl, flightManager } = await startServer();
+    await postJson(baseUrl, '/api/ingest/frame', makeFrame());
+
+    const response = await postJson(baseUrl, '/api/ingest/event', { type: 'disconnected' });
+
+    expect(response.status).toBe(204);
+    expect(flightManager.onSimDisconnect).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(flightManager.onSimDisconnect).toHaveBeenCalledTimes(1);
   });
 });

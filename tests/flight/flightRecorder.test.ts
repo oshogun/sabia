@@ -618,7 +618,7 @@ describe('FlightRecorder through the coordinator', () => {
       fm.onFrame(makeFrame());                 // point 2 at t=5000, 5 s counted
       fm.setPaused(true, 1);
       advance(4000);
-      fm.onSimDisconnect();
+      fm.onCrash();
       // 5 s counted; the 4 s tail is excluded by the pause.
       expect(closeArgs().durationSec).toBe(5);
     });
@@ -631,7 +631,7 @@ describe('FlightRecorder through the coordinator', () => {
       advance(1000);
       fm.onFrame(makeFrame({ simRunning: 3 }));
       advance(3000);
-      fm.onSimDisconnect();                    // the slew frame interrupted the last 4 s
+      fm.onCrash();                    // the slew frame interrupted the last 4 s
       expect(closeArgs().durationSec).toBe(5);
     });
 
@@ -643,7 +643,7 @@ describe('FlightRecorder through the coordinator', () => {
       fm.onFrame(makeFrame());                 // adopts the flight; its point fails, so the mark stays
       advance(5000);
       fm.onFrame(makeFrame());                 // the next point: its 5 s gap follows the outage
-      fm.onSimDisconnect();
+      fm.onCrash();
       // The stored track counted 5 s; the gap after the failed point is not counted.
       expect(closeArgs().durationSec).toBe(5);
       expect(closeArgs().pointCount).toBe(3);
@@ -659,7 +659,7 @@ describe('FlightRecorder through the coordinator', () => {
     fm.onFrame(makeFrame());
     expect(() => fm.onFrame(makeFrame())).toThrow(boom);   // the third frame starts the flight; its first point fails
     advance(3000);
-    fm.onSimDisconnect();
+    fm.onCrash();
 
     // No point was ever stored, so the only flight time is the 3 s tail, which counts because
     // starting the flight cleared the stale interruption.
@@ -695,7 +695,7 @@ describe('FlightRecorder through the coordinator', () => {
     takeoff(fm);                               // the flight clock starts 15 s after the row was inserted
     advance(5000);
     fm.onFrame(makeFrame());
-    fm.onSimDisconnect();
+    fm.onCrash();
     // 5 s of wall clock since the clock started, 5 s counted: nothing excluded, no suffix.
     expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s');
   });
@@ -705,7 +705,7 @@ describe('FlightRecorder through the coordinator', () => {
     takeoff(fm);
     advance(3000);
     airportsMock.findNearestAirport.mockImplementation(() => { advance(20_000); return null; });
-    fm.onSimDisconnect();
+    fm.onCrash();
     // The tail is the 3 s before the lookup; the 20 s the lookup took are not part of the flight.
     expect(dbMock.closeFlight.mock.calls[0][1]).toBe(iso(3000));
     expect(closeArgs().durationSec).toBe(3);
@@ -717,7 +717,7 @@ describe('FlightRecorder through the coordinator', () => {
     advance(5000);
     dbMock.insertPoint.mockImplementationOnce(() => { throw boom; });
     expect(() => fm.onFrame(at(10, { altitudeFt: 9000, airspeedKnots: 250 }))).toThrow(boom);
-    fm.onSimDisconnect();
+    fm.onCrash();
 
     const c = closeArgs();
     expect(c.pointCount).toBe(1);
@@ -771,7 +771,7 @@ describe('FlightRecorder through the coordinator: the takeoff notify', () => {
     for (let i = 0; i < 3; i++) fm.onFrame(makeFrame());   // takeoff; its first point is stored at 7 s
     advance(5000);
     fm.onFrame(makeFrame());                                 // point 2 at 12 s: 5 s counted
-    fm.onSimDisconnect();
+    fm.onCrash();
     // The flight clock started before the notify: 12 s of wall clock, 5 s counted, 7 s excluded.
     // Started after it, the clock would show 5 s and no suffix.
     expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s (7s interrupted, excluded)');
@@ -806,7 +806,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       takeoff(fm);
       advance(5200);
       fm.onFrame(makeFrame());                 // point 2 at 5.2 s: the whole gap counts; no tail
-      fm.onSimDisconnect();
+      fm.onCrash();
       expect(closeArgs().durationSec).toBe(5);
     });
 
@@ -818,7 +818,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       takeoff(fm);
       advance(gapMs);                          // longer than a counted gap, so none of it is flight time
       fm.onFrame(makeFrame());
-      fm.onSimDisconnect();
+      fm.onCrash();
       expect(closeArgs().durationSec).toBe(0);
       expect(logged()).toContain(`[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 0s (${seconds}s interrupted, excluded)`);
     });
@@ -826,7 +826,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
     it('rounds the highest altitude and airspeed to the nearest whole number', () => {
       const fm = new FlightManager();
       takeoff(fm, { altitudeFt: 3000.6, airspeedKnots: 129.4 });
-      fm.onSimDisconnect();
+      fm.onCrash();
       // 3000.6 ft is 3001 (a floor would say 3000); 129.4 kt is 129 (a ceiling would say 130).
       expect(closeArgs().maxAltitudeFt).toBe(3001);
       expect(closeArgs().maxAirspeedKts).toBe(129);
@@ -849,7 +849,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       failingFrame(fm);                        // store fails: nothing counted
       advance(5000);
       fm.onFrame(makeFrame());                 // 10 s since the last stored point, counted once
-      fm.onSimDisconnect();
+      fm.onCrash();
       // The 10 s from the stored point to the next; no tail.
       expect(closeArgs().durationSec).toBe(10);
       expect(closeArgs().pointCount).toBe(2);
@@ -860,7 +860,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       takeoff(fm);
       advance(5000);
       failingFrame(fm);                        // store fails: nothing counted
-      fm.onSimDisconnect();
+      fm.onCrash();
       // Only the 5 s tail since the last stored point.
       expect(closeArgs().durationSec).toBe(5);
       expect(closeArgs().pointCount).toBe(1);
@@ -877,7 +877,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       }
       dbMock.insertPoint.mockImplementation(() => undefined);
       fm.onFrame(at(1.0));                     // point 2 at 10 s
-      fm.onSimDisconnect();
+      fm.onCrash();
       expect(closeArgs().pointCount).toBe(2);
       expect(closeArgs().durationSec).toBe(10);
       expect(closeArgs().distanceNm).toBe(1);
@@ -907,7 +907,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       advance(5000);
       fm.onFrame(makeFrame());                 // flying and paused: skipped, and the interruption marked again
       advance(3000);
-      fm.onSimDisconnect();
+      fm.onCrash();
       // 5 s from the stored track. The 8 s since the resume point are excluded, tail included.
       expect(closeArgs().durationSec).toBe(5);
     });
@@ -919,7 +919,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       advance(5000);
       fm.onFrame(makeFrame());                 // flying and paused: skipped, and marked
       advance(3000);
-      fm.onSimDisconnect();
+      fm.onCrash();
       // Only the first point exists, so nothing was counted, and the 8 s since it are excluded.
       expect(closeArgs().durationSec).toBe(0);
     });
@@ -930,7 +930,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       advance(5000);
       fm.setPaused(false);                     // no pause to end
       fm.onFrame(makeFrame());                 // point 2 at 5 s: counted
-      fm.onSimDisconnect();
+      fm.onCrash();
       expect(closeArgs().durationSec).toBe(5);
     });
   });
@@ -944,7 +944,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       filing = false;
       advance(5000);
       fm.onFrame(makeFrame());                 // point 2 at 9 s: 5 s counted
-      fm.onSimDisconnect();
+      fm.onCrash();
       // The clock started at 0 s: 9 s of wall clock, 5 s counted, 4 s excluded.
       // Started after the filing, it would show 5 s and no suffix.
       expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s (4s interrupted, excluded)');
@@ -956,7 +956,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       takeoff(fm);                             // the takeoff notify takes 5 s: the first point is stored at 5 s
       advance(5000);
       fm.onFrame(makeFrame());                 // point 2 at 10 s: 5 s counted
-      fm.onSimDisconnect();
+      fm.onCrash();
       // The clock started at 0 s: 10 s of wall clock, 5 s counted, 5 s excluded.
       expect(logged()).toContain('[FlightManager] Flight #1 ended — 2 points, 0.0 nm, 5s (5s interrupted, excluded)');
     });
@@ -975,7 +975,7 @@ describe('FlightRecorder through the coordinator: rounding, failed stores, pause
       advance(3000);
       airportsMock.findNearestAirport.mockImplementation(() => { advance(20_000); return null; });
       acarsEventsMock.fileAcarsMessageOnce.mockClear();
-      fm.onSimDisconnect();                    // the arrival lookup takes 20 s
+      fm.onCrash();                    // the arrival lookup takes 20 s
       expect(closeArgs().endTime).toBe(iso(3000));
       expect(filedAt('Flight #1 ON')).toBe(iso(3000));
       expect(filedAt('Flight #1 IN')).toBe(iso(3000));

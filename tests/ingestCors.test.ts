@@ -24,6 +24,7 @@ function createTestServer(): Promise<{
     appState: { connected: false, lastFrame: null },
     onFrame,
     onSimDisconnect: vi.fn(),
+    isHoldingFlight: vi.fn(() => false),
     setPaused: vi.fn(),
     onCrash: vi.fn(),
   } as unknown as Parameters<typeof createIngestRouter>[0];

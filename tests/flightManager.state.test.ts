@@ -170,24 +170,44 @@ describe('FlightManager — state machine', () => {
 
   // ── onCrash / onSimDisconnect ───────────────────────────────────────────────
 
+  it('onCrash() ends a FLYING flight at the last frame\'s coordinates', () => {
+    const fm = new FlightManager();
+    takeoff(fm);
+
+    // A frame 1 s later, somewhere else, that is NOT recorded as a point
+    // (1000 < RECORD_INTERVAL_MS) — so only appState.lastFrame carries it.
+    advance(1000);
+    fm.onFrame(makeFrame({ lat: 36.586952, lon: -121.843079 }));
+
+    fm.onCrash();
+    expect(dbMock.closeFlight).toHaveBeenCalledTimes(1);
+    const [, , lat, lon] = dbMock.closeFlight.mock.calls[0];
+    expect(lat).toBe(36.586952);
+    expect(lon).toBe(-121.843079);
+    expect(fm.appState.flightState).toBe('IDLE');
+  });
+
+  it('onSimDisconnect() holds a FLYING flight and closes it at the last frame 180 s after that frame', () => {
+    const fm = new FlightManager();
+    takeoff(fm);
+
+    advance(1000);
+    fm.onFrame(makeFrame({ lat: 36.586952, lon: -121.843079 }));
+
+    fm.onSimDisconnect();
+    advance(179_999);
+    expect(dbMock.closeFlight).not.toHaveBeenCalled();
+    expect(fm.appState.flightState).toBe('FLYING');
+
+    advance(1);
+    expect(dbMock.closeFlight).toHaveBeenCalledTimes(1);
+    const [, , lat, lon] = dbMock.closeFlight.mock.calls[0];
+    expect(lat).toBe(36.586952);
+    expect(lon).toBe(-121.843079);
+    expect(fm.appState.flightState).toBe('IDLE');
+  });
+
   for (const ending of ['onCrash', 'onSimDisconnect'] as const) {
-    it(`${ending}() ends a FLYING flight at the last frame's coordinates`, () => {
-      const fm = new FlightManager();
-      takeoff(fm);
-
-      // A frame 1 s later, somewhere else, that is NOT recorded as a point
-      // (1000 < RECORD_INTERVAL_MS) — so only appState.lastFrame carries it.
-      advance(1000);
-      fm.onFrame(makeFrame({ lat: 36.586952, lon: -121.843079 }));
-
-      fm[ending]();
-      expect(dbMock.closeFlight).toHaveBeenCalledTimes(1);
-      const [, , lat, lon] = dbMock.closeFlight.mock.calls[0];
-      expect(lat).toBe(36.586952);
-      expect(lon).toBe(-121.843079);
-      expect(fm.appState.flightState).toBe('IDLE');
-    });
-
     it(`${ending}() is a no-op when no frame has ever arrived`, () => {
       const fm = new FlightManager();
       expect(() => fm[ending]()).not.toThrow();

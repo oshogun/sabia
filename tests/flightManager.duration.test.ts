@@ -137,7 +137,7 @@ describe('FlightManager — duration from counted gaps', () => {
     advance(5000); fm.onFrame(makeFrame()); // point 3 at t=10000  gap 5000 counted
     advance(5000); fm.onFrame(makeFrame()); // point 4 at t=15000  gap 5000 counted
     advance(3000); fm.onFrame(makeFrame()); // t=18000, below the interval -> no point
-    fm.onSimDisconnect();                   // tail = 18000-15000 = 3000, counted
+    fm.onCrash();                   // tail = 18000-15000 = 3000, counted
 
     expect(pointOffsetsMs()).toEqual([0, 5000, 10000, 15000]);
     expect(closeArgs().durationSec).toBe(18);
@@ -148,7 +148,7 @@ describe('FlightManager — duration from counted gaps', () => {
     const fm = new FlightManager();
     takeoff(fm);                            // point 1 at t=0
     advance(5500); fm.onFrame(makeFrame()); // point 2 at t=5500, gap 5500 counted
-    fm.onSimDisconnect();                   // tail 0
+    fm.onCrash();                   // tail 0
 
     // Math.round(5500/1000) = 6, not 5 (src/flightManager.ts:278).
     expect(closeArgs().durationSec).toBe(6);
@@ -163,7 +163,7 @@ describe('FlightManager — duration from counted gaps', () => {
     takeoff(fm);                     // point 1 at t=0
     advance(60_000);
     fm.onFrame(makeFrame());         // point 2 at t=60000; gap 60000 <= 60000 -> counted
-    fm.onSimDisconnect();            // tail = 0
+    fm.onCrash();            // tail = 0
 
     expect(dbMock.insertPoint).toHaveBeenCalledTimes(2);
     expect(closeArgs().durationSec).toBe(60);
@@ -174,7 +174,7 @@ describe('FlightManager — duration from counted gaps', () => {
     takeoff(fm);                     // point 1 at t=0
     advance(60_001);
     fm.onFrame(makeFrame());         // point 2 at t=60001; gap 60001 > 60000 -> dropped
-    fm.onSimDisconnect();            // tail = 0
+    fm.onCrash();            // tail = 0
 
     // The point is still recorded — only the time between them is disowned.
     expect(dbMock.insertPoint).toHaveBeenCalledTimes(2);
@@ -188,7 +188,7 @@ describe('FlightManager — duration from counted gaps', () => {
     takeoff(fm);                            // point 1 at t=0
     advance(5000); fm.onFrame(makeFrame()); // point 2 at t=5000, gap counted
     advance(4000);                          // 4 s with no frame at all
-    fm.onSimDisconnect();                   // tail 4000 -> counted.  5 + 4 = 9
+    fm.onCrash();                   // tail 4000 -> counted.  5 + 4 = 9
     expect(closeArgs().durationSec).toBe(9);
   });
 
@@ -197,7 +197,7 @@ describe('FlightManager — duration from counted gaps', () => {
     takeoff(fm);
     advance(5000); fm.onFrame(makeFrame()); // point 2 at t=5000, gap counted
     advance(60_000);
-    fm.onSimDisconnect();                   // tail 60000 <= 60000.  5 + 60 = 65
+    fm.onCrash();                   // tail 60000 <= 60000.  5 + 60 = 65
     expect(closeArgs().durationSec).toBe(65);
 
     resetMocks();
@@ -205,7 +205,7 @@ describe('FlightManager — duration from counted gaps', () => {
     takeoff(fm2);
     advance(5000); fm2.onFrame(makeFrame());
     advance(60_001);
-    fm2.onSimDisconnect();                  // tail 60001 > 60000 -> dropped.  5 + 0 = 5
+    fm2.onCrash();                  // tail 60001 > 60000 -> dropped.  5 + 0 = 5
     expect(closeArgs().durationSec).toBe(5);
   });
 
@@ -215,7 +215,7 @@ describe('FlightManager — duration from counted gaps', () => {
     advance(5000); fm.onFrame(makeFrame()); // point 2 at t=5000, gap counted
     fm.setPaused(true, 1);                  // marks interrupted (:177)
     advance(4000);                          // the same 4 s tail as the test above
-    fm.onSimDisconnect();
+    fm.onCrash();
     // 5 + 0 = 5, not the 9 the un-interrupted tail produced.
     expect(closeArgs().durationSec).toBe(5);
   });
@@ -228,7 +228,7 @@ describe('FlightManager — duration from counted gaps', () => {
     advance(5000);   fm.onFrame(makeFrame()); // point 2 at t=5000    gap 5000 counted
     advance(120_000); fm.onFrame(makeFrame()); // point 3 at t=125000 gap 120000 dropped
     advance(5000);   fm.onFrame(makeFrame()); // point 4 at t=130000  gap 5000 counted
-    fm.onSimDisconnect();                     // tail 0
+    fm.onCrash();                     // tail 0
 
     const c = closeArgs();
     // Wall clock start->end is 130 s; counted is 5 + 5 = 10.
@@ -357,7 +357,7 @@ describe('FlightManager — accumulators handed to closeFlight', () => {
     advance(4000); // t=10000
     fm.onFrame(makeFrame({ lat: p3.lat, lon: p3.lon, altitudeFt: 2000, airspeedKnots: 90 })); // point 3
 
-    fm.onSimDisconnect();
+    fm.onCrash();
 
     const c = closeArgs();
     expect(dbMock.insertPoint).toHaveBeenCalledTimes(3);

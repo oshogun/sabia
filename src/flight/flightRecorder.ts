@@ -192,10 +192,22 @@ export class FlightRecorder {
   }
 
   /**
-   * Fixes the end instant and the duration. Three clock reads, in this order:
-   * the end instant, the tail, then the wall-clock span behind excludedSec.
+   * Fixes the end instant and the duration. Without `atMs`, three clock reads,
+   * in this order: the end instant, the tail, then the wall-clock span behind
+   * excludedSec. With `atMs` (the receive time of the last frame before a
+   * silence) the flight is ended at that instant and the clock is not read.
    */
-  stopClock(): FlightTally {
+  stopClock(atMs?: number): FlightTally {
+    if (atMs !== undefined) {
+      const tailMs = Math.max(0, atMs - this.lastPointTime);
+      if (!this.interrupted && tailMs <= MAX_COUNTED_GAP_MS) this.activeMs += tailMs;
+
+      const durationSec = Math.round(this.activeMs / 1000);
+      const excludedSec = Math.max(0,
+        Math.round((atMs - this.flightStartMs) / 1000) - durationSec);
+      return { endTime: new Date(atMs).toISOString(), durationSec, excludedSec };
+    }
+
     const endTime = new Date().toISOString();
     // Include the final partial interval between the last point and touchdown
     const tailMs = Date.now() - this.lastPointTime;

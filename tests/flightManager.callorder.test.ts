@@ -479,15 +479,28 @@ describe('call order', () => {
     expect(consoleText(log)).toContain('30s (40s interrupted, excluded)');
   });
 
-  it('S-31 onSimDisconnect while FLYING ends the flight from the last frame', () => {
+  it('S-31 onSimDisconnect while FLYING holds the flight, then closes it from the last frame when the wait runs out', () => {
     const fm = newFm();
-    takeoff(fm); cruise(fm); fm.onSimDisconnect(); feed(fm, 3, ROLL);
-    const log = takeLog();
+    takeoff(fm); cruise(fm); fm.onSimDisconnect();
+    vi.advanceTimersByTime(179_999);
+    const beforeExpiry = takeLog();
+    expect(callsTo(beforeExpiry, 'db.closeFlight')).toEqual([]);
+    expect(fm.isHoldingFlight()).toBe(true);
+    vi.advanceTimersByTime(1);
+    feed(fm, 3, ROLL);
+    const log = [...beforeExpiry, ...takeLog()];
     const g = golden('S-31', log);
     expect(log).toEqual(g.log);
     expect(consoleText(log)).toBe(g.consoleText);
     expect(endState(fm, log)).toEqual({ flightState: 'IDLE', currentFlightId: null, notifies: 2 });
-    expect(callsTo(log, 'db.closeFlight')).toHaveLength(1);
+    const closes = callsTo(log, 'db.closeFlight');
+    expect(closes).toHaveLength(1);
+    expect(closes[0].args[1]).toBe(iso(15_000));
+    const oooi = (label: string) => callsTo(log, 'acarsEvents.fileAcarsMessageOnce')
+      .filter(c => c.args[1] === `Flight #1 ${label}`)
+      .map(c => (c.args[0] as { sent_at: string }).sent_at);
+    expect(oooi('ON')).toEqual([iso(15_000)]);
+    expect(oooi('IN')).toEqual([iso(15_000)]);
   });
 
   it('S-32 a second flight in the same process: OUT is estimated, and its own touchdown files ON', () => {
@@ -1097,7 +1110,7 @@ describe('error policy', () => {
     let failing = true;
     behave.db.insertPoint = () => { if (failing) { failing = false; throw new Error('point write failed'); } };
     const fm = newFm();
-    const threw = thrown(() => { feed(fm, 1, northOfNm(KSBA, 5)); cruise(fm, 1, northOfNm(KSBA, 6)); fm.onSimDisconnect(); });
+    const threw = thrown(() => { feed(fm, 1, northOfNm(KSBA, 5)); cruise(fm, 1, northOfNm(KSBA, 6)); fm.onCrash(); });
     const log = takeLog();
     const g = golden('E-31', log);
     expect(log).toEqual(g.log);

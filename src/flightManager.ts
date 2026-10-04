@@ -9,6 +9,9 @@ import { GroundTracker } from './flight/groundTracker';
 import { FlightRecorder } from './flight/flightRecorder';
 import type { RecordedPoint } from './flight/flightRecorder';
 import { OooiReporter } from './flight/oooiReporter';
+import { isSameFlight } from './flight/sameFlight';
+import { SIM_SILENCE_HOLD_MS } from './flight/constants';
+import { haversineNm } from './geo';
 import { tryResumeOpenFlight } from './flight/bootRecovery';
 import type { OpenFlightRow } from './flight/bootRecovery';
 
@@ -16,6 +19,16 @@ export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
 const AIRBORNE_DEBOUNCE_FRAMES = 3;
 const LANDED_DEBOUNCE_FRAMES = 10;
+
+// A FLYING flight kept open while the simulator is silent. `frame` and
+// `receivedAtMs` are the last frame received before the silence; the hold
+// ends and the flight closes at that frame if nothing plausible arrives in time.
+interface HeldFlight {
+  frame: SimFrame;
+  receivedAtMs: number;
+  wasPaused: boolean;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 export class FlightManager {
   private state: FlightState = 'IDLE';
@@ -27,6 +40,9 @@ export class FlightManager {
   private airborneStreak = 0;
   private landedStreak = 0;
   private isPaused = false;
+  private held: HeldFlight | null = null;
+  // Wall-clock time the frame in appState.lastFrame was received.
+  private lastFrameReceivedAtMs = 0;
   // Told after every flight/leg scope change; null until something attaches one.
   private scopeChangeListener: (() => void) | null = null;
   // The open-flight lookup runs once per process, not once per takeoff.
@@ -50,8 +66,12 @@ export class FlightManager {
    */
   setPaused(paused: boolean, flags = paused ? 1 : 0): void {
     // Mark here as well as in onFlyingFrame: a paused sim may stop sending frames
-    // altogether, in which case it never runs to flag the interruption.
-    if (paused) this.recorder.markInterrupted();
+    // altogether, in which case it never runs to flag the interruption. Not while
+    // the flight is held: the hold already excludes the silence, and a held flight
+    // is closed back-dated to its last frame, whose tail (flown before the
+    // silence) must still count. A continuation marks the interruption itself
+    // before it writes its first point.
+    if (paused && !this.held) this.recorder.markInterrupted();
     this.isPaused = paused;
     this.appState.paused = paused;
     this.appState.pauseFlags = paused ? flags : 0;
@@ -84,8 +104,21 @@ export class FlightManager {
     }
   }
 
+  /** True while a FLYING flight is kept open through a sim silence. */
+  isHoldingFlight(): boolean {
+    return this.held !== null;
+  }
+
   onFrame(frame: SimFrame): void {
+    let continued = false;
+    if (this.held) {
+      const outcome = this.onHeldFrame(frame);
+      if (outcome === 'handled') return;
+      continued = outcome === 'continued';
+    }
+
     this.appState.lastFrame = frame;
+    this.lastFrameReceivedAtMs = Date.now();
 
     if (frame.simRunning === 0) {
       this.onSimNotRunning(frame);
@@ -93,6 +126,14 @@ export class FlightManager {
     }
 
     const inSlew = frame.simRunning === 3;
+
+    if (continued) {
+      // The silence is an interruption: its time is not counted, the distance
+      // from the last point to this frame is.
+      this.recorder.markInterrupted();
+      if (!inSlew && !this.isPaused) this.writePoint(frame);
+      this.landedStreak = 0;
+    }
 
     switch (this.state) {
       case 'IDLE':
@@ -104,6 +145,76 @@ export class FlightManager {
       case 'FLYING':
         this.onFlyingFrame(frame, inSlew);
         break;
+    }
+  }
+
+  /**
+   * The first frame after a silence began. 'handled' means nothing more is
+   * done with it, 'continued' means the flight stays open and the frame is
+   * processed as part of it, 'closed' means the held flight was closed at its
+   * last frame and the frame is processed as usual.
+   */
+  private onHeldFrame(frame: SimFrame): 'handled' | 'continued' | 'closed' {
+    const held = this.held;
+    if (!held) return 'closed';
+
+    if (frame.simRunning === 0) {
+      this.endFlight(held.frame, held.receivedAtMs);
+      this.appState.lastFrame = frame;
+      this.lastFrameReceivedAtMs = Date.now();
+      return 'handled';
+    }
+
+    const elapsedMs = Date.now() - held.receivedAtMs;
+    if (!isSameFlight({ last: held.frame, lastWasPaused: held.wasPaused, next: frame, elapsedMs })) {
+      this.endFlight(held.frame, held.receivedAtMs);
+      return 'closed';
+    }
+
+    this.clearHold();
+    console.log(
+      `[FlightManager] Flight #${this.currentFlightId} continued after ${Math.round(elapsedMs / 1000)}s of silence — ` +
+      `${haversineNm(held.frame.lat, held.frame.lon, frame.lat, frame.lon).toFixed(1)} nm from the last frame`
+    );
+    return 'continued';
+  }
+
+  private clearHold(): void {
+    if (!this.held) return;
+    clearTimeout(this.held.timer);
+    this.held = null;
+  }
+
+  private startHold(frame: SimFrame): void {
+    const receivedAtMs = this.lastFrameReceivedAtMs;
+    const timer = setTimeout(
+      () => this.expireHold(),
+      Math.max(0, receivedAtMs + SIM_SILENCE_HOLD_MS - Date.now())
+    );
+    timer.unref?.();
+    this.held = { frame, receivedAtMs, wasPaused: this.isPaused, timer };
+    console.log(
+      `[FlightManager] Flight #${this.currentFlightId} sim silent — ` +
+      `holding up to ${SIM_SILENCE_HOLD_MS / 1000}s from the last frame`
+    );
+  }
+
+  /** The hold ran out: close the flight at the last frame received before the silence. */
+  private expireHold(): void {
+    const held = this.held;
+    if (!held) return;
+    const id = this.currentFlightId;
+    console.log(
+      `[FlightManager] Flight #${id} hold expired after ${SIM_SILENCE_HOLD_MS / 1000}s without data — ` +
+      'closing at the last frame'
+    );
+    try {
+      this.endFlight(held.frame, held.receivedAtMs);
+    } catch (err) {
+      // A throw out of a timer callback would stop the server.
+      console.warn(`[FlightManager] Flight #${id} close after the hold failed:`, err);
+    } finally {
+      this.clearHold();
     }
   }
 
@@ -159,16 +270,23 @@ export class FlightManager {
   }
 
   onCrash(): void {
-    if (this.state === 'FLYING' && this.appState.lastFrame) {
+    if (this.state === 'FLYING' && this.held) {
+      this.endFlight(this.held.frame, this.held.receivedAtMs);
+    } else if (this.state === 'FLYING' && this.appState.lastFrame) {
       this.endFlight(this.appState.lastFrame);
     } else if (this.state === 'GROUND') {
       this.leaveGroundAutoOnly('crash');
     }
   }
 
+  /**
+   * The sim's data stopped (stale check or the client's 'disconnected' event).
+   * A FLYING flight is held open rather than closed, see onHeldFrame().
+   */
   onSimDisconnect(): void {
     if (this.state === 'FLYING' && this.appState.lastFrame) {
-      this.endFlight(this.appState.lastFrame);
+      // Already holding: the window stays counted from the last frame received.
+      if (!this.held) this.startHold(this.appState.lastFrame);
     } else if (this.state === 'GROUND') {
       this.leaveGroundAutoOnly('sim-exit');
     }
@@ -326,11 +444,16 @@ export class FlightManager {
     this.notifyScopeChange();
   }
 
-  private endFlight(frame: SimFrame): void {
+  /**
+   * `atMs` backdates the end to the receive time of `frame`, for a flight that
+   * closes after a silence; without it the flight ends now.
+   */
+  private endFlight(frame: SimFrame, atMs?: number): void {
+    this.clearHold();
     if (this.currentFlightId === null) return;
     const id = this.currentFlightId;
 
-    const tally = this.recorder.stopClock();
+    const tally = this.recorder.stopClock(atMs);
 
     const arr = findNearestAirport(frame.lat, frame.lon);
     if (arr) console.log(`[FlightManager] Arrival airport: ${arr.icao} (${arr.name})`);

@@ -217,12 +217,15 @@ export function createIngestRouter(
           res.status(400).json({ error: 'pause event requires a numeric flags field' });
           return;
         }
-        markConnected();
+        // While a flight is held after the sim went silent, a pause or connected
+        // event carries no frame: marking the agent connected here would show
+        // the sim as live with no data arriving.
+        if (!flightManager.isHoldingFlight()) markConnected();
         flightManager.setPaused(flags !== 0, flags);
         break;
 
       case 'connected':
-        markConnected();
+        if (!flightManager.isHoldingFlight()) markConnected();
         break;
       case 'disconnected':
         markDisconnected();

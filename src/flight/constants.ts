@@ -9,3 +9,14 @@ export const MAX_COUNTED_GAP_MS = 60_000;
 // frame at or above this while GROUND is the off-blocks memo used to
 // timestamp OUT.
 export const TAXI_OUT_SPEED_KTS = 3;
+
+// How long FlightManager keeps a FLYING flight open after the simulator's data
+// stops, counted from the last frame received. A frame from the same aircraft
+// inside this window continues the flight; otherwise the flight is closed at
+// that last frame.
+export const SIM_SILENCE_HOLD_MS = 180_000;
+
+// How far from the last frame received a returning frame may be and still
+// count as the same flight. When the sim was not paused, the distance the last
+// ground speed covers in the silence is added to this.
+export const SAME_FLIGHT_BASE_NM = 5;

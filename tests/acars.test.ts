@@ -874,6 +874,14 @@ describe('buildOooiBody', () => {
     expect(body).toBe('IN KLAX 1519Z\nACFT Airbus A320neo DEST KLAX');
   });
 
+  it('renders UNKNOWN for a null, empty or blank aircraft', () => {
+    for (const aircraft of [null, '', '   ']) {
+      expect(buildOooiBody(baseOooiInput({ aircraft, stand: null, destinationIdent: null }))).toBe(
+        'OUT KSBA 1432Z\nACFT UNKNOWN',
+      );
+    }
+  });
+
   it('never appends a third line when not estimated', () => {
     expect(buildOooiBody(baseOooiInput({ estimated: false })).split('\n')).toHaveLength(2);
   });

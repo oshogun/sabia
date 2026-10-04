@@ -644,7 +644,7 @@ export interface OooiEventInput {
   airportIcao: string | null;
   /** Stand/gate from the ground session; null everywhere else. */
   stand: string | null;
-  /** frame.aircraft, or null. */
+  /** frame.aircraft, or null. Null, empty or blank renders as UNKNOWN. */
   aircraft: string | null;
   /** The linked leg's destinationIdent, from the planned-leg link's cache, or null when unlinked. */
   destinationIdent: string | null;
@@ -682,7 +682,7 @@ export function hhmmz(iso: string): string {
 export function buildOooiBody(input: OooiEventInput): string {
   const lines = [
     `${input.event} ${input.airportIcao ?? '----'} ${hhmmz(input.at)}`,
-    `ACFT ${input.aircraft ?? 'UNKNOWN'}` +
+    `ACFT ${input.aircraft?.trim() || 'UNKNOWN'}` +
       (input.stand !== null ? ` STAND ${input.stand}` : '') +
       (input.destinationIdent !== null ? ` DEST ${input.destinationIdent}` : ''),
   ];

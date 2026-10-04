@@ -46,8 +46,11 @@ page.
 
 Every signed-in page shares one layout: a header with the Sabiá logo, a live
 status tag (*Sim not connected*, *Connected · Idle*, *Recording · <aircraft>*,
-*Paused · <aircraft>*, or *Server unreachable*; *Checking...* until the
-first status response arrives), your username and a log-out
+*Paused · <aircraft>*, *Waiting for sim · <aircraft>* while a flight is held
+open after the simulator's data stopped (see
+[troubleshooting.md](troubleshooting.md#sim-client--connectivity)), or
+*Server unreachable*; *Checking...* until the first status response
+arrives), your username and a log-out
 button, and a side navigation with Home, All flights, Prefiles, Settings and a
 tree of trips and their flights. On a narrow window the side navigation
 collapses behind the menu button; it is not remembered between visits.
@@ -124,8 +127,9 @@ A flight still in progress has no Replay tab; its live position is on Home.
   vertical speed, state (*Airborne*, *On ground* or *Recording gap*) and the
   current point number.
 - **Recording gaps** — where the log has a gap of more than 30 seconds (the sim
-  was paused or slewed, the server was restarted mid-flight, or two flights were
-  combined), replay does not wait it out: the
+  was paused or slewed, the server was restarted mid-flight, two flights were
+  combined, or the simulator's data stopped for a while and the flight then
+  continued), replay does not wait it out: the
   marker holds still for 2 seconds of replay time and the state shows *Recording
   gap* with the real duration.
 - **Keyboard** — with focus on the replay panel: Space plays/pauses, ←/→ seek
@@ -136,11 +140,12 @@ Replay is not part of the PDF or KML export.
 
 ## Combining flights
 
-If a dropped sim-client connection or a sim crash splits one real flight into two
-log entries, combine them from the All Flights page (or `POST
-/api/flights/combine`). This merges points and durations; it does not
-re-resolve ICAO codes on the result — run `npm run backfill-icao` afterward
-if you combine many flights (see [operations.md](operations.md)).
+If a sim-client connection that stays down longer than the 3-minute hold, or a
+sim crash, splits one real flight into two log entries, combine them from the
+All Flights page (or `POST /api/flights/combine`). This merges points and
+durations; it does not re-resolve ICAO codes on the result — run
+`npm run backfill-icao` afterward if you combine many flights (see
+[operations.md](operations.md)).
 
 ## Exporting
 

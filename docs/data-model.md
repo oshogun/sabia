@@ -70,9 +70,10 @@ Track log — one row per recorded telemetry sample.
 | `on_ground` | INTEGER NOT NULL (0/1) |
 | `after_interruption` | INTEGER NOT NULL DEFAULT 0 (0/1) |
 
-`after_interruption` is 1 on the first point stored after a pause, a slew or
-a resume after a server restart. When a flight is resumed, the gap that ends at
-a flagged point is not counted toward its duration (see
+`after_interruption` is 1 on the first point stored after a pause, a slew, a
+resume after a server restart, or a continuation after a sim silence. When a
+flight is resumed, the gap that ends at a flagged point is not counted toward
+its duration (see
 [architecture.md § Flight state machine](architecture.md#flight-state-machine)).
 The column was added in place by a migration in `applySchema`, so points
 recorded before it existed read 0. It is internal: the flight and trip

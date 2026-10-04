@@ -214,7 +214,8 @@ over ingest, not by any client request. `src/flightManager.ts`
 - the state;
 - the transition guards: the airborne and landed debounces, and entering
   GROUND once `GroundTracker` reports the parked debounce met;
-- the order of every step in a takeoff, a resume and a landing.
+- the order of every step in a takeoff, a resume, a hold after the sim goes
+  silent, and a landing.
 
 It is the only code that changes the state. Each concern it orchestrates
 lives in its own module under `src/flight/`:
@@ -227,7 +228,8 @@ lives in its own module under `src/flight/`:
 | `oooiReporter.ts` (`OooiReporter`) | ACARS OUT/OFF/ON/IN messages and periodic position reports. |
 | `bootRecovery.ts` | The one-time open-flight lookup after a restart (below). |
 | `legProgress.ts`, `summarizeTrack.ts` | Pure helpers: progress along a planned route; rebuilding a flight's totals from its stored track. |
-| `constants.ts` | Shared thresholds: `MAX_COUNTED_GAP_MS` (60 s) and `TAXI_OUT_SPEED_KTS` (3 kt), both also re-exported from `src/flightManager.ts`. |
+| `sameFlight.ts` | Pure helper: whether the first frame after a silence belongs to the flight being held (below). |
+| `constants.ts` | Shared thresholds: `MAX_COUNTED_GAP_MS` (60 s) and `TAXI_OUT_SPEED_KTS` (3 kt), both also re-exported from `src/flightManager.ts`; `SIM_SILENCE_HOLD_MS` (180 s) and `SAME_FLIGHT_BASE_NM` (5 nm), used by the hold (below). |
 
 **States:** `IDLE` → `GROUND` → `FLYING` → back to `IDLE`.
 
@@ -243,8 +245,49 @@ lives in its own module under `src/flight/`:
   or sim disconnect while grounded closes only an auto-created session,
   leaving a manually-created one open for the operator.
 - **FLYING → IDLE (landing)**: 10 consecutive landed frames (on ground,
-  groundspeed &lt;5kt), or immediately on crash/sim-disconnect. Writes final
-  flight stats, records the leg outcome (below), files ON/IN ACARS messages.
+  groundspeed &lt;5kt); immediately on a crash or on a frame reporting the sim
+  not running; or when a hold after a sim silence ends without the flight
+  continuing (below). Writes final flight stats, records the leg outcome
+  (below), files IN, and ON if no touchdown filed it earlier.
+- **Hold after the sim goes silent**: in FLYING, losing the client's data
+  does not end the flight at once.
+  - It starts when no frame and no `pause` or `connected` event has arrived
+    for more than 10 s (the check runs every 5 s, so 10–15 s after the last
+    of them), or when the client sends a `disconnected` event. The flight
+    stays `FLYING`, `GET /api/status` reports `connected: false`, the
+    header shows *Waiting for sim · &lt;aircraft&gt;*, and nothing is filed.
+    Log: "Flight #N sim silent — holding up to 180s from the last frame".
+  - It lasts up to `SIM_SILENCE_HOLD_MS` (180 s), counted from the time the
+    last frame was received. A second silence or `disconnected` during the
+    hold changes nothing.
+  - The first frame that arrives decides (`sameFlight.ts`). It continues the
+    flight when it is from the same aircraft (the same `aircraft` string),
+    arrives within the 180 s, and is within 5 nm of the last frame; when
+    the sim was not paused as the hold started, the 5 nm grows by the
+    distance the last ground speed covers in the time since the last frame.
+    A continuation keeps the same `flights` row and the leg link, files no
+    OUT/OFF, and marks the silence as an interruption (its time is not
+    counted, the distance to the new point is). The frame is then handled
+    as a normal flying frame, so an on-ground frame counts toward the
+    landing debounce. Log: "Flight #N continued after Ns of silence — X.X nm
+    from the last frame".
+  - Any other first frame, the 180 s running out ("Flight #N hold expired
+    after 180s without data — closing at the last frame"), a frame reporting
+    the sim not running, or a `crashed` event closes the flight at the last
+    frame received before the silence: `end_time` is the time that frame
+    arrived, the arrival position and airport come from it, and IN carries
+    that time; so does ON, unless a touchdown earlier in the flight already
+    filed it at the touchdown time. A frame that ended the hold this way is
+    then handled as usual, for example as the first frame of a new takeoff.
+  - While a flight is held, `pause` and `connected` events do not mark the
+    client connected, because they carry no frame. A pause during the hold
+    updates the pause state but does not mark an interruption; a
+    continuation marks one anyway.
+  - In GROUND a silence or `disconnected` closes only an auto-created
+    ground session (above); in IDLE it only marks the client disconnected. A
+    server shutdown during a hold leaves the row open, and the restarted
+    server resumes it like any open flight (below), with no position or
+    aircraft check.
 - **Resume after a server restart**: shutdown never ends a flight. On the
   first running frame after the process starts, the server looks once for a
   `flights` row that was never closed. If it finds one, it continues that
@@ -277,8 +320,8 @@ entirely.
   when the flight ends. A point is stored at most every 5 s while flying.
 - **When a gap counts.** Only when it is ≤60s and the flight wasn't
   interrupted since the previous point. Interrupted means paused (any
-  `Pause_EX1` flag, or the legacy `Paused` event), slewed, or resumed after
-  a restart.
+  `Pause_EX1` flag, or the legacy `Paused` event), slewed, resumed after a
+  restart, or continued after a sim silence.
 - **The interruption is stored with the point.** The first point stored
   after an interruption is written with `flight_points.after_interruption`
   = 1. When a restarted server resumes the flight, it skips the gap that ends
@@ -287,24 +330,35 @@ entirely.
   read 0, so for those only the 60 s rule applies.
 - **Pauses and slews.** No point is recorded during a pause or a slew, so
   that time falls inside a gap that isn't counted. A pause, the pause menu
-  or a frozen sim is therefore excluded rather than inflating the duration.
-  That holds only while frames keep arriving.
+  or a frozen sim is therefore excluded rather than inflating the duration,
+  whether or not frames keep arriving. What depends on the frames is whether
+  a pause longer than the 180 s hold keeps the flight as one entry.
   - The MCDU client sends one frame per SimConnect per-second data callback
-    and doesn't stop on pause, so the exclusion depends on whether MSFS keeps
-    delivering that data while paused. That hasn't been checked live.
-  - If MSFS stops delivering, a pause longer than about 10–15 s ends the
-    flight through the disconnect rule below.
-  - A loading stall or other hang makes the client go silent, with the same
-    result.
-- **A dropped MCDU connection.** The server checks every 5 s, so it
-  notices silence 10–15 s after the last frame. It then marks the client
-  disconnected and **ends** the flight. A `disconnected` event from the
-  client does the same immediately.
-  - The silence up to that moment counts as the flight's last seconds,
-    unless the flight was paused or slewed since its last point.
-  - Frames arriving later in the air start a new flight (see
-    [troubleshooting.md § Data](troubleshooting.md#data)).
-  - A drop shorter than that isn't noticed, and its gap counts like any
+    and doesn't stop on pause, so whether a long pause keeps the flight open
+    depends on whether MSFS keeps delivering that data while paused. On
+    2026-10-03 it did, through a 45-minute pause: the flight stayed open and
+    the pause was excluded.
+  - If MSFS stops delivering, a pause longer than about 10–15 s starts a
+    hold (above), and the flight closes at the last frame unless the data
+    is back within 180 s of it.
+  - A loading stall or other hang makes the client go silent the same way.
+    When the frames come back within the hold, from the same aircraft and
+    place, the flight continues.
+- **A silence or a dropped MCDU connection.** The server checks every 5 s,
+  so it notices silence 10–15 s after the last frame (or the last `pause` or
+  `connected` event, if one came later). It then marks the
+  client disconnected and, in FLYING, holds the flight (above). A
+  `disconnected` event from the client does the same immediately.
+  - The silence itself is never counted: a continuation marks it as an
+    interruption, and a close ends the flight at the last frame received.
+  - When the hold closes the flight, the time between the last stored point
+    and the last frame counts as the flight's last seconds, unless the
+    flight was paused or slewed between that point and the silence.
+  - After a close, later frames are handled as in IDLE: whether they came
+    after the hold, from another aircraft or too far away, three consecutive
+    airborne frames start a new flight, and frames on the ground start none
+    (see [troubleshooting.md § Data](troubleshooting.md#data)).
+  - A drop shorter than 10 s is never noticed, and its gap counts like any
     other.
 
 ## Leg matching and closing

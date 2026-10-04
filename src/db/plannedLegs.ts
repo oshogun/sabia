@@ -591,8 +591,8 @@ export function getPlannedLegCandidatesForActiveTrip(): LegMatchCandidate[] {
  * but it returns FlightWithPoints and so loads every flight_points row to
  * read one integer — thousands of them on a long haul at a 5 s recording
  * interval. endFlight() asks this question on its way out, including
- * from onCrash() and onSimDisconnect(), which is the worst moment to allocate
- * a track nobody reads.
+ * from onCrash() and from the close at the end of a hold after a sim silence,
+ * which is the worst moment to allocate a track nobody reads.
  *
  * NULL means "no link", and it also means "no such flight". Every caller
  * treats the two alike: recordArrival() returns, refreshForFlight() clears its

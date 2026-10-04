@@ -97,7 +97,7 @@ npm run test:types  # typecheck src/ + tests/ together (npm run build only typec
 
 ### Flight state machine tests
 
-The flight logic is covered at three layers.
+The flight logic is covered by four groups of tests.
 
 **Characterization net.** It pins the coordinator's externally visible
 behaviour step by step:
@@ -113,8 +113,15 @@ behaviour step by step:
 - `tests/flightManager.resumelog.test.ts` pins the resume log line and its
   start-time fallback.
 
-**The original suites.** The other `tests/flightManager*.test.ts` files cover
-state transitions, ground sessions, ACARS, duration and resume.
+**The original suites.** The other `tests/flightManager*.test.ts` files,
+except the hold suite below, cover state transitions, ground sessions, ACARS,
+duration and resume.
+
+**The hold after a sim silence.** `tests/flightManager.hold.test.ts` covers
+continuation, the close at the last frame, and a pause, crash, repeated
+disconnect or not-running frame during a hold; `tests/ingest.test.ts` covers
+`pause` and `connected` events not marking the client connected while a
+flight is held.
 
 **Unit tests for the `src/flight/*` modules** (all but `constants.ts`).
 `tests/flight/*.test.ts` also pins rules that only show under a double fault

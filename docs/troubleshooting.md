@@ -92,6 +92,16 @@ Check these in order:
 
 The MCDU's own [troubleshooting guide](https://github.com/oshogun/sabia_mcdu/blob/main/docs/troubleshooting.md) covers its side.
 
+**The header shows *Waiting for sim · &lt;aircraft&gt;* during a flight.**
+The server stopped receiving data from the MCDU client mid-flight and is
+holding the flight open. It waits up to 3 minutes from the last frame it
+received. If frames from the same aircraft and place come back in that
+time, the flight continues as one entry. Otherwise it is closed at the last
+frame received (see
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)).
+If the simulator itself is still running, check the client's connection as
+in the entry above.
+
 **The MCDU client and server were both reconfigured and it still doesn't work.**
 Check that *both* sides picked up the change. After changing an env var
 the server must be restarted, because a running process doesn't pick up new
@@ -136,12 +146,21 @@ wrong "current password" attempts lock the password form, not the login page.
 ## Data
 
 **A flight looks split into two entries with a gap.**
-The server stopped hearing from the MCDU client mid-flight. Either the client
-sent a `disconnected` event, or no frame arrived for more than 10 s. The
-second happens with a network drop, the client crashing or being killed, or
-MSFS hanging or pausing in a way that stops the client's frames. The server then
-ends the flight, and the frames that arrive later in the air start a new
-one.
+The server stopped hearing from the MCDU client mid-flight, and the data
+that came back did not continue the flight. When no frame arrives for 10 s,
+or the client sends a `disconnected` event, the server holds the flight open
+for up to 3 minutes from the last frame. That happens with a network drop,
+the client crashing or being killed, or MSFS hanging or pausing in a way
+that stops the client's frames. The flight is split when the data:
+- came back more than 3 minutes after the last frame;
+- came back from a different aircraft (the aircraft name changed); or
+- came back more than 5 nm from the last position, plus the distance the
+  aircraft would have flown at its last ground speed when the sim was not
+  paused.
+
+A crash, or a frame reporting the sim not running, during the hold also
+closes the flight. The held flight is closed at the last frame received,
+and the frames that arrive later in the air start a new one.
 
 A server restart does **not** split a flight: the restarted server resumes
 the open flight on its first frame (see
@@ -152,8 +171,9 @@ Use "Combine flights" from the All Flights page. Then run
 airport codes (combining doesn't re-resolve them).
 
 **A flight's logged duration looks too short.**
-Expected if the flight was paused, in the pause menu or slewed, or if the
-server was restarted mid-flight. None of that time is counted (see
+Expected if the flight was paused, in the pause menu or slewed, if the
+server was restarted mid-flight, or if the simulator's data stopped for a
+while and the flight then continued. None of that time is counted (see
 [architecture.md § Flight state machine](architecture.md#flight-state-machine)).
 If the flight predates this behavior, `npm run backfill-durations` (dry-run
 first) recomputes it.

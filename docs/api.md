@@ -39,6 +39,11 @@ Response: `connected`, `flightState`, `currentFlightId`, `paused`,
 `flightState === 'FLYING'` with a frame present), `groundSession` (only
 while `flightState === 'GROUND'`), `traffic` (only when non-empty).
 
+While a flight is held after the simulator's data stopped, the body reads
+`connected: false` with `flightState: 'FLYING'`, and `aircraft` and `frame`
+are still those of the last frame received (see
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)).
+
 ## Flights — `src/routes/flights.ts`
 
 | Method | Path | Auth | Purpose |
@@ -216,6 +221,13 @@ sidecar uses to feed telemetry, events and AI traffic.
 | POST | `/api/ingest/frame` | ingest token | One `SimFrame` sample — the sole path into the flight state machine |
 | POST | `/api/ingest/event` | ingest token | A discrete event: `pause` (`{flags}`), `connected`, `disconnected`, `paused`, `unpaused`, `crashed` |
 | POST | `/api/ingest/traffic` | ingest token | A batch of nearby AI/multiplayer aircraft (≤200 objects); in-memory only, never persisted |
+
+While a flight is held after the simulator's data stopped, `pause` and
+`connected` events don't mark the client connected and `disconnected`
+changes nothing; a frame or a `crashed` event ends the hold (see
+[architecture.md § Flight state machine](architecture.md#flight-state-machine)).
+Outside a hold, `pause` and `connected` mark the client connected, and
+`disconnected` marks it disconnected (in FLYING, that starts the hold).
 
 `/api/ingest/*` also has its own narrow CORS handling for `Origin:
 coui://html_ui` (the in-sim MCDU browser) — no other route in the server sets

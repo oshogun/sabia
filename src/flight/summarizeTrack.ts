@@ -83,11 +83,11 @@ export function summarizeTrack(
     // The same counted/uncounted gap rule writePoint() applies live, applied
     // retroactively across the seeded track: a gap counts only when it is
     // short enough (a longer one means recording had stopped) and its ending
-    // point carries no stored interruption mark (a pause, slew or restart
-    // that ended in that point). A non-positive or unparseable gap
-    // (out-of-order or hand-edited timestamps) is also skipped rather than
-    // let corrupt every later number. The distance of a skipped gap still
-    // counts.
+    // point carries no stored interruption mark (a pause, slew, restart or
+    // continuation after a sim silence that ended in that point). A
+    // non-positive or unparseable gap (out-of-order or hand-edited
+    // timestamps) is also skipped rather than let corrupt every later number.
+    // The distance of a skipped gap still counts.
     for (let i = 1; i < n; i++) {
       distanceNm += haversineNm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
       const gap = Date.parse(points[i].ts) - Date.parse(points[i - 1].ts);

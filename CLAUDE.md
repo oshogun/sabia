@@ -88,6 +88,12 @@ version number and notes with the user before pushing.
 issue with `gh`, checks its claims against the current code, and recommends a
 tier. It stops there and waits for the user to say go before any intake.
 
+**The Urutau board** ("show the board", "prioritize To do", "move #7 to In
+progress"): use **[`/board`](.claude/skills/board/SKILL.md)**. It is tier 1.
+It reads and arranges card positions through the urutau MCP tools and never
+changes the issues on GitHub. `/issue` moves the card to In progress when the
+user says go.
+
 ### The loop
 
 1. **Intake** — restate the goal and success criteria, and write

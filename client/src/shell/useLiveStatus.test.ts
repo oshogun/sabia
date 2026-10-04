@@ -5,7 +5,7 @@ import { mockFetchRoutes, deferred } from '../test/mockFetch';
 import type { ResponseTuple } from '../test/mockFetch';
 import { MockEventSource } from '../test/mockEventSource';
 import { LiveEventsProvider, EVENTS_CLOSED_RETRY_MIN_MS, HIDDEN_CLOSE_DELAY_MS } from './LiveEventsProvider';
-import { useLiveStatus } from './useLiveStatus';
+import { useLiveStatus, statusToView } from './useLiveStatus';
 
 const IDLE_STATUS_BODY = {
   connected: true, flightState: 'IDLE', currentFlightId: null, aircraft: null, frame: null, paused: false, pauseFlags: 0,
@@ -97,6 +97,33 @@ describe('useLiveStatus', () => {
     expect(MockEventSource.instances).toHaveLength(4);
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(MockEventSource.instances).toHaveLength(5); // back to 5s, not 40s
+  });
+
+  describe('statusToView', () => {
+    it('returns gray "Waiting for sim" when disconnected and FLYING with aircraft name', () => {
+      const status = { connected: false, flightState: 'FLYING', aircraft: 'Cessna 182', paused: false, frame: null, currentFlightId: null, pauseFlags: 0 };
+      expect(statusToView(status)).toEqual({ type: 'gray', label: 'Waiting for sim · Cessna 182' });
+    });
+
+    it('returns gray "Waiting for sim · Unknown" when disconnected and FLYING with null aircraft', () => {
+      const status = { connected: false, flightState: 'FLYING', aircraft: null, paused: false, frame: null, currentFlightId: null, pauseFlags: 0 };
+      expect(statusToView(status)).toEqual({ type: 'gray', label: 'Waiting for sim · Unknown' });
+    });
+
+    it('returns gray "Sim not connected" when disconnected and IDLE', () => {
+      const status = { connected: false, flightState: 'IDLE', aircraft: null, paused: false, frame: null, currentFlightId: null, pauseFlags: 0 };
+      expect(statusToView(status)).toEqual({ type: 'gray', label: 'Sim not connected' });
+    });
+
+    it('returns green "Recording" when connected and FLYING unpaused', () => {
+      const status = { connected: true, flightState: 'FLYING', aircraft: 'Cessna 182', paused: false, frame: null, currentFlightId: null, pauseFlags: 0 };
+      expect(statusToView(status)).toEqual({ type: 'green', label: 'Recording · Cessna 182' });
+    });
+
+    it('returns magenta "Paused" when connected and FLYING paused', () => {
+      const status = { connected: true, flightState: 'FLYING', aircraft: 'Cessna 182', paused: true, frame: null, currentFlightId: null, pauseFlags: 0 };
+      expect(statusToView(status)).toEqual({ type: 'magenta', label: 'Paused · Cessna 182' });
+    });
   });
 
   it('never opens a second stream when a hidden-close cuts off a backoff probe that only completes after the tab is visible again', async () => {

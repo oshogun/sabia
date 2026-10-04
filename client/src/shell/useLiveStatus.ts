@@ -4,6 +4,9 @@ import type { Status } from '../types';
 
 /** Same wording the production header uses, mapped onto Carbon Tag colours. */
 export function statusToView(s: Status): LiveStatusView {
+  if (!s.connected && s.flightState === 'FLYING') {
+    return { type: 'gray', label: `Waiting for sim · ${s.aircraft || 'Unknown'}` };
+  }
   if (!s.connected) return { type: 'gray', label: 'Sim not connected' };
   if (s.flightState === 'FLYING') {
     return s.paused

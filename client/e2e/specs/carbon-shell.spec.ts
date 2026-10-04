@@ -91,7 +91,7 @@ test.describe('modal focus trap', () => {
 test.describe('header live-status label', () => {
   test('shows "Sim not connected" against the agent-less scratch server, and never a stray label', async ({ page }) => {
     const tag = page.locator('[aria-live="polite"]');
-    const allowedLabel = /^(Checking\.\.\.|Server unreachable|Sim not connected|Recording · .+|Paused · .+|Connected · Idle)$/;
+    const allowedLabel = /^(Checking\.\.\.|Server unreachable|Sim not connected|Recording · .+|Paused · .+|Connected · Idle|Waiting for sim · .+)$/;
 
     await page.goto('/');
     const seen = new Set<string>();

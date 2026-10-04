@@ -180,7 +180,7 @@ Mirrored as JS strings in `client/src/components/maps/palette.ts` and `navdata/n
 - **Placeholder Gray** (#8d8d8d): placeholders, disabled text, airways, AI traffic on the ground.
 
 ### Named Rules
-**The Status Owns Colour Rule.** A hue on a tag or chip means one thing everywhere. Live status: green *Recording*, magenta *Paused*, blue *Connected · Idle*, gray *Sim not connected* / *Checking...*, red *Server unreachable*. Legs: cool-gray *planned*, green *flown*, red *diverted*, gray *skipped*, purple *active trip*. ACARS: blue PDC, teal WX, cyan position report, purple dispatch, green OOOI, gray free text. New statuses get a new entry in `StatusTag.tsx`'s `KINDS` table, never an inline colour.
+**The Status Owns Colour Rule.** A hue on a tag or chip means one thing everywhere. Live status: green *Recording*, magenta *Paused*, blue *Connected · Idle*, gray *Sim not connected* / *Waiting for sim* (a flight held open while the sim's data has stopped) / *Checking...*, red *Server unreachable*. Legs: cool-gray *planned*, green *flown*, red *diverted*, gray *skipped*, purple *active trip*. ACARS: blue PDC, teal WX, cyan position report, purple dispatch, green OOOI, gray free text. New statuses get a new entry in `StatusTag.tsx`'s `KINDS` table, never an inline colour.
 
 **The Logo-Only Brand Colour Rule.** Sabiá's own colours come from the bird, are used sparingly (a mark, an edge, a moment, never a surface fill or a button), and never on anything that could be mistaken for a status.
 

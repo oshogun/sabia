@@ -70,6 +70,9 @@ describe('resume log line and start-time fallback', () => {
 
   it('a resumed row whose start time is exactly the epoch keeps it, rather than falling back to now', () => {
     behave.db.getOpenFlight = () => openRow({ start_time: '1970-01-01T00:00:00.000Z' });
+    // A stored point a minute back: with none, the restart check would measure
+    // from the start time itself and close the flight instead.
+    behave.db.getFlightTrackPoints = () => [pt(0, iso(-60_000))];
     const fm = newFm();
     feed(fm, 1, northOfNm(KSBA, 1));
     cruise(fm, 2, northOfNm(KSBA, 2));

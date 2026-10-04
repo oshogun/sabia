@@ -46,6 +46,21 @@ describe('isSameFlight', () => {
     expect(isSameFlight({ last: last(), lastWasPaused: false, next: next(0), elapsedMs: 180_000 })).toBe(true);
   });
 
+  it('takes its own time limit when given one, inclusive like the default', () => {
+    const base = { last: last(), lastWasPaused: false, next: next(0), maxElapsedMs: 600_000 };
+    expect(isSameFlight({ ...base, elapsedMs: 600_000 })).toBe(true);
+    expect(isSameFlight({ ...base, elapsedMs: 600_001 })).toBe(false);
+    expect(isSameFlight({ ...base, elapsedMs: 180_001 })).toBe(true);
+  });
+
+  it('a given time limit leaves the aircraft and distance checks as they are', () => {
+    const base = { last: last({ groundSpeedKnots: 60 }), lastWasPaused: false, elapsedMs: 600_000, maxElapsedMs: 600_000 };
+    // 5 nm + 60 kt for 10 min = 15 nm.
+    expect(isSameFlight({ ...base, next: next(15) })).toBe(true);
+    expect(isSameFlight({ ...base, next: next(15.1) })).toBe(false);
+    expect(isSameFlight({ ...base, next: next(0, { aircraft: 'Cessna 182' }) })).toBe(false);
+  });
+
   it('treats a NaN ground speed as 0', () => {
     const base = { last: last({ groundSpeedKnots: NaN }), lastWasPaused: false, elapsedMs: 60_000 };
     expect(isSameFlight({ ...base, next: next(5) })).toBe(true);

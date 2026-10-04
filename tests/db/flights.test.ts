@@ -21,6 +21,7 @@ import {
   getFlightById,
   getFlightPointCount,
   getFlightTrackPoints,
+  getLastFlightPoint,
   deleteFlight,
   combineFlights,
   getFlightStats,
@@ -194,6 +195,33 @@ describe('getFlightPointCount', () => {
     seedPoints(scratch.db, idB, [{ ts: T0 }]);
     expect(getFlightPointCount(idA)).toBe(2);
     expect(getFlightPointCount(idB)).toBe(1);
+  });
+});
+
+describe('getLastFlightPoint', () => {
+  it('returns the newest point of the given flight by ts, with every column a frame needs', () => {
+    const idA = seedFlight(scratch.db);
+    const idB = seedFlight(scratch.db);
+    seedPoints(scratch.db, idA, [
+      { ts: '2026-09-09T12:00:10.000Z', lat: KMRY.lat, lon: KMRY.lon, altitude_ft: 20, airspeed_kts: 3, ground_speed_kts: 2, heading_deg: 90, vertical_speed_fpm: -50, on_ground: 1 },
+      { ts: T0 },
+    ]);
+    seedPoints(scratch.db, idB, [{ ts: '2026-09-09T13:00:00.000Z' }]);
+    expect(getLastFlightPoint(idA)).toEqual({
+      ts: '2026-09-09T12:00:10.000Z', lat: KMRY.lat, lon: KMRY.lon, altitude_ft: 20, airspeed_kts: 3,
+      ground_speed_kts: 2, heading_deg: 90, vertical_speed_fpm: -50, on_ground: 1,
+    });
+    expect(getLastFlightPoint(idB)?.on_ground).toBe(0);
+  });
+
+  it('breaks a tie on ts with the later insert', () => {
+    const id = seedFlight(scratch.db);
+    seedPoints(scratch.db, id, [{ ts: T0, altitude_ft: 1 }, { ts: T0, altitude_ft: 2 }]);
+    expect(getLastFlightPoint(id)?.altitude_ft).toBe(2);
+  });
+
+  it('returns null for a flight with no points', () => {
+    expect(getLastFlightPoint(seedFlight(scratch.db))).toBeNull();
   });
 });
 

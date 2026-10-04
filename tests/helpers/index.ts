@@ -215,7 +215,7 @@ export function useRealClock(): void {
 // The vi.mock() call itself is each consuming test file's job, not this
 // module's — this module only exports the mock objects and the reset.
 
-// All twelve functions src/flightManager.ts imports from './db'.
+// All thirteen functions src/flightManager.ts imports from './db'.
 export const dbMock = {
   insertFlight: vi.fn(),
   insertPoint: vi.fn(),
@@ -229,7 +229,34 @@ export const dbMock = {
   getTripName: vi.fn(),
   getOpenFlight: vi.fn(),
   getFlightTrackPoints: vi.fn(),
+  getLastFlightPoint: vi.fn(),
 };
+
+/**
+ * getLastFlightPoint()'s default: the newest point of whatever track the test
+ * scripted on getFlightTrackPoints, read through its implementation without
+ * recording a call, so the two reads agree the way they do against one
+ * table. Columns the track does not carry read 0 (and on_ground 0). A
+ * scripted track that throws is the adoption failure that test is about, so
+ * here it reads as no points. Only the persistent implementation is read: a
+ * mockReturnValueOnce or mockImplementationOnce on getFlightTrackPoints is
+ * not seen here.
+ */
+export function lastPointOfTrack(
+  readTrack: ((id: number) => unknown) | undefined, flightId: number,
+): Record<string, unknown> | null {
+  let track: unknown;
+  try {
+    track = readTrack?.(flightId);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(track) || track.length === 0) return null;
+  return {
+    ground_speed_kts: 0, heading_deg: 0, vertical_speed_fpm: 0, on_ground: 0,
+    ...(track[track.length - 1] as Record<string, unknown>),
+  };
+}
 
 // The one function (plus initAirports) src/flightManager.ts imports
 // from './airports'.
@@ -273,6 +300,8 @@ function installDbMockDefaults(): void {
   dbMock.getTripName.mockReset().mockImplementation(() => 'Test Trip');
   dbMock.getOpenFlight.mockReset().mockImplementation(() => null);
   dbMock.getFlightTrackPoints.mockReset().mockImplementation(() => []);
+  dbMock.getLastFlightPoint.mockReset().mockImplementation((id: number) =>
+    lastPointOfTrack(dbMock.getFlightTrackPoints.getMockImplementation(), id));
 }
 
 function installAirportsMockDefaults(): void {

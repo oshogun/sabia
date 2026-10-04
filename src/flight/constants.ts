@@ -20,3 +20,10 @@ export const SIM_SILENCE_HOLD_MS = 180_000;
 // count as the same flight. When the sim was not paused, the distance the last
 // ground speed covers in the silence is added to this.
 export const SAME_FLIGHT_BASE_NM = 5;
+
+// How long after the last stored point of a flight left open by a previous run
+// the first running frame after a server restart may arrive and still continue
+// that flight. Longer than the hold because a restart takes longer than a
+// dropped connection; a frame from a different aircraft, a later frame or one
+// too far away closes the flight at that last stored point instead.
+export const RESTART_RESUME_MAX_MS = 600_000;

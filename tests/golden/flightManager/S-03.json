@@ -6,6 +6,13 @@
   },
   {
     "t": "call",
+    "fn": "db.getLastFlightPoint",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
     "fn": "db.getFlightTrackPoints",
     "args": [
       77

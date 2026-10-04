@@ -18,7 +18,7 @@ import util from 'node:util';
 import type { FlightState, GroundSession, CreateGroundSession, SimFrame } from '../../src/types';
 import type { OpenFlightRow, FlightTrackPoint } from '../../src/db';
 import { haversineNm } from '../../src/geo';
-import { makeFrame, makeCandidate, makePlannedLegWithChildren, northOfNm, KSBA, KMRY, T0 } from './index';
+import { makeFrame, makeCandidate, makePlannedLegWithChildren, northOfNm, KSBA, KMRY, T0, lastPointOfTrack } from './index';
 
 // ── Log entries ─────────────────────────────────────────────────────────────
 
@@ -124,7 +124,7 @@ export const DB_FNS = [
   'insertFlight', 'insertPoint', 'closeFlight', 'getFlightPlannedLegId',
   'getActiveTripId', 'getPlannedLegCandidatesForActiveTrip', 'getPlannedLegById',
   'linkFlightToPlannedLeg', 'recordPlannedLegArrival', 'getTripName',
-  'getOpenFlight', 'getFlightTrackPoints',
+  'getOpenFlight', 'getFlightTrackPoints', 'getLastFlightPoint',
 ] as const;
 export const GROUND_FNS = [
   'insertGroundSession', 'getOpenGroundSession', 'closeOpenGroundSession', 'fillOpenGroundSessionGaps',
@@ -214,6 +214,7 @@ export function resetCallOrder(): void {
     getTripName: () => 'Test Trip',
     getOpenFlight: () => null,
     getFlightTrackPoints: () => [],
+    getLastFlightPoint: (id: number) => lastPointOfTrack(behave.db.getFlightTrackPoints, id),
   };
   behave.groundSessions = {
     getOpenGroundSession: () => ground.open,
@@ -301,7 +302,7 @@ export function arrangeLeg(legOver: Record<string, unknown> = {}): void {
 }
 
 export const openRow = (over: Partial<OpenFlightRow> = {}): OpenFlightRow => ({
-  id: 77, aircraft: 'A320', start_time: iso(-60_000), departure_lat: KSBA.lat, departure_lon: KSBA.lon, ...over,
+  id: 77, aircraft: 'Cessna 172', start_time: iso(-60_000), departure_lat: KSBA.lat, departure_lon: KSBA.lon, ...over,
 });
 
 /** Four points one nm apart due north of KSBA, 3000-4500 ft, 120-123 kt, 45 s to 30 s before T0. */

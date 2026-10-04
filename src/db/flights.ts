@@ -208,6 +208,36 @@ export function getFlightTrackPoints(flightId: number): FlightTrackPoint[] {
   `).all(flightId) as FlightTrackPoint[];
 }
 
+/** The newest stored point of one flight: every column a frame is rebuilt from. */
+export interface LastFlightPoint {
+  ts: string;
+  lat: number;
+  lon: number;
+  altitude_ft: number;
+  airspeed_kts: number;
+  ground_speed_kts: number;
+  heading_deg: number;
+  vertical_speed_fpm: number;
+  /** 1 or 0. */
+  on_ground: number;
+}
+
+/**
+ * The newest recorded point of one flight by ts, the later insert on a tie,
+ * or null when the flight has no points.
+ */
+export function getLastFlightPoint(flightId: number): LastFlightPoint | null {
+  const row = getDb().prepare(`
+    SELECT ts, lat, lon, altitude_ft, airspeed_kts, ground_speed_kts,
+           heading_deg, vertical_speed_fpm, on_ground
+    FROM flight_points
+    WHERE flight_id = ?
+    ORDER BY ts DESC, id DESC
+    LIMIT 1
+  `).get(flightId) as LastFlightPoint | undefined;
+  return row ?? null;
+}
+
 // ── Combine flights ───────────────────────────────────────────────────────────
 
 type InsertablePoint = Omit<FlightPoint, 'id' | 'flight_id'>;

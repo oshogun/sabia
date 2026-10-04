@@ -7,13 +7,13 @@ import { findNearestAirport } from './airports';
 import { PlannedLegLink } from './flight/plannedLegLink';
 import { GroundTracker } from './flight/groundTracker';
 import { FlightRecorder } from './flight/flightRecorder';
-import type { RecordedPoint } from './flight/flightRecorder';
+import type { RecordedPoint, ResumeSeed } from './flight/flightRecorder';
 import { OooiReporter } from './flight/oooiReporter';
 import { isSameFlight } from './flight/sameFlight';
 import { SIM_SILENCE_HOLD_MS } from './flight/constants';
 import { haversineNm } from './geo';
 import { tryResumeOpenFlight } from './flight/bootRecovery';
-import type { OpenFlightRow } from './flight/bootRecovery';
+import type { OpenFlightRow, StoredLastPoint } from './flight/bootRecovery';
 
 export { MAX_COUNTED_GAP_MS, TAXI_OUT_SPEED_KTS } from './flight/constants';
 
@@ -304,7 +304,12 @@ export class FlightManager {
       // The flag is set before the query, not after, so a failing database is
       // asked once rather than at frame rate.
       this.openFlightCheckedAtBoot = true;
-      if (tryResumeOpenFlight(row => this.resumeFlight(row, frame))) return;
+      // After a close the frame carries on below, as the first frame of a fresh start.
+      if (tryResumeOpenFlight(
+        frame,
+        row => this.resumeFlight(row, frame),
+        (row, last, reason) => this.closeOpenFlightAtRestart(row, last, reason),
+      )) return;
     }
 
     if (!inSlew && !frame.onGround && frame.airspeedKnots > 30) {
@@ -412,26 +417,10 @@ export class FlightManager {
    * ground session, file OUT/OFF or consume a planned leg again.
    */
   private resumeFlight(row: OpenFlightRow, frame: SimFrame): void {
-    const seed = this.recorder.adopt(row, frame);
-
-    this.currentFlightId = row.id;
-    this.state = 'FLYING';
-    this.appState.flightState = 'FLYING';
-    this.appState.currentFlightId = row.id;
-    this.airborneStreak = 0;
-    this.landedStreak = 0;
+    const seed = this.adoptOpenFlight(row, frame);
     // The outage is an interruption like a pause: its time is not counted,
     // its distance (added by the point written below) is.
     this.recorder.markInterrupted();
-    this.acars.resumeFlight();
-
-    // Reloaded read-only: matching again would consume a leg a second time.
-    this.link.clear();
-    try {
-      this.refreshPlannedLegForFlight(row.id);
-    } catch (err) {
-      console.warn(`[FlightManager] Flight #${row.id} planned-leg cache not restored:`, err);
-    }
 
     console.log(
       `[FlightManager] Flight #${row.id} resumed after restart — ${seed.pointCount} points, ` +
@@ -442,6 +431,66 @@ export class FlightManager {
     // next gap counts normally.
     this.writePoint(frame);
     this.notifyScopeChange();
+  }
+
+  /**
+   * Makes the open row the current flight: the recorder seeded from its
+   * stored points (`frame` only fills the maxima when there are none), the
+   * ACARS state reset and the leg link reloaded.
+   */
+  private adoptOpenFlight(row: OpenFlightRow, frame: SimFrame): ResumeSeed {
+    const seed = this.recorder.adopt(row, frame);
+
+    this.currentFlightId = row.id;
+    this.state = 'FLYING';
+    this.appState.flightState = 'FLYING';
+    this.appState.currentFlightId = row.id;
+    this.airborneStreak = 0;
+    this.landedStreak = 0;
+    this.acars.resumeFlight();
+
+    // Reloaded read-only: matching again would consume a leg a second time.
+    this.link.clear();
+    try {
+      this.refreshPlannedLegForFlight(row.id);
+    } catch (err) {
+      console.warn(`[FlightManager] Flight #${row.id} planned-leg cache not restored:`, err);
+    }
+    return seed;
+  }
+
+  /**
+   * The first frame after a restart is not the open flight's (another
+   * aircraft, too late or too far): the flight is adopted from its stored
+   * points and closed at its last stored position, the way an expired hold
+   * closes one, so ON/IN and the leg arrival are filed and the totals are the
+   * stored track's alone. If the close throws, the manager goes back to IDLE
+   * with no current flight before the error propagates, so the row stays open
+   * and nothing more is written to it.
+   */
+  private closeOpenFlightAtRestart(row: OpenFlightRow, last: StoredLastPoint, reason: string): void {
+    console.log(
+      `[FlightManager] Flight #${row.id} not resumed after restart — ${reason}; ` +
+      'closing at the last stored point'
+    );
+    try {
+      this.adoptOpenFlight(row, last.frame);
+      // Nothing is recorded between the last stored point and the close, so
+      // no tail is added to the stored duration, even when that point is
+      // stamped later than now (the host clock set back while the server was down).
+      this.recorder.markInterrupted();
+      this.endFlight(last.frame, last.atMs);
+    } catch (err) {
+      if (this.currentFlightId !== null) {
+        this.currentFlightId = null;
+        this.link.clear();
+        this.state = 'IDLE';
+        this.appState.flightState = 'IDLE';
+        this.appState.currentFlightId = null;
+        this.notifyScopeChange();
+      }
+      throw err;
+    }
   }
 
   /**

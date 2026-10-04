@@ -6,6 +6,13 @@
   },
   {
     "t": "call",
+    "fn": "db.getLastFlightPoint",
+    "args": [
+      77
+    ]
+  },
+  {
+    "t": "call",
     "fn": "db.getFlightTrackPoints",
     "args": [
       77
@@ -40,7 +47,7 @@
   },
   {
     "t": "log",
-    "text": "[FlightManager] Flight #77 resumed after restart — 0 points, 0.0 nm, 0s counted before the interruption"
+    "text": "[FlightManager] Flight #77 resumed after restart — 4 points, 3.0 nm, 15s counted before the interruption"
   },
   {
     "t": "call",

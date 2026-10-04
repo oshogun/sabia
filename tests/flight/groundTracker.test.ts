@@ -931,7 +931,7 @@ describe('GroundTracker under the coordinator', () => {
     fm.refreshGroundSession();
     expect(fm.getGroundSessionStatus()).toMatchObject({ groundSessionId: 61, airportIcao: 'KSBA' });
     dbMock.getOpenFlight.mockReturnValue({
-      id: 77, aircraft: 'A320', start_time: T0, departure_lat: KSBA.lat, departure_lon: KSBA.lon,
+      id: 77, aircraft: 'Cessna 172', start_time: T0, departure_lat: KSBA.lat, departure_lon: KSBA.lon,
     });
 
     fm.onFrame(makeFrame());
@@ -945,7 +945,7 @@ describe('GroundTracker under the coordinator', () => {
   it('a flight resumed on a parked first frame leaves no parked streak behind: after it lands, GROUND takes the full debounce', () => {
     const fm = new FlightManager();
     dbMock.getOpenFlight.mockReturnValue({
-      id: 77, aircraft: 'A320', start_time: T0, departure_lat: KSBA.lat, departure_lon: KSBA.lon,
+      id: 77, aircraft: 'Cessna 172', start_time: T0, departure_lat: KSBA.lat, departure_lon: KSBA.lon,
     });
     const feedParked = (): void => {
       vi.advanceTimersByTime(1000);

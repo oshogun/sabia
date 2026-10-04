@@ -58,7 +58,7 @@ function feed(fm: FlightManager, n: number, over: Partial<SimFrame> = {}): void 
 function makeOpenFlightRow(over: Partial<OpenFlightRow> = {}): OpenFlightRow {
   return {
     id: 77,
-    aircraft: 'A320',
+    aircraft: 'Cessna 172',
     start_time: T0,
     departure_lat: KSBA.lat,
     departure_lon: KSBA.lon,
@@ -363,13 +363,19 @@ describe('FlightManager — duration across a restart', () => {
     const p30 = northOfNm(KSBA, 30);
     const resumePos = northOfNm(KSBA, 50);
 
-    dbMock.getOpenFlight.mockImplementation(() => makeOpenFlightRow({ start_time: iso(-45000) }));
+    // The outage is 9.5 min and the last point's ground speed 120 kt, so the
+    // restart check allows 5 + 19 = 24 nm and the 20 nm outage leg resumes.
+    dbMock.getOpenFlight.mockImplementation(() => makeOpenFlightRow({ start_time: iso(-585_000) }));
     dbMock.getFlightTrackPoints.mockImplementation(() => [
-      makeTrackPoint({ ts: iso(-45000), lat: KSBA.lat, lon: KSBA.lon }),
-      makeTrackPoint({ ts: iso(-40000), lat: p10.lat, lon: p10.lon }),
-      makeTrackPoint({ ts: iso(-35000), lat: p20.lat, lon: p20.lon }),
-      makeTrackPoint({ ts: iso(-30000), lat: p30.lat, lon: p30.lon }),
+      makeTrackPoint({ ts: iso(-585_000), lat: KSBA.lat, lon: KSBA.lon }),
+      makeTrackPoint({ ts: iso(-580_000), lat: p10.lat, lon: p10.lon }),
+      makeTrackPoint({ ts: iso(-575_000), lat: p20.lat, lon: p20.lon }),
+      makeTrackPoint({ ts: iso(-570_000), lat: p30.lat, lon: p30.lon }),
     ]);
+    dbMock.getLastFlightPoint.mockImplementation(() => ({
+      ts: iso(-570_000), lat: p30.lat, lon: p30.lon, altitude_ft: 5000, airspeed_kts: 120,
+      ground_speed_kts: 120, heading_deg: 0, vertical_speed_fpm: 0, on_ground: 0,
+    }));
 
     const fm = new FlightManager();
     fm.onFrame(makeFrame({ lat: resumePos.lat, lon: resumePos.lon })); // resume 50 nm north

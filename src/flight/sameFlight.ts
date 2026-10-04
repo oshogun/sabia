@@ -7,19 +7,24 @@ interface SameFlightInput {
   lastWasPaused: boolean;
   next: SimFrame;
   elapsedMs: number;
+  /** The longest silence that still counts; the hold's window unless given. */
+  maxElapsedMs?: number;
 }
 
 /**
  * Whether the first frame after a silence belongs to the flight that was
- * open: same aircraft, back within the hold window, and not farther from the
- * last frame than the base allowance. A paused sim does not move the
+ * open: same aircraft, back within the window (the hold's, unless the caller
+ * passes its own `maxElapsedMs`), and not farther from the last frame than
+ * the base allowance. A paused sim does not move the
  * aircraft, so the allowance stays at the base; otherwise it grows by the
  * distance the last ground speed covers in the silence. Both limits are
  * inclusive.
  */
-export function isSameFlight({ last, lastWasPaused, next, elapsedMs }: SameFlightInput): boolean {
+export function isSameFlight({
+  last, lastWasPaused, next, elapsedMs, maxElapsedMs = SIM_SILENCE_HOLD_MS,
+}: SameFlightInput): boolean {
   if (next.aircraft !== last.aircraft) return false;
-  if (elapsedMs > SIM_SILENCE_HOLD_MS) return false;
+  if (elapsedMs > maxElapsedMs) return false;
 
   const speedKts = Number.isFinite(last.groundSpeedKnots) ? Math.max(0, last.groundSpeedKnots) : 0;
   const travelNm = lastWasPaused ? 0 : speedKts * elapsedMs / 3_600_000;

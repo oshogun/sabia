@@ -106,7 +106,7 @@ function makeSessionRow(over: Partial<GroundSession> = {}): GroundSession {
 function makeOpenFlightRow(over: Partial<OpenFlightRow> = {}): OpenFlightRow {
   return {
     id: 77,
-    aircraft: 'A320',
+    aircraft: 'Cessna 172',
     start_time: T0,
     departure_lat: KSBA.lat,
     departure_lon: KSBA.lon,

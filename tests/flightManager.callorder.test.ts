@@ -256,6 +256,9 @@ describe('call order', () => {
   it('S-17 a linked resume 25 min after start files position-report window 2 before the notify', () => {
     arrangeLeg();
     behave.db.getOpenFlight = () => openRow({ start_time: iso(-25 * 60_000) });
+    // A recent stored track: with none, the restart check would measure from
+    // the start time, 25 min back, and close the flight instead.
+    behave.db.getFlightTrackPoints = () => TRACK;
     behave.db.getFlightPlannedLegId = () => 11;
     const fm = newFm();
     feed(fm, 1, northOfNm(KSBA, 5)); cruise(fm, 3, northOfNm(KSBA, 6));

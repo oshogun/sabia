@@ -115,7 +115,9 @@ behaviour step by step:
 
 **The original suites.** The other `tests/flightManager*.test.ts` files,
 except the hold suite below, cover state transitions, ground sessions, ACARS,
-duration and resume.
+duration and resume. `tests/flightManager.restartclose.test.ts` covers the
+restart check: the close when the first frame after a restart is another
+aircraft, too late or too far, and the resume at the limits.
 
 **The hold after a sim silence.** `tests/flightManager.hold.test.ts` covers
 continuation, the close at the last frame, and a pause, crash, repeated

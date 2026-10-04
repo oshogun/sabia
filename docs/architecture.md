@@ -226,10 +226,10 @@ lives in its own module under `src/flight/`:
 | `plannedLegLink.ts` (`PlannedLegLink`) | The planned-leg link: auto-link at takeoff, the non-consuming match at ground entry, the arrival outcome at landing, and the live progress reported by `GET /api/status`. |
 | `flightRecorder.ts` (`FlightRecorder`) | The `flights` row and its track points, and the duration, distance and maxima accounting (below). |
 | `oooiReporter.ts` (`OooiReporter`) | ACARS OUT/OFF/ON/IN messages and periodic position reports. |
-| `bootRecovery.ts` | The one-time open-flight lookup after a restart (below). |
+| `bootRecovery.ts` | The one-time open-flight lookup after a restart, and the check that decides whether the first frame continues that flight or closes it (below). |
 | `legProgress.ts`, `summarizeTrack.ts` | Pure helpers: progress along a planned route; rebuilding a flight's totals from its stored track. |
-| `sameFlight.ts` | Pure helper: whether the first frame after a silence belongs to the flight being held (below). |
-| `constants.ts` | Shared thresholds: `MAX_COUNTED_GAP_MS` (60 s) and `TAXI_OUT_SPEED_KTS` (3 kt), both also re-exported from `src/flightManager.ts`; `SIM_SILENCE_HOLD_MS` (180 s) and `SAME_FLIGHT_BASE_NM` (5 nm), used by the hold (below). |
+| `sameFlight.ts` | Pure helper: whether the first frame after a silence belongs to the open flight, used by the hold and by the restart check (below). |
+| `constants.ts` | Shared thresholds: `MAX_COUNTED_GAP_MS` (60 s) and `TAXI_OUT_SPEED_KTS` (3 kt), both also re-exported from `src/flightManager.ts`; `SIM_SILENCE_HOLD_MS` (180 s) and `SAME_FLIGHT_BASE_NM` (5 nm), used by the hold; `RESTART_RESUME_MAX_MS` (10 min), the restart check's time limit, which also uses `SAME_FLIGHT_BASE_NM` (below). |
 
 **States:** `IDLE` → `GROUND` → `FLYING` → back to `IDLE`.
 
@@ -286,12 +286,27 @@ lives in its own module under `src/flight/`:
   - In GROUND a silence or `disconnected` closes only an auto-created
     ground session (above); in IDLE it only marks the client disconnected. A
     server shutdown during a hold leaves the row open, and the restarted
-    server resumes it like any open flight (below), with no position or
-    aircraft check.
+    server applies the restart check below to it.
 - **Resume after a server restart**: shutdown never ends a flight. On the
   first running frame after the process starts, the server looks once for a
-  `flights` row that was never closed. If it finds one, it continues that
-  flight instead of starting a new one:
+  `flights` row that was never closed (`bootRecovery.ts`). If it finds one,
+  it compares the frame with the flight's last stored position: the newest
+  `flight_points` row, or, for a flight with no points, its departure
+  coordinates at its `start_time` with a ground speed of 0. The comparison
+  is the hold's same-flight test (`sameFlight.ts`) with its own time limit:
+  - the same aircraft (skipped when the row's `aircraft` is NULL);
+  - at most `RESTART_RESUME_MAX_MS` (10 min) after that position's time.
+    The time runs until the first running frame arrives, not until the
+    server starts, so a sim that reconnects more than 10 minutes after the
+    last stored point fails the check even after a quick restart. No points
+    are stored during a pause, so a pause longer than 10 minutes counts too.
+    When the last point is stamped later than now (the clock set back), the
+    elapsed time counts as 0;
+  - within 5 nm of that position plus the distance its ground speed covers
+    in the elapsed time. Pause state is not stored, so the allowance always
+    includes that distance.
+
+  A frame that passes continues the flight instead of starting a new one:
   - it rebuilds distance, maxima, point count and counted time from the
     stored points (`summarizeTrack`), applying the same gap rule as the live
     path (below);
@@ -299,13 +314,31 @@ lives in its own module under `src/flight/`:
   - it reloads the existing leg link without matching again;
   - it does not insert a row, close a ground session or re-file OUT/OFF.
 
-  If the resume fails, the outcome depends on where:
-  - **The lookup, or the read of the stored points.** The error is logged
-    ("Open-flight check failed…") and the server carries on as if no flight
-    were open. A takeoff then starts a new flight, and the old row stays
-    open.
+  A flight with neither stored points nor departure coordinates, or whose
+  last stored time does not parse, has nothing to compare against and is
+  continued without the check.
+
+  A frame that fails closes the flight at its last stored position, the way
+  an expired hold closes one (above). `end_time` is that position's time, the
+  arrival airport is looked up from it, IN is filed at that time, and so is
+  ON, unless a touchdown before the restart already filed it, and the
+  arrival is recorded on the linked leg. If the leg reload fails (below),
+  ON/IN go out without the destination and leg. Distance, maxima, point count and duration come
+  from the stored points alone; the outage and the new frame add nothing.
+  Log: "Flight #N not resumed after restart — &lt;reason&gt;; closing at the last
+  stored point", where the reason names the aircraft change, the minutes
+  since the last point or the distance from it. The frame is then handled as
+  the first frame of a fresh start, for example toward a new takeoff.
+
+  If the resume or the close fails, the outcome depends on where:
+  - **The lookup, the read of the last or stored points, or the write that
+    closes the row.** The error is logged ("Open-flight check failed…") and
+    the server carries on as if no flight were open. A takeoff then starts a
+    new flight, and the old row stays open. (A failed ON/IN filing or leg
+    arrival write is logged by itself and does not stop the close.)
   - **The leg reload.** It is logged ("planned-leg cache not restored"),
-    and the flight continues without a live leg status.
+    and the flight continues without a live leg status (or, on a close, is
+    closed without one).
   - **The first point write.** It is logged as "Open-flight check
     failed…", and the flight stays resumed.
 

@@ -162,8 +162,18 @@ A crash, or a frame reporting the sim not running, during the hold also
 closes the flight. The held flight is closed at the last frame received,
 and the frames that arrive later in the air start a new one.
 
-A server restart does **not** split a flight: the restarted server resumes
-the open flight on its first frame (see
+A server restart splits a flight when the first frame after it fails the
+same check as the hold, with a 10-minute limit instead of 3: it comes from
+a different aircraft, arrives more than 10 minutes after the flight's last
+stored point, or is too far from that point. The 10 minutes run until the
+simulator sends data again, not until the server is back, so a quick restart
+followed by a long wait before reconnecting the MCDU client still closes the
+flight, and so does a pause of more than 10 minutes across the restart. The
+old flight is closed at its last stored point and the server log says
+"Flight #N not resumed after restart" with the reason. If the log says
+"Open-flight check failed…" instead, the database read or the close failed:
+the old flight stays open and the next takeoff
+starts a new one (see
 [architecture.md § Flight state machine](architecture.md#flight-state-machine)).
 
 Use "Combine flights" from the All Flights page. Then run

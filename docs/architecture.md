@@ -201,14 +201,28 @@ Middleware order is deliberate, and reordering it changes behaviour:
 
 `SIGINT`/`SIGTERM` first cancels a running Little Navmap import (the job ends
 `LNM_INTERRUPTED` and its temporary files are removed), then closes the
-PDF-export headless Chromium if one is running (so its profile directory in
-the OS temp directory is removed; a Chromium that has not quit after 2.5 s
-is killed), the HTTP(S) listener, both navdata replicas, and the database
-(which checkpoints WAL back into the main file, so a hard kill without this
-step can strand recent writes in `flights.db-wal`), with a 3-second fallback
-timer in case a lingering connection blocks the graceful close. Puppeteer's
-own SIGINT/SIGTERM handlers are turned off at launch so this sequence runs
-even after a PDF export.
+PDF-export headless Chromium if one is running, the HTTP(S) listener, both
+navdata replicas, and the database (which checkpoints WAL back into the main
+file, so a hard kill without this step can strand recent writes in
+`flights.db-wal`), with a 3-second fallback timer in case a lingering
+connection blocks the graceful close. Puppeteer's own SIGINT/SIGTERM handlers
+are turned off at launch so this sequence runs even after a PDF export.
+
+For the PDF-export Chromium, shutdown first stops new launches: an export
+queued behind the one rendering fails when its turn comes, without starting a
+browser. The export already rendering gets up to 2.5 s, counted from the start
+of shutdown, to finish; then the browser is closed. A browser that has not
+quit by the end of those 2.5 s is killed, and an export still rendering then
+fails. The same limit applies to a browser in the middle of its 5-minute idle
+close. The launch time of a Chromium that was still starting counts against
+the same 2.5 s; if it has not started by then it is killed as soon as it does,
+and its export fails. The server creates the browser's profile directory
+itself (`msfslogger-pdf-profile-*` in the OS temp directory) and removes it
+whenever the browser ends: at the 5-minute idle close, at shutdown (closed or
+killed), after a crash, and after a failed launch. A Chromium that is killed
+or crashes also leaves its socket directory (`org.chromium.Chromium.*` in the
+OS temp directory), which is removed with the profile. A last check at process
+exit removes any of these still present.
 
 ## Flight state machine
 

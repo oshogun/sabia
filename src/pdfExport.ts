@@ -154,13 +154,16 @@ async function launchBrowser(): Promise<Browser> {
       // the browser only ever loads our own pages — the same rationale as
       // --no-sandbox below.
       acceptInsecureCerts: true,
-      // Puppeteer's own SIGINT/SIGTERM handlers kill Chrome and call
-      // process.exit(130) at once, which would skip the server's shutdown
-      // handler (database close, browser close). Its process 'exit' listener
-      // still kills Chrome on any exit. SIGHUP keeps the default; the server
-      // does not handle it.
+      // Puppeteer's own SIGINT, SIGTERM and SIGHUP listeners all close Chrome
+      // without waiting for the server's shutdown handler (database close,
+      // the wait for an export in progress, browser close), and the SIGINT
+      // one also calls process.exit(130). A SIGTERM or SIGHUP listener that
+      // does not exit still replaces Node's default exit for that signal and
+      // leaves the server running. Its process 'exit' listener still kills
+      // Chrome on any exit.
       handleSIGINT: false,
       handleSIGTERM: false,
+      handleSIGHUP: false,
       // Ubuntu 24.04's AppArmor policy blocks unprivileged user namespaces,
       // which breaks Chromium's sandbox. We only ever load our own localhost
       // pages, so disabling it is acceptable here.

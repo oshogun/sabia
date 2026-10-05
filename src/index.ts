@@ -149,7 +149,7 @@ const BROWSER_CLOSE_LIMIT_MS = 2500;
 // Close the database on the way out so the WAL is checkpointed back into
 // flights.db; otherwise a hard kill can strand recent flights in the -wal file.
 let shuttingDown = false;
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.on(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;

@@ -128,12 +128,12 @@ afterEach(() => {
 });
 
 describe('browser launch options', () => {
-  it('leaves SIGINT and SIGTERM to the server and SIGHUP at its default', async () => {
+  it('leaves SIGINT, SIGTERM and SIGHUP to the server', async () => {
     await launchMocked();
     const opts = launch.mock.calls[0][0];
     expect(opts.handleSIGINT).toBe(false);
     expect(opts.handleSIGTERM).toBe(false);
-    expect(opts.handleSIGHUP).not.toBe(false);
+    expect(opts.handleSIGHUP).toBe(false);
   });
 
   it('passes a new profile directory under the OS temp directory as userDataDir', async () => {

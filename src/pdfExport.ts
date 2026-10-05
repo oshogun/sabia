@@ -1,4 +1,6 @@
 import fs from 'fs';
+import os from 'os';
+import { basename, dirname, join, resolve } from 'path';
 import puppeteer, { Browser } from 'puppeteer';
 import { PDFDocument } from 'pdf-lib';
 import { getConfig } from './config';
@@ -9,6 +11,30 @@ const BROWSER_IDLE_SHUTDOWN_MS = 5 * 60_000;
 
 let browserPromise: Promise<Browser> | null = null;
 let idleTimer: NodeJS.Timeout | null = null;
+// An idle-timer close still in progress, so a shutdown that starts meanwhile
+// can wait for it.
+let idleClose: Promise<void> | null = null;
+// The browser that idle close is closing, so shutdown can kill it if the close
+// has not finished by the shutdown limit.
+let idleClosingBrowser: Browser | null = null;
+// Set by closeBrowser() when the server shuts down. From then on no browser is
+// launched, so an export queued behind the one rendering fails at once instead
+// of starting a Chromium that only the process exit would stop.
+let shuttingDown = false;
+
+// The browser each launch resolved to, once it has. Shutdown uses it to tell a
+// running browser from one still launching without waiting on the launch.
+const startedBrowsers = new WeakMap<Promise<Browser>, Browser>();
+
+// Each Chromium gets a profile directory created here rather than by
+// puppeteer: puppeteer only removes its own directory after an orderly
+// close(), so a Chromium killed at shutdown would leave it in the temp
+// directory. These are the directories created and not yet removed.
+const profileDirs = new Set<string>();
+const profileDirOf = new WeakMap<Browser, string>();
+// One removal per browser, shared by every path that ends it (idle close,
+// shutdown close or kill, an unexpected disconnect).
+const profileRemovals = new WeakMap<Browser, Promise<void>>();
 
 // Renders are serialised: each Chromium page holds a full map + tiles, and
 // several at once is a real memory spike on a small box.
@@ -28,10 +54,100 @@ export function baseUrl(): string {
   return process.env.EXPORT_BASE_URL ?? `${scheme()}://127.0.0.1:${process.env.PORT ?? '3000'}`;
 }
 
-async function getBrowser(): Promise<Browser> {
-  if (!browserPromise) {
-    console.log('[PDF] Launching headless browser...');
-    browserPromise = puppeteer.launch({
+function shutdownError(): Error {
+  return new Error('PDF export unavailable: the server is shutting down');
+}
+
+function trackProfileDir(dir: string): void {
+  // The 'exit' listener is only attached while a directory exists, so it does
+  // not pile up on the process.
+  if (profileDirs.size === 0) process.on('exit', removeLeftoverProfileDirs);
+  profileDirs.add(dir);
+}
+
+// Chromium keeps its singleton socket in a directory of its own,
+// os.tmpdir()/org.chromium.Chromium.XXXXXX, and links to it from the profile
+// as SingletonSocket. It removes that directory when it exits normally, not
+// when it is killed. Returns the directory only if the link points directly
+// under the temp directory to a name of that form, so a link anywhere else is
+// never followed into a removal.
+function chromiumSocketDir(profileDir: string, linkTarget: string): string | null {
+  const dir = dirname(resolve(profileDir, linkTarget));
+  if (dirname(dir) !== resolve(os.tmpdir())) return null;
+  return basename(dir).startsWith('org.chromium.Chromium.') ? dir : null;
+}
+
+async function removeChromiumSocketDir(profileDir: string): Promise<void> {
+  try {
+    const dir = chromiumSocketDir(profileDir, await fs.promises.readlink(join(profileDir, 'SingletonSocket')));
+    if (dir) await fs.promises.rm(dir, { recursive: true, force: true });
+  } catch { /* no link (Chromium closed normally or never started), or already removed */ }
+}
+
+async function removeProfileDir(dir: string): Promise<void> {
+  await removeChromiumSocketDir(dir);
+  try {
+    // The retries cover Chromium helper processes that are still writing into
+    // the directory for a moment after the main process was killed.
+    await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch (err) {
+    // Left in profileDirs, so the 'exit' listener tries again.
+    console.warn(`[PDF] Could not remove browser profile ${dir}:`, err instanceof Error ? err.message : err);
+    return;
+  }
+  profileDirs.delete(dir);
+  if (profileDirs.size === 0) process.off('exit', removeLeftoverProfileDirs);
+}
+
+// Runs when the process exits with a profile directory still present: the
+// 3 s backup exit in the shutdown handler, or a launch that finished after
+// shutdown gave up on it. Only synchronous work runs in an 'exit' listener.
+function removeLeftoverProfileDirs(): void {
+  for (const dir of profileDirs) {
+    try {
+      const socketDir = chromiumSocketDir(dir, fs.readlinkSync(join(dir, 'SingletonSocket')));
+      if (socketDir) fs.rmSync(socketDir, { recursive: true, force: true });
+    } catch { /* no link, or already removed */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch { /* the process is exiting; nothing else to try */ }
+  }
+  profileDirs.clear();
+}
+
+function processExited(browser: Browser): Promise<void> {
+  const proc = browser.process();
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
+  return new Promise(resolve => proc.once('exit', () => resolve()));
+}
+
+/**
+ * Removes a browser's profile directory once its Chromium process has exited,
+ * so a dying Chromium cannot write into it again. Every caller for the same
+ * browser shares the one removal.
+ */
+function removeBrowserProfile(browser: Browser): Promise<void> {
+  let removal = profileRemovals.get(browser);
+  if (!removal) {
+    const dir = profileDirOf.get(browser);
+    removal = dir ? processExited(browser).then(() => removeProfileDir(dir)) : Promise.resolve();
+    profileRemovals.set(browser, removal);
+  }
+  return removal;
+}
+
+async function launchBrowser(): Promise<Browser> {
+  const profileDir = await fs.promises.mkdtemp(join(os.tmpdir(), 'msfslogger-pdf-profile-'));
+  trackProfileDir(profileDir);
+  // Shutdown may have started while the directory was being created.
+  if (shuttingDown) {
+    await removeProfileDir(profileDir);
+    throw shutdownError();
+  }
+  let browser: Browser;
+  try {
+    browser = await puppeteer.launch({
+      userDataDir: profileDir,
       // The loopback render targets this server's own HTTPS listener, whose
       // certificate is typically self-signed and issued for the LAN name
       // rather than 127.0.0.1. Both would abort the navigation otherwise, and
@@ -54,64 +170,155 @@ async function getBrowser(): Promise<Browser> {
         '--disable-dev-shm-usage',
         '--hide-scrollbars',
       ],
-    }).then(browser => {
-      // If Chromium dies, drop the handle so the next export relaunches
-      // instead of failing forever against a dead connection.
+    });
+  } catch (err) {
+    await removeProfileDir(profileDir);
+    throw err;
+  }
+  profileDirOf.set(browser, profileDir);
+  return browser;
+}
+
+function getBrowser(): Promise<Browser> {
+  if (shuttingDown) return Promise.reject(shutdownError());
+  if (!browserPromise) {
+    console.log('[PDF] Launching headless browser...');
+    const launched: Promise<Browser> = launchBrowser().then(browser => {
+      startedBrowsers.set(launched, browser);
       browser.on('disconnected', () => {
-        if (browserPromise) {
+        // If Chromium dies, drop the handle so the next export relaunches
+        // instead of failing forever against a dead connection. Compared by
+        // identity: a close already replaced or cleared the handle, and this
+        // must not clear a newer launch's.
+        if (browserPromise === launched) {
           console.warn('[PDF] Browser disconnected — will relaunch on next export');
           browserPromise = null;
         }
+        void removeBrowserProfile(browser);
       });
       return browser;
     });
+    browserPromise = launched;
   }
   return browserPromise;
 }
 
 function touchIdleTimer(): void {
   if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { void closeBrowser(); }, BROWSER_IDLE_SHUTDOWN_MS);
+  idleTimer = setTimeout(() => { idleClose = closeIdleBrowser(); }, BROWSER_IDLE_SHUTDOWN_MS);
   // Don't hold the process open just for the idle timer
   idleTimer.unref?.();
 }
 
-/**
- * Closes the headless browser. With `limitMs`, a close that has not finished
- * in that time is abandoned and the Chromium process is killed instead, so a
- * caller that is about to exit is not held up by a browser that will not quit.
- */
-export async function closeBrowser(limitMs?: number): Promise<void> {
+/** Closes a browser left unused for BROWSER_IDLE_SHUTDOWN_MS, then removes its profile. */
+async function closeIdleBrowser(): Promise<void> {
   const pending = browserPromise;
   browserPromise = null;
-  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-  if (!pending) return;
+  idleTimer = null;
   try {
+    if (!pending) return;
     const browser = await pending;
-    if (limitMs === undefined) {
+    idleClosingBrowser = browser;
+    try {
       await browser.close();
+      console.log('[PDF] Headless browser closed');
+    } catch {
+      // Already gone; the profile removal below waits for the process to exit
+    }
+    await removeBrowserProfile(browser);
+  } catch {
+    // The launch failed and already removed its profile directory
+  } finally {
+    idleClose = null;
+    idleClosingBrowser = null;
+  }
+}
+
+/**
+ * Shuts PDF export down for a server that is about to exit. No browser is
+ * launched from here on. Within one `limitMs` budget, the render already in
+ * progress is allowed to finish and the browser is then closed; whatever has
+ * not finished when the budget runs out is ended by killing the Chromium
+ * process. Resolves once the browser's profile directory has been removed, or
+ * at the limit if the browser is still launching (it is killed and its profile
+ * removed when the launch finishes). Never rejects.
+ */
+export async function closeBrowser(limitMs: number): Promise<void> {
+  shuttingDown = true;
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  // The render running now, plus any queued behind it, which fail at once in
+  // getBrowser() now that shuttingDown is set.
+  const renders = queue;
+  const closing = idleClose;
+
+  let limitTimer: NodeJS.Timeout | undefined;
+  const limit = new Promise<'timeout'>(resolve => {
+    limitTimer = setTimeout(() => resolve('timeout'), limitMs);
+  });
+
+  // Set when an idle close has not finished by the limit and its browser is killed.
+  let idleKilled: Promise<void> | null = null;
+
+  try {
+    let outcome = await Promise.race([renders.then(() => 'rendered' as const), limit]);
+    // An idle close started before shutdown: the browser it holds is no
+    // longer in browserPromise, so wait for that close instead.
+    if (closing && outcome !== 'timeout') {
+      outcome = await Promise.race([closing.then(() => 'rendered' as const), limit]);
+    }
+    const stillClosing = idleClosingBrowser;
+    if (stillClosing && outcome === 'timeout') {
+      console.warn(`[PDF] Idle browser did not close within ${limitMs} ms — killing it`);
+      stillClosing.process()?.kill('SIGKILL');
+      idleKilled = removeBrowserProfile(stillClosing);
+    }
+
+    const pending = browserPromise;
+    browserPromise = null;
+    if (!pending) return;
+
+    let browser = startedBrowsers.get(pending);
+    if (!browser && outcome !== 'timeout') {
+      const launched = await Promise.race([pending.catch(() => null), limit]);
+      if (launched === null) return; // the failed launch removed its own profile
+      if (launched !== 'timeout') browser = launched;
+    }
+    if (!browser) {
+      console.warn(`[PDF] Browser still launching after ${limitMs} ms — it will be killed once started`);
+      pending
+        .then(started => {
+          started.process()?.kill('SIGKILL');
+          return removeBrowserProfile(started);
+        })
+        .catch(() => { /* the failed launch removed its own profile */ });
+      return;
+    }
+
+    if (outcome === 'timeout') {
+      console.warn(`[PDF] Export still rendering after ${limitMs} ms — killing the browser`);
+      browser.process()?.kill('SIGKILL');
     } else {
-      let limitTimer: NodeJS.Timeout | undefined;
-      const timedOut = new Promise<'timeout'>(resolve => {
-        limitTimer = setTimeout(() => resolve('timeout'), limitMs);
-      });
-      const closed = browser.close().then(() => 'closed' as const);
-      try {
-        const outcome = await Promise.race([closed, timedOut]);
-        if (outcome === 'timeout') {
-          console.warn(`[PDF] Browser did not close within ${limitMs} ms — killing it`);
-          browser.process()?.kill('SIGKILL');
-          // A late rejection of the abandoned close() is expected; ignore it.
-          closed.catch(() => {});
-          return;
-        }
-      } finally {
-        clearTimeout(limitTimer);
+      // A rejected close() counts as not closed: the process may still be
+      // running, and the profile removal below waits for it to exit.
+      const closed = browser.close().then(() => 'closed' as const, () => 'failed' as const);
+      const closeOutcome = await Promise.race([closed, limit]);
+      if (closeOutcome === 'timeout') {
+        console.warn(`[PDF] Browser did not close within ${limitMs} ms — killing it`);
+        browser.process()?.kill('SIGKILL');
+      } else if (closeOutcome === 'failed') {
+        console.warn('[PDF] Browser close failed — killing it');
+        browser.process()?.kill('SIGKILL');
+      } else {
+        console.log('[PDF] Headless browser closed');
       }
     }
-    console.log('[PDF] Headless browser closed');
+    await removeBrowserProfile(browser);
   } catch {
-    // Already gone — nothing to clean up
+    // Nothing above is expected to throw; this keeps closeBrowser from
+    // rejecting, because the shutdown handler closes the database after it.
+  } finally {
+    clearTimeout(limitTimer);
+    if (idleKilled) await idleKilled;
   }
 }
 
@@ -183,7 +390,8 @@ async function renderOnce(path: string, opts: RenderOptions = {}): Promise<Buffe
     return Buffer.from(pdf);
   } finally {
     await page.close().catch(() => { /* page may already be gone */ });
-    touchIdleTimer();
+    // Not during shutdown, which closes the browser itself
+    if (!shuttingDown) touchIdleTimer();
   }
 }
 

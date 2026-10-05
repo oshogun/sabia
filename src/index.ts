@@ -140,9 +140,10 @@ server.listen(config.port, config.bindHost, () => {
   warmAssets(path.join(process.cwd(), 'client', 'dist')).catch(() => {});
 });
 
-// Shorter than the 3 s backup exit below, so a Chromium that will not quit is
-// killed before that timer ends the process; a plain exit would leave its
-// profile directory in the temp directory.
+// The time PDF export gets at shutdown to finish a render already in progress
+// and close its browser; a browser still running after it is killed. Shorter
+// than the 3 s backup exit below, so the kill and the removal of the browser's
+// profile directory normally finish before that timer ends the process.
 const BROWSER_CLOSE_LIMIT_MS = 2500;
 
 // Close the database on the way out so the WAL is checkpointed back into

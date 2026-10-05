@@ -18,7 +18,7 @@ import { loadConfig } from '../src/config';
 
 describe('closeBrowser — no browser ever launched', () => {
   it('resolves with no launch and no timer to clear', async () => {
-    await expect(closeBrowser()).resolves.toBeUndefined();
+    await expect(closeBrowser(2500)).resolves.toBeUndefined();
   });
 });
 

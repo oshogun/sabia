@@ -17,10 +17,18 @@ compiled ahead of time; nothing rebuilds itself at runtime).
 
 For unattended operation, wrap it in your process manager of choice (a
 systemd service running `npm start` with `Restart=on-failure`, `pm2`, or a
-`nohup`/`screen`/`tmux` session) — the server handles `SIGTERM`/`SIGINT`
-gracefully (cancels a running Little Navmap import and removes its temporary
-files, then closes the DB cleanly, checkpointing WAL) so any manager that
+`screen`/`tmux` session) — the server handles `SIGTERM`, `SIGINT` and `SIGHUP`
+the same way (cancels a running Little Navmap import and removes its temporary
+files, then closes the DB cleanly, checkpointing WAL), so any manager that
 sends those signals on stop/restart is safe to use.
+
+Closing the terminal that runs the server sends it `SIGHUP`, so the server
+shuts down. `nohup` does not prevent this: `nohup` starts the program with
+`SIGHUP` set to be ignored, and Node sets it back to the default as it starts,
+so `nohup` has no effect here. To keep a server started from a shell running
+after the terminal closes, start it detached from the terminal, for example,
+from the repository root: `setsid npm start > sabia.log 2>&1 < /dev/null &`,
+or inside `screen`/`tmux`.
 
 ### Installer-managed instance
 

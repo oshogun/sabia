@@ -199,14 +199,19 @@ Middleware order is deliberate, and reordering it changes behaviour:
 
 ### Shutdown
 
-`SIGINT`/`SIGTERM` first cancels a running Little Navmap import (the job ends
+`SIGINT`, `SIGTERM` or `SIGHUP` (sent, for example, when the terminal running
+the server is closed) first cancels a running Little Navmap import (the job ends
 `LNM_INTERRUPTED` and its temporary files are removed), then closes the
 PDF-export headless Chromium if one is running, the HTTP(S) listener, both
 navdata replicas, and the database (which checkpoints WAL back into the main
 file, so a hard kill without this step can strand recent writes in
 `flights.db-wal`), with a 3-second fallback timer in case a lingering
-connection blocks the graceful close. Puppeteer's own SIGINT/SIGTERM handlers
-are turned off at launch so this sequence runs even after a PDF export.
+connection blocks the graceful close. Puppeteer's own SIGINT, SIGTERM and
+SIGHUP handlers, which exist while a PDF-export browser is running, are turned
+off at launch. With them on, SIGINT would kill the browser and exit with status
+130 before the database is closed, and SIGTERM or SIGHUP would close the
+browser at once, without the wait for an export in progress that the paragraph
+below describes.
 
 For the PDF-export Chromium, shutdown first stops new launches: an export
 queued behind the one rendering fails when its turn comes, without starting a

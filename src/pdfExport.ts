@@ -157,10 +157,9 @@ async function launchBrowser(): Promise<Browser> {
       // Puppeteer's own SIGINT, SIGTERM and SIGHUP listeners all close Chrome
       // without waiting for the server's shutdown handler (database close,
       // the wait for an export in progress, browser close), and the SIGINT
-      // one also calls process.exit(130). A SIGTERM or SIGHUP listener that
-      // does not exit still replaces Node's default exit for that signal and
-      // leaves the server running. Its process 'exit' listener still kills
-      // Chrome on any exit.
+      // one also calls process.exit(130) before the database is closed. The
+      // server's own handler in index.ts covers all three signals.
+      // Puppeteer's process 'exit' listener still kills Chrome on any exit.
       handleSIGINT: false,
       handleSIGTERM: false,
       handleSIGHUP: false,

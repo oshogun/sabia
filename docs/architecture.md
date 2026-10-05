@@ -201,10 +201,14 @@ Middleware order is deliberate, and reordering it changes behaviour:
 
 `SIGINT`/`SIGTERM` first cancels a running Little Navmap import (the job ends
 `LNM_INTERRUPTED` and its temporary files are removed), then closes the
-HTTP(S) listener, both navdata replicas, and the database (which
-checkpoints WAL back into the main file, so a hard kill without this step
-can strand recent writes in `flights.db-wal`), with a 3-second fallback timer
-in case a lingering connection blocks the graceful close.
+PDF-export headless Chromium if one is running (so its profile directory in
+the OS temp directory is removed; a Chromium that has not quit after 2.5 s
+is killed), the HTTP(S) listener, both navdata replicas, and the database
+(which checkpoints WAL back into the main file, so a hard kill without this
+step can strand recent writes in `flights.db-wal`), with a 3-second fallback
+timer in case a lingering connection blocks the graceful close. Puppeteer's
+own SIGINT/SIGTERM handlers are turned off at launch so this sequence runs
+even after a PDF export.
 
 ## Flight state machine
 

@@ -38,6 +38,13 @@ async function getBrowser(): Promise<Browser> {
       // the browser only ever loads our own pages — the same rationale as
       // --no-sandbox below.
       acceptInsecureCerts: true,
+      // Puppeteer's own SIGINT/SIGTERM handlers kill Chrome and call
+      // process.exit(130) at once, which would skip the server's shutdown
+      // handler (database close, browser close). Its process 'exit' listener
+      // still kills Chrome on any exit. SIGHUP keeps the default; the server
+      // does not handle it.
+      handleSIGINT: false,
+      handleSIGTERM: false,
       // Ubuntu 24.04's AppArmor policy blocks unprivileged user namespaces,
       // which breaks Chromium's sandbox. We only ever load our own localhost
       // pages, so disabling it is acceptable here.
@@ -69,14 +76,39 @@ function touchIdleTimer(): void {
   idleTimer.unref?.();
 }
 
-export async function closeBrowser(): Promise<void> {
+/**
+ * Closes the headless browser. With `limitMs`, a close that has not finished
+ * in that time is abandoned and the Chromium process is killed instead, so a
+ * caller that is about to exit is not held up by a browser that will not quit.
+ */
+export async function closeBrowser(limitMs?: number): Promise<void> {
   const pending = browserPromise;
   browserPromise = null;
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (!pending) return;
   try {
     const browser = await pending;
-    await browser.close();
+    if (limitMs === undefined) {
+      await browser.close();
+    } else {
+      let limitTimer: NodeJS.Timeout | undefined;
+      const timedOut = new Promise<'timeout'>(resolve => {
+        limitTimer = setTimeout(() => resolve('timeout'), limitMs);
+      });
+      const closed = browser.close().then(() => 'closed' as const);
+      try {
+        const outcome = await Promise.race([closed, timedOut]);
+        if (outcome === 'timeout') {
+          console.warn(`[PDF] Browser did not close within ${limitMs} ms — killing it`);
+          browser.process()?.kill('SIGKILL');
+          // A late rejection of the abandoned close() is expected; ignore it.
+          closed.catch(() => {});
+          return;
+        }
+      } finally {
+        clearTimeout(limitTimer);
+      }
+    }
     console.log('[PDF] Headless browser closed');
   } catch {
     // Already gone — nothing to clean up

@@ -16,6 +16,7 @@ import { createServer } from './server';
 import { armBodyDeadline } from './bodyDeadline';
 import { cancelLnmImportForShutdown } from './routes/navdataImport';
 import { warmAssets } from './staticAssets';
+import { closeBrowser } from './pdfExport';
 
 // Configuration is read and validated before anything else — before the
 // database is opened, before any listener — so a misconfigured deployment
@@ -139,6 +140,11 @@ server.listen(config.port, config.bindHost, () => {
   warmAssets(path.join(process.cwd(), 'client', 'dist')).catch(() => {});
 });
 
+// Shorter than the 3 s backup exit below, so a Chromium that will not quit is
+// killed before that timer ends the process; a plain exit would leave its
+// profile directory in the temp directory.
+const BROWSER_CLOSE_LIMIT_MS = 2500;
+
 // Close the database on the way out so the WAL is checkpointed back into
 // flights.db; otherwise a hard kill can strand recent flights in the -wal file.
 let shuttingDown = false;
@@ -150,7 +156,9 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     // build's files are gone before either exit path runs.
     cancelLnmImportForShutdown();
     console.log(`\n[Shutdown] ${signal} — closing database...`);
-    server.close(() => {
+    const browserClosed = closeBrowser(BROWSER_CLOSE_LIMIT_MS);
+    server.close(async () => {
+      await browserClosed;
       closeNavDb();
       closeDb();
       console.log('[Shutdown] Clean.');

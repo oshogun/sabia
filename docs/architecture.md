@@ -44,8 +44,8 @@ Express + TypeScript, single process, single SQLite database
 - Persist flights, trips, planned legs, ACARS messages, and ground sessions.
 - Serve the built React client as static files and answer its JSON API.
 - Serve a second, narrower JSON API to non-browser clients authenticated by
-  ingest token only (status, ACARS, ground-session-current, SimBrief
-  settings) — this is what the MCDU app uses.
+  ingest token only (status, the live event stream, ACARS,
+  ground-session-current, SimBrief settings) — this is what the MCDU app uses.
 - Serve an optional [MCP](https://modelcontextprotocol.io/) endpoint
   (`/mcp`, its own bearer-token credential, off until an MCP token is created on the Settings page or `MCP_TOKEN` is set)
   exposing the logbook as 18 tools to a remote MCP client such as Claude
@@ -84,12 +84,24 @@ module leaks into the print chunk.
 Auth is a `SessionProvider` context (`client/src/shell/SessionContext.tsx`)
 that calls `GET /api/auth/session` once on load; any `401` from the API layer
 (`client/src/api/*`) expires the session and sends the browser to `/login`.
-"Live" data (position, status, AI traffic) comes from `useStatus()` polling
-`GET /api/status` (1s while flying, 3s otherwise) — not a WebSocket or SSE
-connection — and feeds the status tag in the header. The side navigation's
+"Live" data comes from one Server-Sent-Events stream,
+`GET /api/events?topics=status,flight-state,flights-changed,acars`
+([api.md](api.md#get-apievents)), opened by `LiveEventsProvider`
+(`client/src/shell/LiveEventsProvider.tsx`). Its `status` events (position,
+status, AI traffic) are read through `useLiveEvents()` by the header's status
+tag and by the Home page's live panel and ground section; pages and the nav
+tree register for the other topics with `useLiveEvent()` and refetch their own
+data when one arrives, debounced by 100 ms, and again every time the stream
+reopens. When the server refuses the stream (a `503`, or a `401` after the
+session expired) the browser stops retrying by itself, so the client waits 5 s
+(doubling up to 30 s), fetches `GET /api/status`, and reopens the stream once
+that fetch succeeds, retrying the fetch every 3 s until it does. A connection
+that drops mid-stream is reopened by the browser after 3 s, and the header tag
+reads *Server unreachable* until it does. A tab hidden for 30 s closes its
+stream and reopens it when it becomes visible. The side navigation's
 trip/flight tree (`client/src/shell/useNavTree.ts`) reloads after any mutation
-made through the API layer, on route change, every 30 s, and when the tab
-becomes visible again.
+made through the API layer, on route change, on a `flights-changed` or
+`flight-state` event, and when the tab becomes visible again.
 
 Pages (`client/src/pages/`): `Home` (dashboard), `AllFlights`, `Prefiles`
 (planned legs), `FlightDetail`, `TripDetail`, `AcarsMessages` (shared by
@@ -191,8 +203,9 @@ Middleware order is deliberate, and reordering it changes behaviour:
 7. `/api/auth/*` — public, mounted before the auth gate.
 8. `requireAuth` — the single gate for everything else under `/api`: passes
    with a valid session **or** a validly-scoped ingest token.
-9. Feature routers (flights, trips, settings, planned legs, navdata queries,
-   route geometry, the Little Navmap import, exports, acars, ground sessions).
+9. `GET /api/status` and the `GET /api/events` stream, then the feature
+   routers (flights, trips, settings, planned legs, navdata queries, route
+   geometry, the Little Navmap import, exports, acars, ground sessions).
 10. SPA catch-all (`GET *` → `client/dist/index.html`) for client-side
     routing.
 11. A final error handler normalizing upload and malformed-JSON errors.

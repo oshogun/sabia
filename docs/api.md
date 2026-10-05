@@ -28,7 +28,9 @@ which credential.
 
 ## `GET /api/status`
 
-Live application state, polled by the client (1s while flying, else 3s).
+Live application state. The web client reads it from the `status` events of
+[`GET /api/events`](#get-apievents) and fetches this route only before
+reopening a stream the server refused.
 
 Session or token — allow-listed.
 
@@ -43,6 +45,38 @@ While a flight is held after the simulator's data stopped, the body reads
 `connected: false` with `flightState: 'FLYING'`, and `aircraft` and `frame`
 are still those of the last frame received (see
 [architecture.md § Flight state machine](architecture.md#flight-state-machine)).
+
+## `GET /api/events`
+
+A long-lived Server-Sent-Events stream of live changes
+(`src/routes/events.ts`, over the in-process hub in `src/eventHub.ts`).
+
+Session or token — allow-listed.
+
+Query: `topics`, a comma-separated list of topic names; absent means every
+topic. An unknown name, an empty list, or `topics` given more than once is a
+`400 INVALID_TOPICS`. A request made while 64 streams are already open is a
+`503 EVENTS_STREAM_LIMIT` with `Retry-After: 5`. `HEAD` answers `200` with the
+stream headers and no body; the allow-list names `GET` only, so a `HEAD` needs
+a session, and a token-only `HEAD` is a `401`.
+
+| Topic | `data` | Published when |
+|---|---|---|
+| `status` | The same body as `GET /api/status` | Every ingest frame or event, the stale-connection disconnect, and every flight-scope change |
+| `flight-state` | `{flightState, currentFlightId, plannedLegId}` (`plannedLegId` is the effective planned leg) | Every flight-scope change, and every write through the flights, trips, planned-legs or ground-sessions routes or the four MCP write tools |
+| `flights-changed` | `{}` — a hint to refetch | Every write through the flights, trips, planned-legs or ground-sessions routes or the four MCP write tools |
+| `acars` | `{flightId, plannedLegId, messageId}` — a hint, never the message itself | Every new row in `acars_messages` |
+| `navdata-demand` | `{}` — a hint to refetch `GET /api/navdata/demand` | Every flight-scope change; every write through the trips or planned-legs routes or the four MCP write tools; a sidecar snapshot upload or applied row batch; a newly queued `POST /api/navdata/request`; a change of the navdata source setting |
+
+Each message is `event: <topic>` then `data: <JSON>`. Publishes are
+coalesced: several of the same topic (for `acars`, the same flight and
+planned leg) within one event-loop turn are sent once, built at send time. A
+stream opens with `retry: 3000`, then one `status` and one `flight-state`
+event carrying the current state (for the topics requested), so a client
+does not need a separate fetch to start. A `: keepalive` comment line follows
+every 15 s. A stream whose unsent output passes 1 MiB is closed; the client
+reconnects and gets the opening events again. Nothing is queued or replayed
+between connections.
 
 ## Flights — `src/routes/flights.ts`
 
@@ -208,7 +242,7 @@ Mounted at `/api/auth`, always public (never behind the `requireAuth` gate).
 |---|---|---|
 | POST | `/api/auth/login` | `{username, password}` → `200 {user}` or `401`. Rate-limited: 10 failures / 15 min / IP → `429` with `Retry-After`. |
 | POST | `/api/auth/logout` | Destroys the session. Always `204`. |
-| GET | `/api/auth/session` | `{authenticated, user}`. Always `200`, never `401` — used for client-side auth-state polling. |
+| GET | `/api/auth/session` | `{authenticated, user}`. Always `200`, never `401` — read once by the client on load to learn whether a session exists. |
 
 ## Ingest — `src/ingest.ts`
 
@@ -351,12 +385,12 @@ Request headers must arrive within 60 s.
 
 ## Consumers beyond the web UI
 
-The ingest-scoped routes above (status, ACARS, ground-session-current,
-SimBrief settings, SayIntentions) exist so a non-browser client
-authenticated only by ingest token — the separate MCDU/Tauri desktop
-client (`oshogun/sabia_mcdu`) — can read status,
-exchange ACARS messages, and drive the SayIntentions integration without a
-session login. An MCP client (above) is a third kind of non-browser
-consumer, authenticated independently by its own bearer token rather than
-the ingest token. See [architecture.md](architecture.md) for how these
-pieces fit together.
+The ingest-scoped routes above (status, the event stream, ACARS,
+ground-session-current, SimBrief settings, SayIntentions) exist so a
+non-browser client authenticated only by ingest token — the separate
+MCDU/Tauri desktop client (`oshogun/sabia_mcdu`) — can read status, exchange
+ACARS messages, and drive the SayIntentions integration without a session
+login. An MCP client (above) is a third kind of non-browser consumer,
+authenticated independently by its own bearer token rather than the ingest
+token. See [architecture.md](architecture.md) for how these pieces fit
+together.

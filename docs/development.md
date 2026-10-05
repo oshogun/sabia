@@ -14,12 +14,12 @@ src/                  Express + TypeScript server
   inspect-*.ts        ts-node CLI inspectors for eyeballing behavior against real data
   install/            Helper CLI the installers call (dist/install/cli.js): self-signed cert, env-file merge, port/health checks, pairing
 client/               React + Vite web app on IBM Carbon (@carbon/react, Gray 100 theme)
-  src/shell/          AppShell (header + side nav), SessionContext (auth), RequireAuth, live status, nav tree
+  src/shell/          AppShell (header + side nav), SessionContext (auth), RequireAuth, LiveEventsProvider (the /api/events stream), live status, nav tree
   src/pages/          One component per route, most with a *.test.tsx beside it; page-private parts in pages/<page>/
   src/components/     Shared UI: maps/ (all Leaflet maps), replay/, charts/, legs/, modals, stat tiles
   src/api/            Typed calls per resource; mutations notify the nav tree to refresh
   src/print/          Headless PDF-export pages — separate entry, plain print.css, no Carbon
-  src/hooks/          useStatus (live polling), useReplayClock (replay animation loop), navdata hooks
+  src/hooks/          useStatus (re-exports useLiveEvents from shell/LiveEventsProvider), useReplayClock (replay animation loop), navdata hooks
   src/utils/          api.ts (fetch wrapper), format.ts, geo.ts, replay.ts (replay engine)
   src/styles/         index.scss — the Carbon theme and the component styles the app uses
   scripts/            check-print-chunk.mjs (keeps Carbon out of the print bundle)
@@ -115,9 +115,11 @@ behaviour step by step:
 
 **The original suites.** The other `tests/flightManager*.test.ts` files,
 except the hold suite below, cover state transitions, ground sessions, ACARS,
-duration and resume. `tests/flightManager.restartclose.test.ts` covers the
-restart check: the close when the first frame after a restart is another
-aircraft, too late or too far, and the resume at the limits.
+duration and resume. `tests/flightManager.events.test.ts` covers the
+scope-change listener the live event stream uses and the flight-state
+payload's effective planned leg. `tests/flightManager.restartclose.test.ts`
+covers the restart check: the close when the first frame after a restart is
+another aircraft, too late or too far, and the resume at the limits.
 
 **The hold after a sim silence.** `tests/flightManager.hold.test.ts` covers
 continuation, the close at the last frame, and a pause, crash, repeated

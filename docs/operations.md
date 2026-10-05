@@ -101,10 +101,10 @@ using TLS in the container.
 
 ## Monitoring
 
-There's no metrics/health-check endpoint beyond the same `GET /api/status`
-the UI polls — treat a `200` response as "up," and its `connected`/
-`flightState` fields as the live simulator-link state. There's no
-`/healthz`-style endpoint separate from this.
+There's no metrics/health-check endpoint beyond `GET /api/status` (the same
+body the UI receives as `status` events) — treat a `200` response as "up," and
+its `connected`/`flightState` fields as the live simulator-link state. There's
+no `/healthz`-style endpoint separate from this.
 
 ## Logs
 

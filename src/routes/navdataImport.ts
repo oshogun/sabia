@@ -275,15 +275,17 @@ function createBuildSync(file: string, open: (file: string) => Promise<SyncHandl
   };
 }
 
-let shutdownActiveImport: () => void = () => {};
+let shutdownActiveImport: () => Promise<void> = () => Promise.resolve();
 
 /**
  * Called first in the signal handler, before the server stops accepting: ends
- * an upload in flight, stops the build and removes its files, so neither the
- * server's close nor its exit timer waits on them. Never throws.
+ * an upload in flight and stops the build, so the server's close does not wait
+ * on them. Settles once the build's worker has exited and its files are
+ * removed; the caller awaits it before closing the databases and exiting.
+ * Never throws and never rejects.
  */
-export function cancelLnmImportForShutdown(): void {
-  shutdownActiveImport();
+export function cancelLnmImportForShutdown(): Promise<void> {
+  return shutdownActiveImport();
 }
 
 /**
@@ -442,16 +444,29 @@ export function createNavdataImportRouter(opts: NavdataImportOptions = {}): expr
     }
   };
 
-  shutdownActiveImport = (): void => {
+  shutdownActiveImport = (): Promise<void> => {
     const a = current;
-    if (!a || (a.job.state !== 'receiving' && a.job.state !== 'running')) return;
+    if (!a || (a.job.state !== 'receiving' && a.job.state !== 'running')) return Promise.resolve();
+    const { handle, incomingPath } = a;
     try {
       a.uploadReq?.destroy();
-      a.handle?.cancel();
+      handle?.cancel();
     } catch {
       // The process is exiting; a failure here changes nothing.
     }
+    // While a worker runs, the build's files are removed after it has exited,
+    // not here: on Windows a file another handle holds open cannot be deleted.
+    if (handle) a.incomingPath = null;
     finish(a, 'failed', { error: { code: 'LNM_INTERRUPTED', message: 'The import was interrupted by a server shutdown' } });
+    if (!handle || !incomingPath) return Promise.resolve();
+    // The file is discarded, but the kernel would still write out every page of
+    // it the build left in memory: a write-out already running on the thread
+    // pool, or in the worker, goes on until they are all on disk, and the
+    // process cannot exit before it returns. On a busy disk that took seconds.
+    // Cutting the file to zero length drops the pages not yet written.
+    const truncated = fs.promises.truncate(incomingPath, 0).catch(() => undefined);
+    const exited = handle.done.catch(() => undefined).then(() => removeIncomingFiles(incomingPath));
+    return Promise.all([truncated, exited]).then(() => undefined);
   };
 
   // ── Prechecks ────────────────────────────────────────────────────────────

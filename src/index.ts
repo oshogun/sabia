@@ -153,13 +153,15 @@ for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
   process.on(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    // First, so an upload in flight does not hold server.close() open and the
-    // build's files are gone before either exit path runs.
-    cancelLnmImportForShutdown();
+    // First, so an upload in flight does not hold server.close() open. Awaited
+    // before the databases close: the checkpoint's sync would otherwise wait
+    // for the disk to finish writing the discarded build, and the build's files
+    // are removed only once its worker has exited.
+    const importStopped = cancelLnmImportForShutdown();
     console.log(`\n[Shutdown] ${signal} — closing database...`);
     const browserClosed = closeBrowser(BROWSER_CLOSE_LIMIT_MS);
     server.close(async () => {
-      await browserClosed;
+      await Promise.all([browserClosed, importStopped]);
       closeNavDb();
       closeDb();
       console.log('[Shutdown] Clean.');

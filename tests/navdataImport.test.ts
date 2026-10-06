@@ -1403,12 +1403,14 @@ describe('the swap', () => {
     const hold = holdSync();
     const { run, result, incoming } = await finishedBuild();
     run.post({ type: 'done', result });
-    cancelLnmImportForShutdown();
+    const stopping = cancelLnmImportForShutdown();
     expect(await getJob()).toMatchObject({ state: 'failed', error: { code: 'LNM_INTERRUPTED' } });
     hold.release();
     await new Promise(r => setTimeout(r, 100));
     expect(await getJob()).toMatchObject({ state: 'failed', error: { code: 'LNM_INTERRUPTED' } });
     expect(exists(resolveLnmNavdataPath())).toBe(false);
+    run.exit();
+    await stopping;
     expect(exists(incoming)).toBe(false);
   });
 
@@ -1580,19 +1582,46 @@ describe('writing the build out while it runs', () => {
 });
 
 describe('shutdown', () => {
-  it('ends a running job failed LNM_INTERRUPTED, cancels the runner without waiting and removes the files', async () => {
+  it('ends a running job failed LNM_INTERRUPTED at once, cuts the file to zero length, and removes it after the runner exits', async () => {
     const { runner, runs } = fakeRunner();
     await start({ runner });
     expect((await upload(goodBytes)).status).toBe(202);
-    fs.writeFileSync(runs[0].req.incomingPath, 'partial');
-    cancelLnmImportForShutdown();
+    const incoming = runs[0].req.incomingPath;
+    fs.writeFileSync(incoming, 'partial');
+    let stopped = false;
+    const stopping = cancelLnmImportForShutdown().then(() => { stopped = true; });
     expect(runs[0].cancelCalls).toBe(1);
     expect(await getJob()).toMatchObject({ state: 'failed', error: { code: 'LNM_INTERRUPTED' } });
-    expect(leftovers()).toEqual([]);
-    // a second call, and the runner exiting later, change nothing
-    cancelLnmImportForShutdown();
+    // The worker may still hold the file open, so it stays until the runner has exited; its pages are dropped meanwhile.
+    await until(() => exists(incoming) && fs.statSync(incoming).size === 0, 'the incoming file to be cut to zero length');
+    expect(stopped).toBe(false);
+    expect(leftovers()).toEqual([path.basename(incoming)]);
     runs[0].exit();
+    await stopping;
+    expect(leftovers()).toEqual([]);
+    // a second call changes nothing and does not wait
+    await cancelLnmImportForShutdown();
     expect(runs[0].cancelCalls).toBe(1);
+    expect((await getJob())?.error?.code).toBe('LNM_INTERRUPTED');
+  });
+
+  it('still removes the files when the runner ends with a rejected done', async () => {
+    const runs: { req: LnmWorkerRequest; fail: () => void }[] = [];
+    const runner: LnmImportRunner = {
+      start(req) {
+        let fail!: () => void;
+        const done = new Promise<void>((_, reject) => { fail = () => reject(new Error('worker gone')); });
+        runs.push({ req, fail });
+        return { done, cancel() {} };
+      },
+    };
+    await start({ runner });
+    expect((await upload(goodBytes)).status).toBe(202);
+    fs.writeFileSync(runs[0].req.incomingPath, 'partial');
+    const stopping = cancelLnmImportForShutdown();
+    runs[0].fail();
+    await expect(stopping).resolves.toBeUndefined();
+    expect(leftovers()).toEqual([]);
   });
 
   it('destroys an upload still arriving and removes its spool', async () => {

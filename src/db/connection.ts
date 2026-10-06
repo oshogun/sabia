@@ -25,6 +25,14 @@ let db: Database.Database;
 export function initDb(dbPath: string = resolveDbPath()): Database.Database {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  // NORMAL is what better-sqlite3 already uses in WAL mode, because it is
+  // compiled with SQLITE_DEFAULT_WAL_SYNCHRONOUS=1. Setting it here keeps the
+  // logbook's durability from changing with a dependency upgrade. In WAL mode,
+  // NORMAL does not fsync on every commit; the WAL is fsynced when it is
+  // checkpointed. A power loss or OS crash can therefore roll back the most
+  // recent commits, but the database is not corrupted. A crash of the server
+  // process alone loses nothing.
+  db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
 
   applySchema(db);

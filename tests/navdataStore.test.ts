@@ -737,13 +737,14 @@ describe('incremental batches', () => {
       await importNavdataSnapshot(writeSnapshot({ snapshotId: 'snapshot-1', rev: 7 }));
     }
 
+    // ready() imports a snapshot and the batch apply is CPU-bound: 7-10 s on a busy machine, so 30 s.
     it('accepts a single-rev batch above the sender target and acks it whole', async () => {
       await ready();
       const ack = applyIncrementalBatch(getNavDb(), batch({ toRev: 9, rows: absentRows(2400, () => 9) }));
       expect(ack).toEqual({ ok: true, snapshotId: 'snapshot-1', rev: 9, applied: 2400 });
       expect(absentCount()).toBe(2400);
       expect(readNavMeta(getNavDb()!)).toMatchObject({ rev: 9 });
-    });
+    }, 30_000);
 
     it('refuses more than the target rows that span two revs, writing nothing', async () => {
       await ready();
@@ -757,17 +758,17 @@ describe('incremental batches', () => {
       expect(readNavMeta(getNavDb()!)).toMatchObject({ rev: 7 });
     });
 
+    // Same snapshot import plus a 2,000-row batch apply: 6-7 s on a busy machine, so 30 s.
     it('still accepts exactly the target rows across several revs', async () => {
       await ready();
       const ack = applyIncrementalBatch(getNavDb(), batch({ rows: absentRows(2000, i => 8 + (i % 3)) }));
       expect(ack.applied).toBe(2000);
       expect(absentCount()).toBe(2000);
-    });
+    }, 30_000);
 
     // Imports a snapshot (a replica build), then applies a batch of exactly the
-    // production ceiling, NAVDATA_BATCH_HARD_ROW_CEILING = 20,000 rows. The apply is
-    // CPU-bound and measured up to ~11 s on a loaded dev machine (issue #9), so this
-    // one test gets 30 s; the global 5 s testTimeout stays for everything else.
+    // production ceiling, NAVDATA_BATCH_HARD_ROW_CEILING = 20,000 rows. The apply
+    // is CPU-bound; the test took up to 39 s when the machine was busy, so 90 s.
     it('accepts exactly the ceiling and refuses one row more', async () => {
       await ready();
       const ack = applyIncrementalBatch(getNavDb(), batch({ rows: absentRows(20000, () => 8) }));
@@ -779,7 +780,7 @@ describe('incremental batches', () => {
       expect(err).toMatchObject({ code: 'NAVDATA_BAD_BATCH', status: 400 });
       expect((err as Error).message).toBe('batch carries 20001 rows, more than 20000');
       expect(absentCount()).toBe(20000);
-    }, 30_000);
+    }, 90_000);
 
     it('does not let a row without an integer rev pass as single-rev', async () => {
       await ready();

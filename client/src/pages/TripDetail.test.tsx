@@ -91,7 +91,8 @@ describe('TripDetail', () => {
       expect(optionTexts).toEqual(['Choose a trip…', 'No trip', 'Trip Seven']);
     });
 
-    it('confirms a move, then reloads the trip so the moved leg leaves the table', async () => {
+    // Opens the Carbon move modal, confirms, and reloads the trip, which exceeds the 5 s default on a busy machine.
+    it('confirms a move, then reloads the trip so the moved leg leaves the table', { timeout: 20_000 }, async () => {
       const user = userEvent.setup();
       let putBody: unknown;
       let putMethod: string | undefined;

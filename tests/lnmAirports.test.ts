@@ -541,7 +541,8 @@ describe('writing', () => {
     expect(rows(out, 'SELECT COUNT(*) AS n FROM nav_airport_frequency')).toEqual([{ n: 50_007 }]);
     expect(stats.written.frequencies).toBe(50_007);
     expect(out.pragma('foreign_key_check')).toEqual([]);
-  });
+    // Converts and writes 50,000+ rows; about 7 s when the machine is busy, so this test gets 30 s.
+  }, 30_000);
 
   it.each(PRESETS)('reports progress up to the source rows read (%s)', name => {
     const { src, progress } = preset(name);

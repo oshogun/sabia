@@ -170,6 +170,7 @@ describe('step 2 — TLS material, against real files in a scratch dir', () => {
     );
   });
 
+  // Generates a 2048-bit RSA key with the openssl CLI, which took over 5 s on a busy machine, so 30 s.
   it('(c) a real self-signed pair (openssl-generated) loads successfully', () => {
     const certPath = path.join(scratchDir, 'msfslogger-cert.pem');
     const keyPath = path.join(scratchDir, 'msfslogger-key.pem');
@@ -189,7 +190,7 @@ describe('step 2 — TLS material, against real files in a scratch dir', () => {
       expect(config.tls.keyFile).toBe(keyPath);
       expect(config.tls.passphrase).toBeNull();
     }
-  });
+  }, 30_000);
 });
 
 describe('warning branches — non-fatal, exact message via console.warn', () => {

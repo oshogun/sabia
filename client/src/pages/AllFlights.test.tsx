@@ -15,7 +15,9 @@ function fetchCallCount(): number {
 }
 
 describe('AllFlights', () => {
-  it('shows a loading skeleton before the flights request resolves, then the real table row', async () => {
+  // The first test in the file also pays for the page's first render and module
+  // loading, which exceeds the 5 s default on a busy machine.
+  it('shows a loading skeleton before the flights request resolves, then the real table row', { timeout: 20_000 }, async () => {
     const flights = deferred<ResponseTuple>();
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,
@@ -31,7 +33,8 @@ describe('AllFlights', () => {
 
     flights.resolve([200, [flightFixture]]);
 
-    await waitFor(() => expect(screen.getByRole('cell', { name: /Airbus A320neo/ })).toBeInTheDocument());
+    // Finding the cell by role name walks the whole table; waitFor's 1 s default is too short when the machine is busy.
+    await waitFor(() => expect(screen.getByRole('cell', { name: /Airbus A320neo/ })).toBeInTheDocument(), { timeout: 10_000 });
     expect(document.querySelector('.cds--data-table-container.cds--skeleton')).not.toBeInTheDocument();
     expect(screen.getByRole('row', { name: /Airbus A320neo/ })).toBeInTheDocument();
   });

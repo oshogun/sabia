@@ -25,7 +25,9 @@ function nonEmptyAlerts(): HTMLElement[] {
  * `fetch` answers the calls that page's own hooks make, and a real app
  * utility import resolves correctly under this config.
  */
-describe('component test harness smoke test', () => {
+// This test renders the Login page and submits the form through the stubbed
+// fetch, which can exceed the 5 s default on a heavily loaded machine.
+describe('component test harness smoke test', { timeout: 20_000 }, () => {
   it('renders Login, submits real credentials through the stubbed fetch, and formats a duration', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal(

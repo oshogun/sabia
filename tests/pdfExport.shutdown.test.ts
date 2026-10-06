@@ -113,7 +113,8 @@ beforeEach(async () => {
   vi.resetModules();
   pdfExport = await import('../src/pdfExport');
   exitListenersBefore = process.listeners('exit');
-});
+  // This hook exceeded 5 s when the machine was busy (it re-imports pdfExport and its modules after resetModules), so it gets 30 s.
+}, 30_000);
 
 afterEach(() => {
   vi.useRealTimers();

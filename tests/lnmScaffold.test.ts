@@ -593,7 +593,8 @@ describe('writeCoverageGrid', () => {
       steps.push(done - last);
       last = done;
     });
-  }, 30_000);
+    // Writes the 777,600-row coverage grid; over 30 s on a busy machine, so 120 s.
+  }, 120_000);
   afterAll(() => out.close());
 
   it('writes exactly 3 x 259,200 rows, none outside the CHECK, including latitude 90 and longitude 180', () => {

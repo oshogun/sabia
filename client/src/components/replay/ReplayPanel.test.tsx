@@ -71,7 +71,8 @@ describe('ReplayPanel', () => {
     expect(field('time')).toBe('12:00:00Z');
   });
 
-  it('updates the readout from the scrubber without starting playback', () => {
+  // Drives the scrubber through many renders, which exceeds the 5 s default on a busy machine.
+  it('updates the readout from the scrubber without starting playback', { timeout: 20_000 }, () => {
     render(<ReplayPanel points={track(10)} />);
     scrubTo(screen.getByRole('slider', { name: 'Replay position' }), 10);
     expect(field('time')).toBe('12:00:10Z');

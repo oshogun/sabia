@@ -29,6 +29,7 @@ describe('baseUrl', () => {
   let certPath: string;
   let keyPath: string;
 
+  // Generates a 2048-bit RSA key with the openssl CLI, which took over 5 s on a busy machine, so 30 s.
   beforeAll(() => {
     scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'msfslogger-pdfexport-test-'));
     certPath = path.join(scratchDir, 'cert.pem');
@@ -39,7 +40,7 @@ describe('baseUrl', () => {
       '-subj', '/CN=msfslogger',
       '-addext', 'subjectAltName=IP:127.0.0.1,DNS:localhost',
     ]);
-  });
+  }, 30_000);
 
   afterAll(() => {
     fs.rmSync(scratchDir, { recursive: true, force: true });

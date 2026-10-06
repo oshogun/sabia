@@ -155,7 +155,8 @@ describe.each(FLAVOURS)('importing the $name fixture', flavour => {
   beforeAll(async () => {
     built = await importOnce(flavour.name, flavour.make);
     db = new Database(built.replica, { readonly: true });
-  }, 30_000);
+    // A full import of the fixture took over 30 s while the machine was saturated, so this hook gets 120 s.
+  }, 120_000);
   afterAll(() => {
     db?.close();
   });
@@ -572,6 +573,7 @@ describe('write-out of the incoming replica', () => {
     expect(synced[0] - baseline).toBeLessThan(33 * MIB);
   });
 
+  // Builds a full replica, including the 777,600-cell coverage grid: 25-29 s on a busy machine, so 120 s.
   it('covers the whole build: the last one comes after the last write and before done, on a descriptor closed afterwards', () => {
     const dir = freshDir();
     const source = buildLnmFixture(dir, navigraph());
@@ -594,8 +596,9 @@ describe('write-out of the incoming replica', () => {
     expect(synced.length).toBeGreaterThanOrEqual(5);
     expect(synced[synced.length - 1]).toBe(fs.statSync(incoming).size);
     expect(() => fs.fstatSync(fd)).toThrow(/EBADF/);
-  }, 30_000);
+  }, 120_000);
 
+  // Builds a full replica, including the 777,600-cell coverage grid: 25-29 s on a busy machine, so 120 s.
   it('makes the last one after the switch to WAL and the close: nothing is left to write and no -wal or -shm remains', () => {
     const dir = freshDir();
     const source = buildLnmFixture(dir, navigraph());
@@ -622,7 +625,7 @@ describe('write-out of the incoming replica', () => {
     } finally {
       db.close();
     }
-  }, 30_000);
+  }, 120_000);
 
   it.each([
     ['ENOSPC', 'LNM_DISK_FULL', 'disk full in stage finalising'],
@@ -930,10 +933,11 @@ describe('verification of a finished replica', () => {
   let built: Built;
   let workDir: string;
   let copies = 0;
+  // Builds a full replica, including the 777,600-cell coverage grid: 25-29 s on a busy machine, so 120 s.
   beforeAll(async () => {
     workDir = freshDir();
     built = await importOnce('Navigraph', () => navigraph());
-  }, 30_000);
+  }, 120_000);
 
   /** A writable copy of the imported replica for one test to damage. */
   function damaged(change: (db: Database.Database) => void): Database.Database {
@@ -1022,6 +1026,7 @@ describe('inspect-lnm-import', () => {
 
   const lines = (fn: typeof console.log): string[] => vi.mocked(fn).mock.calls.map(c => c.join(' '));
 
+  // Builds a full replica, including the 777,600-cell coverage grid: 25-29 s on a busy machine, so 120 s.
   it('imports a synthetic fixture, prints counts, label, completeness and the fix-resolution counters, and exits 0', async () => {
     const dir = freshDir();
     const source = buildLnmFixture(dir, msfs(COUNTER_ROWS));
@@ -1055,7 +1060,7 @@ describe('inspect-lnm-import', () => {
     const db = new Database(out, { readonly: true });
     expect(db.prepare('SELECT COUNT(*) FROM nav_airport').pluck().get()).toBe(2);
     db.close();
-  }, 30_000);
+  }, 120_000);
 
   it('exits 1 with one line and no stack trace on a file that is not a database', async () => {
     const dir = freshDir();

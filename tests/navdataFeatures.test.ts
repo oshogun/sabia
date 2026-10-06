@@ -498,7 +498,9 @@ describe('an airport the simulator does not have, sent with no coordinates', () 
   });
 });
 
-describe('coverage fast path on a uniformly full grid', () => {
+// Each test here runs coverage queries over the 777,600-cell grid, and several rebuild
+// its aggregates; they exceeded 5 s while the machine was saturated, so 60 s per test.
+describe('coverage fast path on a uniformly full grid', { timeout: 60_000 }, () => {
   const KINDS = ['V', 'N', 'W'] as const;
   const HARVESTED = { V: 1_000, N: 2_000, W: 3_000 };
   const WORLD: [number, number, number, number] = [-180, -90, 180, 90];
@@ -520,7 +522,8 @@ describe('coverage fast path on a uniformly full grid', () => {
          INSERT INTO nav_coverage_cell (kind, cell_id, harvested_at, rev) SELECT ?, i, ?, 1 FROM n`,
       ).run(kind, HARVESTED[kind]);
     }
-  });
+    // Inserting 777,600 rows takes about 20 s when the machine is busy, so this hook gets 60 s.
+  }, 60_000);
 
   afterAll(() => {
     grid.close();

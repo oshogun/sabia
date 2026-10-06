@@ -29,7 +29,10 @@ function openDialog(): HTMLElement {
   return open;
 }
 
-describe('Settings', () => {
+// Each test renders the full Settings page (every tile, Carbon modals) and
+// walks several fetches and clicks; on a busy machine most of them exceed the
+// 5 s default.
+describe('Settings', { timeout: 30_000 }, () => {
   it('loads and shows the saved SimBrief pilot ID and the SayIntentions status', async () => {
     mockFetchRoutes({
       '/api/auth/session': SESSION_ROUTE,

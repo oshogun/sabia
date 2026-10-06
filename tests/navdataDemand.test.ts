@@ -367,6 +367,7 @@ describe('demand from planned legs', () => {
     expect(demand.cap).toBe(50);
   });
 
+  // Seeds 205 trip legs and builds the demand twice: 5.4 s on a busy machine, so 30 s.
   it('looks no further than the leg budget', () => {
     const trip = seedTrip(scratch.db, { is_active: 1 });
     const dep = (i: number) => `ZZ${String(i).padStart(3, '0')}`;
@@ -385,7 +386,7 @@ describe('demand from planned legs', () => {
     // The same run finds a gap inside the budget, so the budget really is 200 legs deep.
     setReplica(held.filter(r => r.r.ident !== dest(NAVDATA_DEMAND_LEG_SCAN - 1)));
     expect(buildDemand(NOW).airports).toEqual([dest(NAVDATA_DEMAND_LEG_SCAN - 1)]);
-  });
+  }, 30_000);
 
   it('de-duplicates an ident two legs share', () => {
     const trip = seedTrip(scratch.db, { is_active: 1 });

@@ -423,6 +423,7 @@ describe('POST /api/settings/password', () => {
     expect(verifyPassword(OPERATOR_PASSWORD, after)).toBe(true);
   });
 
+  // Makes 10 password-hash checks, each deliberately slow; the test took 5.7 s on a busy machine, so 30 s.
   it('429 TOO_MANY_ATTEMPTS after 10 failed attempts from the same IP, with Retry-After', async () => {
     const { baseUrl } = await startServer();
     for (let i = 0; i < 10; i++) {
@@ -435,5 +436,5 @@ describe('POST /api/settings/password', () => {
     expect(res.headers.get('Retry-After')).not.toBeNull();
     const body = await readJson(res);
     expect(body.code).toBe('TOO_MANY_ATTEMPTS');
-  });
+  }, 30_000);
 });

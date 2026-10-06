@@ -142,6 +142,10 @@ test.describe('header live-status label', () => {
 });
 
 test.describe('PDF export round trip', () => {
+  // The first export starts a server-side Chrome, which took 37 s on a busy
+  // machine against Playwright's 30 s default.
+  test.setTimeout(120_000);
+
   test('Export PDF on /flight/1 downloads a PDF with the expected filename', async ({ page }) => {
     await page.goto('/flight/1');
     await expect(page.getByRole('main').getByRole('heading', { name: /^Flight #1/ })).toBeVisible();

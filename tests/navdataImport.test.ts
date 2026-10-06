@@ -60,7 +60,8 @@ beforeAll(() => {
   wrongSourceBytes = fs.readFileSync(buildLnmFixture(
     fixtureDir, navigraph({ fileName: 'wrong-source.sqlite', metadata: { data_source: 'XP12' } }),
   ));
-}, 30_000);
+  // Two fixture builds and a full pipeline run took over 30 s while the machine was saturated, so this hook gets 120 s.
+}, 120_000);
 
 afterAll(() => {
   fs.rmSync(fixtureDir, { recursive: true, force: true });
@@ -261,6 +262,7 @@ function fakeRunner(onCancel: (run: FakeRun) => void = () => {}): { runner: LnmI
 // ── Path import ──────────────────────────────────────────────────────────────
 
 describe('server-side path import', () => {
+  // Builds the 777,600-cell coverage grid and copies the replica; took 25 s on a busy machine, so 120 s.
   it('imports a synthetic fixture into the Little Navmap replica and leaves the simulator replica byte-identical', async () => {
     const sim = writeSimulatorReplica();
     openNavdata();
@@ -285,7 +287,7 @@ describe('server-side path import', () => {
     expect(md5(sim)).toBe(simBefore);
     expect(md5(source)).toBe(sourceBefore);
     expect(leftovers()).toEqual([]);
-  }, 30_000);
+  }, 120_000);
 
   it('does not change which source is selected: that stays an explicit choice', async () => {
     placeFile('little.sqlite', goodBytes);
@@ -503,6 +505,7 @@ describe('prechecks', () => {
 // ── Upload ───────────────────────────────────────────────────────────────────
 
 describe('upload', () => {
+  // Runs a full import that builds the 777,600-cell coverage grid: 27-29 s on a busy machine, so 120 s.
   it('accepts a synthetic fixture, reports progress to done, swaps it in and removes the spool', async () => {
     const sim = writeSimulatorReplica();
     openNavdata();
@@ -522,7 +525,7 @@ describe('upload', () => {
     expect(getLnmNavDb()).not.toBeNull();
     expect(md5(sim)).toBe(simBefore);
     expect(leftovers()).toEqual([]);
-  }, 30_000);
+  }, 120_000);
 
   it('spools on the navdata volume, beside the replica, while the body arrives', async () => {
     await start();
@@ -1093,6 +1096,7 @@ describe('progress', () => {
     expect((await getJob())?.stage).toBe('verifying');
   });
 
+  // Runs a full import that builds the 777,600-cell coverage grid: 27-29 s on a busy machine, so 120 s.
   it('shows every stage in order for a real import', async () => {
     placeFile('little.sqlite', goodBytes);
     const seen: string[] = [];
@@ -1111,7 +1115,7 @@ describe('progress', () => {
       'validating', 'indexing', 'airports', 'navaids', 'waypoints', 'airways', 'procedures', 'finalising', 'coverage', 'verifying',
     ]);
     expect(job.fraction).toBe(1);
-  }, 30_000);
+  }, 120_000);
 });
 
 // ── Cancellation and failure with a fake runner ──────────────────────────────
